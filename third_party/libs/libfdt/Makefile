@@ -16,7 +16,7 @@ flags-c := -std=gnu23 -nostdlib -fno-builtin -ffreestanding -nostdinc \
  		   -fno-stack-protector -Wno-int-to-pointer-cast \
 		   -fno-toplevel-reorder -fno-tree-scev-cprop -Os -g -mcmodel=medany
 
-include-c := -I$(path-include) -I$(path-include)/std/ -I$(path-include)/libs/ -I./third_party/include/ -I./third_party/include/libfdt/
+include-c := -I$(path-include) -I$(path-include)/std/ -I$(path-include)/libs/ -I./third_party/include/ -I./third_party/include/std/ -I./third_party/include/libfdt/
 
 defs-c :=
 
