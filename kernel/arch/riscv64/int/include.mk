@@ -1,0 +1,1 @@
+objects += ./arch/riscv64/int/exception.o

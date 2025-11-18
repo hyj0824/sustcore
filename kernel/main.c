@@ -16,6 +16,7 @@
 #include <string.h>
 #include <sbi/sbi.h>
 #include <libfdt.h>
+#include <arch/riscv64/int/exception.h>
 
 int kputchar(int ch) {
     sbi_dbcn_console_write_byte((char)ch);
@@ -64,6 +65,17 @@ void traverse_nodes(void *fdt) {
 
 //------------------ 调试libfdt使用-----------
 
+//------------------ 调试异常处理程序 --------
+
+// 触发非法指令异常
+__attribute__((noinline))
+int trigger_illegal_instruction(void) {
+    asm volatile (".word 0x00000000");  // 全零是非法指令
+    return -1;
+}
+
+//------------------ 调试异常处理程序 --------
+
 /**
  * @brief 内核主函数
  * 
@@ -74,6 +86,8 @@ int main(void) {
     log_info("Hart ID: %u", (unsigned int)hart_id);
     log_info("DTB Ptr: 0x%016lx", (unsigned long)dtb_ptr);
 
+    log_info("开始验证设备树...");
+
     void *fdt = (void *)dtb_ptr;
     int ret = fdt_check_initial(fdt);
     if (ret != 0) {
@@ -81,7 +95,17 @@ int main(void) {
         return -1;
     }
 
+    log_info("设备树校验成功!");
+    log_info("开始遍历设备树节点...");
+
     traverse_nodes(fdt);
+
+    log_info("设备树节遍历完成!");
+
+    log_info("开始测试非法指令异常处理...");
+    init_ivt();
+    int a = trigger_illegal_instruction();
+    log_info("非法指令异常测试结果: %d", a);
 
     return 0;
 }

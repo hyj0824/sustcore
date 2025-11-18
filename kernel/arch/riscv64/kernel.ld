@@ -13,4 +13,5 @@ SECTIONS
     .bss : { *(.bss .bss.*) }
     .comment : { *(.comment .comment.*) }
     .riscv.attributes : { *(.riscv.attributes .riscv.attributes.*) }
+    .vector_table ALIGN(4) : { *(.vector_table .vector_table.*) }
 }
