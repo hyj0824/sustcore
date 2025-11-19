@@ -13,15 +13,38 @@
 
 #include <sus/bits.h>
 
-typedef void (*ISRService)(void);
-
+/**
+ * @brief 中断向量表模式(DIRECT)
+ * 
+ */
 #define DIRECT 0
+/**
+ * @brief 中断向量表模式(VECTORED)
+ * 
+ */
 #define VECTORED 1
-#define IVT_MODE DIRECT
+
+/**
+ * @brief 中断向量表模式开关
+ * 
+ */
+#define IVT_MODE VECTORED
 
 #if IVT_MODE == VECTORED
+/**
+ * @brief IVT表项数
+ * 
+ */
 #define IVT_ENTRIES (16)
+/**
+ * @brief IVT表
+ * 
+ */
 extern dword IVT[IVT_ENTRIES];
 #endif
 
-void init_ivt();
+/**
+ * @brief 初始化IVT
+ * 
+ */
+void init_ivt(void);

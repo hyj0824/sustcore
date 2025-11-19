@@ -71,6 +71,15 @@ void traverse_nodes(void *fdt) {
 __attribute__((noinline))
 int trigger_illegal_instruction(void) {
     asm volatile (".word 0x00000000");  // 全零是非法指令
+    asm volatile (".word 0x000000FF");  // 自定义非法指令
+    int a = 2, b = 20;
+    asm volatile (
+        "mv t0, %1\n"
+        "mv t1, %2\n"
+        ".word 0x00FF00FF\n"
+        "mv %0, t0\n" 
+        : "=r"(a) : "r"(a), "r"(b) : "t0", "t1");  // 自定义非法指令2
+    log_info("计算结果: %d", a);
     return -1;
 }
 

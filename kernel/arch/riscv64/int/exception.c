@@ -10,18 +10,26 @@
  */
 
 #include <arch/riscv64/int/exception.h>
-#include <arch/riscv64/int/trap.h>
+#include <arch/riscv64/int/isr.h>
 
 #include <basec/logger.h>
 
-void general_isr(void);
-void general_exception(umb_t scause, umb_t sepc, umb_t stval,
-                       InterruptContextRegisterList *reglist_ptr);
-
 #if IVT_MODE == VECTORED
+/**
+ * @brief IVT表
+ * 其中每一项为四字节, 存放一个指令
+ * 我们均采取为跳转指令的形式
+ * 即 j offset
+ */
 __attribute__((aligned(4), section(".text")))
 dword IVT[IVT_ENTRIES] = {};
 
+/**
+ * @brief 生成跳转指令
+ * 
+ * @param offset 跳转偏移量
+ * @return dword 跳转指令
+ */
 static dword emit_j_ins(const dword offset) {
     if (offset & 0x3) {
         // 偏移量必须是4字节对齐的
@@ -43,51 +51,39 @@ static dword emit_j_ins(const dword offset) {
     return imm | j_opcode;
 }
 
-static dword emit_ivt_entry(ISRService isr_func, int idx) {
+/**
+ * @brief 生成IVT表项
+ * 
+ * @param isr_func ISR例程
+ * @param idx 表项索引
+ * @return dword 表项内容
+ */
+static dword emit_ivt_entry(void (*isr_func)(void), int idx) {
     qword q_off = (qword)isr_func - (qword)IVT - (idx * sizeof(dword));
     return emit_j_ins((dword)q_off);
 }
 #endif
 
-void init_ivt() {
-#if IVT_MODE == VECTORED
-    // 设置为vectored模式
-    umb_t ivt_addr = (umb_t)IVT;
-    if (ivt_addr & 0x3) {
-        log_info("错误: IVT地址未对齐!");
-        return;
-    }
-    umb_t stvec = (ivt_addr & ~0b11) | 0b01;
-
-    for (int i = 0 ; i < IVT_ENTRIES; i++) {
-        IVT[i] = emit_ivt_entry(general_isr, i);
-    }
-
-    log_info("general_isr 地址: 0x%lx", (umb_t)general_isr);
-    log_info("general_exception 地址: 0x%lx", (umb_t)general_exception);
-    log_info("IVT 地址: 0x%lx", (umb_t)IVT);
-#elif IVT_MODE == DIRECT
-    // 采用direct模式
-    umb_t stvec = (umb_t)general_isr;
-    if (stvec & 0x3) {
-        log_info("错误: stvec地址未对齐!");
-        return;
-    }
-    log_info("general_isr 地址: 0x%lx", (umb_t)general_isr);
-#endif
-
-    asm volatile("csrw stvec, %0" : : "r"(stvec));
-}
-
+/**
+ * @brief RISCV CPU中断标志位
+ * 用于区分是中断还是异常
+ * scause & RISCV_CPU_INTERRUPT_MASK = 0, 则为异常
+ * 否则为中断
+ */
 #define RISCV_CPU_INTERRUPT_MASK (1ull << 63)
 
+#if IVT_MODE == VECTORED
+
+/**
+ * @brief 通用ISR服务程序(Vectored模式)
+ * 
+ */
 ISR_SERVICE_ATTRIBUTE
 void general_isr(void) {
     ISR_SERVICE_START(general_isr, 128);
 
-
     if (scause & RISCV_CPU_INTERRUPT_MASK) {
-        log_info("这是一个中断");
+        log_info("这是一个中断(Vectored模式)");
     } else {
         general_exception(scause, sepc, stval, reglist_ptr);
     }
@@ -95,75 +91,78 @@ void general_isr(void) {
     ISR_SERVICE_END(general_isr);
 }
 
-enum {
-    EXCEPTION_INST_MISALIGNED     = 0,   // 指令地址不对齐
-    EXCEPTION_INST_ACCESS_FAULT   = 1,   // 指令访问错误
-    EXCEPTION_ILLEGAL_INST        = 2,   // 非法指令
-    EXCEPTION_BREAKPOINT          = 3,   // 断点
-    EXCEPTION_LOAD_MISALIGNED     = 4,   // 加载地址不对齐
-    EXCEPTION_LOAD_ACCESS_FAULT   = 5,   // 加载访问错误
-    EXCEPTION_STORE_MISALIGNED    = 6,   // 存储地址不对齐
-    EXCEPTION_STORE_ACCESS_FAULT  = 7,   // 存储访问错误
-    EXCEPTION_ECALL_U             = 8,   // 用户模式环境调用
-    EXCEPTION_ECALL_S             = 9,   // 监管模式环境调用
-    EXCEPTION_ECALL_M             = 11,  // 机器模式环境调用
-    EXCEPTION_INST_PAGE_FAULT     = 12,  // 指令页错误
-    EXCEPTION_LOAD_PAGE_FAULT     = 13,  // 加载页错误
-    EXCEPTION_STORE_PAGE_FAULT    = 15   // 存储页错误
-};
+/**
+ * @brief 测试例程
+ * 
+ */
+ISR_SERVICE_ATTRIBUTE
+void test(void) {
+    ISR_SERVICE_START(test, 128);
 
-
-
-void general_exception(umb_t scause, umb_t sepc, umb_t stval,
-                       InterruptContextRegisterList *reglist_ptr)
-{
-    log_info("异常处理程序被调用!");
-    log_info("scause: 0x%lx, sepc: 0x%lx, stval: 0x%lx", scause, sepc, stval);
-    log_info("reglist_ptr: 0x%lx", reglist_ptr);
-
-    for (int i = 0; i < 31; i++) {
-        log_info("x%d: 0x%lx", i + 1, reglist_ptr->regs[i]);
-    }
-
-    log_info("sepc: 0x%lx", reglist_ptr->sepc);
-    log_info("sstatus: 0x%lx", reglist_ptr->sstatus);
-
-    if ( (reglist_ptr->sstatus >> 8) & 0x1 ) {
-        log_info("异常发生在S-Mode");
+    if (scause & RISCV_CPU_INTERRUPT_MASK) {
+        log_info("这是一个TEST:中断");
     } else {
-        log_info("异常发生在U-Mode");
+        log_info("这是一个TEST:异常");
+        general_exception(scause, sepc, stval, reglist_ptr);
     }
 
-    const char *exception_msg[] = {
-        "指令地址不对齐",
-        "指令访问错误",
-        "非法指令",
-        "断点",
-        "加载地址不对齐",
-        "加载访问错误",
-        "存储地址不对齐",
-        "存储访问错误",
-        "用户模式环境调用",
-        "监管模式环境调用",
-        "保留",
-        "机器模式环境调用",
-        "指令页错误",
-        "加载页错误",
-        "保留",
-        "存储页错误"
-    };
+    ISR_SERVICE_END(test);
+}
 
-    if (scause < sizeof(exception_msg)/sizeof(exception_msg[0])) {
-        log_info("异常类型: %s (%lu)", exception_msg[scause], scause);
+#elif IVT_MODE == DIRECT
+/**
+ * @brief ISR主服务程序(Direct模式)
+ * 
+ * 根据scause将服务分发给不同例程
+ * 
+ */
+ISR_SERVICE_ATTRIBUTE
+void primary_isr(void) {
+    ISR_SERVICE_START(primary_isr, 128);
+
+    if (scause & RISCV_CPU_INTERRUPT_MASK) {
+        log_info("这是一个中断(Direct模式)");
     } else {
-        log_info("异常类型: 未知 (%lu)", scause);
+        general_exception(scause, sepc, stval, reglist_ptr);
     }
 
-    if (scause == 2) {
-        // 跳过该指令!
-        reglist_ptr->sepc += 4;
+    ISR_SERVICE_END(primary_isr);
+}
+#endif
+
+void init_ivt(void) {
+#if IVT_MODE == VECTORED
+    // 设置IVT表地址
+    umb_t ivt_addr = (umb_t)IVT;
+    if (ivt_addr & 0x3) {
+        log_error("错误: IVT地址未对齐!");
+        return;
     }
-    else {
-        log_info("未知异常类型: 0x%lx", scause);
+    // 设置为vectored模式
+    umb_t stvec = (ivt_addr & ~0b11) | 0b01;
+
+    // 初始化IVT表
+    for (int i = 0 ; i < IVT_ENTRIES; i++) {
+        IVT[i] = emit_ivt_entry(general_isr, i);
     }
+
+    // 将0号ISR设置为test函数，作为测试
+    IVT[0] = emit_ivt_entry(test, 0);
+
+    // 输出调试信息
+    log_debug("general_isr 地址: 0x%lx", (umb_t)general_isr);
+    log_debug("general_exception 地址: 0x%lx", (umb_t)general_exception);
+    log_debug("IVT 地址: 0x%lx", (umb_t)IVT);
+#elif IVT_MODE == DIRECT
+    // 采用direct模式
+    umb_t stvec = (umb_t)primary_isr;
+    if (stvec & 0x3) {
+        log_error("错误: stvec地址未对齐!");
+        return;
+    }
+    log_debug("primary_isr 地址: 0x%lx", (umb_t)primary_isr);
+#endif
+
+    // 写入stvec寄存器
+    asm volatile("csrw stvec, %0" : : "r"(stvec));
 }
