@@ -112,17 +112,19 @@ namespace syscall {
 
     constexpr size_t MAX_SYSCALL_PATH = 256;
 
-    void create_process(const UString &path) {
+    size_t create_process(const UString &path) {
         auto load_res =
-            env::inst().tm()->load_elf(path.kbuf(), schd::ClassType::FCFS);
+            env::inst().tm()->load_elf(path.kbuf(), schd::ClassType::RR);
         if (!load_res.has_value()) {
             loggers::SYSCALL::ERROR("创建进程失败: path=%s, 错误码: %s",
                                     path.kbuf(), to_cstring(load_res.error()));
-            return;
+            return 0;
         }
 
+        auto pcb = load_res.value();
         loggers::SYSCALL::INFO("创建进程成功: path=%s, pid=%d", path.kbuf(),
-                               load_res.value()->pid);
+                               pcb->pid);
+        return pcb->pid;
     }
 
     VirArea sys_grow_vma(VirAddr vaddr, VirArea new_area) {
@@ -167,7 +169,7 @@ namespace syscall {
         return notif_res.value();
     }
 
-    bool set_notification(CapIdx capidx, size_t idx, bool state) {
+    bool signal_notification(CapIdx capidx, size_t idx, bool state) {
         auto set_res = notif_object(capidx).and_then(
             [idx, state](cap::NotificationObject obj) { return obj.set(idx, state); });
         if (!set_res.has_value()) {
@@ -229,14 +231,24 @@ namespace syscall {
         return true;
     }
 
-    bool cap_send(CapIdx src, size_t target_holder, VirAddr token_uaddr) {
-        auto send_res = cap::CHolder::send(src, target_holder);
+    bool cap_send(CapIdx src, size_t target_pid, VirAddr token_uaddr) {
+        auto *tm = env::inst().tm();
+        if (tm == nullptr) {
+            loggers::SYSCALL::ERROR("TaskManager未初始化");
+            return false;
+        }
+        auto holder_id_res = tm->lookup_holder_id(target_pid);
+        if (!holder_id_res.has_value()) {
+            loggers::SYSCALL::ERROR("send capability失败: 未找到pid=%d",
+                                    target_pid);
+            return false;
+        }
+        auto send_res = cap::CHolder::send(src, holder_id_res.value());
         if (!send_res.has_value()) {
             loggers::SYSCALL::ERROR("send capability失败: err=%d",
                                     send_res.error());
             return false;
         }
-
         // ReceiveToken has three machine words, so return it through user memory
         // instead of extending the generic RetPack.
         UBuffer token_buf(token_uaddr, sizeof(cap::ReceiveToken));
@@ -258,6 +270,24 @@ namespace syscall {
             return false;
         }
         return true;
+    }
+
+    constexpr size_t TMP_SLOTS = 8;
+    static b64 tmp[TMP_SLOTS] = {};
+
+    bool tmp_write(size_t idx, b64 value) {
+        if (idx >= TMP_SLOTS) {
+            return false;
+        }
+        tmp[idx] = value;
+        return true;
+    }
+
+    b64 tmp_read(size_t idx) {
+        if (idx >= TMP_SLOTS) {
+            return 0;
+        }
+        return tmp[idx];
     }
 
     RetPack entrance(const ArgPack &args) {
@@ -282,8 +312,8 @@ namespace syscall {
                 break;
             }
             case SYS_CREATE_PROCESS: {
-                create_process(UString((VirAddr)arg0, MAX_SYSCALL_PATH));
-                ret0 = ret1 = 0;
+                ret0 = create_process(UString((VirAddr)arg0, MAX_SYSCALL_PATH));
+                ret1 = 0;
                 break;
             }
             case SYS_GROW_VMA: {
@@ -294,6 +324,16 @@ namespace syscall {
                 ret1          = ret_area.end.arith();
                 break;
             }
+            case SYS_TMP_WRITE: {
+                ret0 = tmp_write(arg0, arg1);
+                ret1 = 0;
+                break;
+            }
+            case SYS_TMP_READ: {
+                ret0 = tmp_read(arg0);
+                ret1 = 0;
+                break;
+            }
 
             // Notification object operations.
             case SYS_WAIT_NOTIFICATION: {
@@ -302,12 +342,12 @@ namespace syscall {
                 break;
             }
             case SYS_SIGNAL_NOTIFICATION: {
-                ret0 = set_notification(capidx, arg0, true);
+                ret0 = signal_notification(capidx, arg0, true);
                 ret1 = 0;
                 break;
             }
             case SYS_UNSIGNAL_NOTIFICATION: {
-                ret0 = set_notification(capidx, arg0, false);
+                ret0 = signal_notification(capidx, arg0, false);
                 ret1 = 0;
                 break;
             }

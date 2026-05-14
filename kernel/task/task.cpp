@@ -150,6 +150,8 @@ Result<void> TaskManager::terminate_pcb(util::nonnull<PCB *> pcb) {
     auto rm_res = chman->remove_holder(pcb->cholder->id());
     propagate(rm_res);
 
+    _pid_map.remove(pcb->pid);
+
     pcb_pool.free(pcb);
 
     void_return();
@@ -180,6 +182,7 @@ Result<util::nonnull<PCB *>> TaskManager::create_init_task(
         propagate_return(main_thread_res);
     }
 
+    _pid_map.put(pcb->pid, pcb);
     pcb_guard.release();  // 进程已成功构造，释放PCB的自动释放机制
     return pcb;
 }
@@ -220,6 +223,7 @@ Result<util::nonnull<PCB *>> TaskManager::create_task(
         unexpect_return(ErrCode::CREATION_FAILED);
     }
 
+    _pid_map.put(pcb->pid, pcb);
     pcb_guard.release();  // 进程已成功构造并加入调度队列
     return pcb;
 }
@@ -316,4 +320,16 @@ Result<util::nonnull<PCB *>> TaskManager::load_init(const char *path) {
     }
 
     return create_init_task(spec);
+}
+
+Result<size_t> TaskManager::lookup_holder_id(pid_t pid) {
+    auto pcb_res = _pid_map.get(pid);
+    if (!pcb_res.has_value()) {
+        unexpect_return(ErrCode::OUT_OF_BOUNDARY);
+    }
+    PCB *pcb = pcb_res.value().get();
+    if (pcb == nullptr || pcb->cholder == nullptr) {
+        unexpect_return(ErrCode::INVALID_PARAM);
+    }
+    return pcb->cholder->id();
 }

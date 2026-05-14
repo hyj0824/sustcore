@@ -16,6 +16,7 @@
 #include <mem/slub.h>
 #include <schd/schdbase.h>
 #include <sus/list.h>
+#include <sus/map.h>
 #include <sus/nonnull.h>
 #include <task/task_struct.h>
 
@@ -34,6 +35,7 @@ private:
 
     slub::SlubAllocator<TCB> tcb_pool;
     slub::SlubAllocator<PCB> pcb_pool;
+    util::LinkedMap<pid_t, PCB *> _pid_map;
 
     util::nonnull<TCB *> alloc_tcb() {
         return util::nnullforce(tcb_pool.alloc());
@@ -65,6 +67,8 @@ public:
     Result<util::nonnull<PCB *>> create_init_task(TaskSpec spec /* ... args*/);
     Result<util::nonnull<PCB *>> create_task(
         TaskSpec spec, schd::ClassType schd_class /* ... args*/);
+
+    Result<size_t> lookup_holder_id(pid_t pid);
 
     Result<util::nonnull<PCB *>> load_elf(const char *path,
                                           schd::ClassType schd_class);

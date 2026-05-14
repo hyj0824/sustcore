@@ -31,7 +31,7 @@ arg-basic :=  q=$(q) build-mode=$(build-mode) architecture=$(architecture) \
 -include $(path-script)/config.mk
 
 library-components := sbi basecpp kmod libfdt
-module-components := default init
+module-components := default init test1 test2
 
 library-component-makefile.sbi := $(path-e)/libs/sbi/Makefile
 library-component-makefile.basecpp := $(path-e)/libs/basecpp/Makefile
@@ -40,6 +40,8 @@ library-component-makefile.libfdt := $(path-e)/third_party/libs/libfdt/Makefile
 
 module-component-makefile.default := $(path-e)/module/default/Makefile
 module-component-makefile.init := $(path-e)/module/init/Makefile
+module-component-makefile.test1 := $(path-e)/module/test1/Makefile
+module-component-makefile.test2 := $(path-e)/module/test2/Makefile
 
 build-libs:
 	$(q)$(MAKE) -f $(library-component-makefile.sbi) $(arg-basic) build
@@ -60,6 +62,8 @@ kernel/feature.mk: FORCE $(config-json) kernel/feature.json tools/feature_gen/fe
 build-mods: build-libs
 	$(q)$(MAKE) -f $(module-component-makefile.default) $(arg-basic) build
 	$(q)$(MAKE) -f $(module-component-makefile.init) $(arg-basic) build
+	$(q)$(MAKE) -f $(module-component-makefile.test1) $(arg-basic) build
+	$(q)$(MAKE) -f $(module-component-makefile.test2) $(arg-basic) build
 	$(q)echo "All modules built successfully."
 
 make-initrd:

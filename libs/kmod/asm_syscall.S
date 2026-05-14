@@ -30,6 +30,62 @@ sys_grow_vma:
     mv a0, a1
     ret
 
+    .global sys_tmp_write
+    .type sys_tmp_write, @function
+sys_tmp_write:
+    /* a0 = idx, a1 = value */
+    li a7, 0xFFC00004
+    ecall
+    ret
+
+    .global sys_tmp_read
+    .type sys_tmp_read, @function
+sys_tmp_read:
+    /* a0 = idx */
+    li a7, 0xFFC00005
+    ecall
+    ret
+
+    .global sys_wait_notification
+    .type sys_wait_notification, @function
+sys_wait_notification:
+    /* a0 = cap slot, a1 = signal idx */
+    mv a6, a0
+    mv a0, a1
+    li a7, 0xFFFF0008
+    ecall
+    ret
+
+    .global sys_signal_notification
+    .type sys_signal_notification, @function
+sys_signal_notification:
+    /* a0 = cap slot, a1 = signal idx */
+    mv a6, a0
+    mv a0, a1
+    li a7, 0xFFFF000A
+    ecall
+    ret
+
+    .global sys_unsignal_notification
+    .type sys_unsignal_notification, @function
+sys_unsignal_notification:
+    /* a0 = cap slot, a1 = signal idx */
+    mv a6, a0
+    mv a0, a1
+    li a7, 0xFFFF000B
+    ecall
+    ret
+
+    .global sys_check_notification
+    .type sys_check_notification, @function
+sys_check_notification:
+    /* a0 = cap slot, a1 = signal idx */
+    mv a6, a0
+    mv a0, a1
+    li a7, 0xFFFF000C
+    ecall
+    ret
+
     .global sys_cap_clone
     .type sys_cap_clone, @function
 sys_cap_clone:
@@ -64,7 +120,7 @@ sys_cap_derive:
     .global sys_cap_send
     .type sys_cap_send, @function
 sys_cap_send:
-    /* a0 = src cap slot, a1 = target holder id, a2 = token out ptr */
+    /* a0 = src cap slot, a1 = target pid, a2 = token out ptr */
     mv a6, a0
     mv a0, a1
     mv a1, a2
@@ -88,33 +144,5 @@ sys_create_notification:
     /* a0 = target cap slot */
     mv a6, a0
     li a7, 0xFFFF000D
-    ecall
-    ret
-
-    .global sys_signal_notification
-    .type sys_signal_notification, @function
-sys_signal_notification:
-    /* a0 = target cap slot */
-    mv a6, a0
-    li a7, 0xFFFF000A
-    ecall
-    ret
-
-    .global sys_unsignal_notification
-    .type sys_unsignal_notification, @function
-sys_unsignal_notification:
-    /* a0 = target cap slot */
-    mv a6, a0
-    li a7, 0xFFFF000B
-    ecall
-    ret
-
-    .global sys_wait_notification
-    .type sys_wait_notification, @function
-sys_wait_notification:
-    /* a0 = target cap slot, a1 = idx */
-    mv a6, a0
-    mv a0, a1
-    li a7, 0xFFFF000C
     ecall
     ret

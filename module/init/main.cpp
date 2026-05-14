@@ -9,15 +9,17 @@
  * 
  */
 
+#include <cstddef>
+
 extern "C" {
 int kputs(const char *str);
 void cpu_idle();
-void create_process(const char *path);
+size_t create_process(const char *path);
 }
 
 int kmod_main() {
     kputs("Here is init module!\n");
-    create_process("/initrd/default.mod");
+    create_process("/initrd/test1.mod");
     kputs("It shouldn't be printed!\n");
     cpu_idle();
     return 0;
