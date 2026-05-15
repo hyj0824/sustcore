@@ -13,17 +13,16 @@
 #pragma once
 
 #include <logger.h>
-#include <sustcore/addr.h>
 #include <mem/alloc_def.h>
 #include <mem/gfp.h>
-#include <sus/defer.h>
 #include <sus/list.h>
+#include <sustcore/addr.h>
 
+#include <algorithm>
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
 #include <new>
-#include <algorithm>
 #include <type_traits>
 #include <utility>
 
@@ -167,7 +166,7 @@ namespace slub {
         SlubAllocator() : inuse_objects_(0) {}
         ObjType *alloc() {
             auto gfp_res = GFP::get_free_page(obj_pages);
-            if (! gfp_res.has_value()) {
+            if (!gfp_res.has_value()) {
                 loggers::SLUB::ERROR("无法分配大对象内存");
                 return nullptr;
             }
@@ -235,11 +234,11 @@ namespace slub {
     template <typename ObjType>
     SlabHeader *SlubAllocator<ObjType>::new_slab() {
         Result<PhyAddr> gfp_res = GFP::get_free_page(pages_);
-        if (! gfp_res.has_value()) {
+        if (!gfp_res.has_value()) {
             loggers::SLUB::ERROR("无法分配新的 slab 内存");
             return nullptr;
         }
-        PhyAddr paddr = gfp_res.value();
+        PhyAddr paddr    = gfp_res.value();
         KpaAddr kpaddr   = convert<KpaAddr>(paddr);
         SlabHeader *slab = new (kpaddr.addr()) SlabHeader{};
         init_slab_headers(slab);
@@ -354,23 +353,23 @@ namespace slub {
         class Object {
             char data[sz];
         };
-        static util::Defer<slub::SlubAllocator<Object>> SLUB;
+        static slub::SlubAllocator<Object> SLUB;
 
     public:
         static void *malloc() {
-            return (void *)(SLUB->alloc());
+            return (void *)(SLUB.alloc());
         }
         static void free(void *ptr) {
-            SLUB->free((Object *)ptr);
+            SLUB.free((Object *)ptr);
         }
         static void init() {
             // construct the slub object
-            SLUB.construct();
+            new (&SLUB) slub::SlubAllocator<Object>();
         }
     };
 
     template <size_t sz>
-    util::Defer<slub::SlubAllocator<typename FixedSizeAllocator<sz>::Object>>
+    slub::SlubAllocator<typename FixedSizeAllocator<sz>::Object>
         FixedSizeAllocator<sz>::SLUB;
 
     class MixedSizeAllocator {
@@ -419,7 +418,7 @@ namespace slub {
             size_t size;
             // TODO: 改成用哈希表/红黑树?
             util::ListHead<AllocRecord> list_head;
-            static util::Defer<SlubAllocator<AllocRecord>> SLUB;
+            static SlubAllocator<AllocRecord> SLUB;
 
             constexpr AllocRecord(void *ptr, size_t size)
                 : ptr(ptr), size(size) {}
@@ -427,21 +426,21 @@ namespace slub {
 
             inline void *operator new(size_t sz) {
                 assert(sz == sizeof(AllocRecord));
-                return SLUB->alloc();
+                return SLUB.alloc();
             }
             inline void operator delete(void *ptr) {
-                SLUB->free(static_cast<AllocRecord *>(ptr));
+                SLUB.free(static_cast<AllocRecord *>(ptr));
             }
         };
-        static util::Defer<util::IntrusiveList<AllocRecord>> alloc_records;
+        static util::IntrusiveList<AllocRecord> alloc_records;
 
         static void add_record(void *ptr, size_t rsz) {
-            AllocRecord *record = new AllocRecord(ptr, rsz);
-            alloc_records->push_back(*record);
+            auto *record = new AllocRecord(ptr, rsz);
+            alloc_records.push_back(*record);
         }
 
         static AllocRecord *get_record(void *ptr) {
-            for (auto &rec : alloc_records.get()) {
+            for (auto &rec : alloc_records) {
                 if (rec.ptr == ptr) {
                     return &rec;
                 }
@@ -450,7 +449,7 @@ namespace slub {
         }
 
         static void remove_record(AllocRecord *record) {
-            alloc_records->remove(*record);
+            alloc_records.remove(*record);
             delete record;
         }
 
@@ -494,7 +493,7 @@ namespace slub {
         static void _free(void *ptr, size_t rsz) {
             if (rsz >= KMAX) {
                 const size_t pages = get_pages(rsz);
-                KpaAddr kpaddr = (KpaAddr)ptr;
+                KpaAddr kpaddr     = (KpaAddr)ptr;
                 GFP::put_page(convert<PhyAddr>(kpaddr), pages);
             } else {
                 assert(Helper::contains(rsz));
@@ -508,7 +507,9 @@ namespace slub {
                     case 512:  FixedSizeAllocator<512>::free(ptr); return;
                     case 1024: FixedSizeAllocator<1024>::free(ptr); return;
                     case 2048: FixedSizeAllocator<2048>::free(ptr); return;
-                    default:   loggers::SLUB::ERROR("不支持的对象大小: %d", rsz); return;
+                    default:
+                        loggers::SLUB::ERROR("不支持的对象大小: %d", rsz);
+                        return;
                 }
             }
         }
@@ -516,8 +517,9 @@ namespace slub {
     public:
         static void init() {
             // 构造AllocRecord的SLUB
-            alloc_records.construct();
-            AllocRecord::SLUB.construct();
+            new (&alloc_records) util::IntrusiveList<AllocRecord>();
+            new (&AllocRecord::SLUB)
+                SlubAllocator<MixedSizeAllocator::AllocRecord>;
             Helper::init();
         }
 
@@ -529,7 +531,8 @@ namespace slub {
                 loggers::MEMORY::ERROR("无法分配内存!");
                 return nullptr;
             }
-            loggers::MEMORY::DEBUG("分配了 %p, size = %d(实际大小为%d)", ptr, sz, rsz);
+            loggers::MEMORY::DEBUG("分配了 %p, size = %d(实际大小为%d)", ptr,
+                                   sz, rsz);
             add_record(ptr, rsz);
             return ptr;
         }

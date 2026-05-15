@@ -12,17 +12,14 @@
 #include <device/block.h>
 #include <vfs/tarfs.h>
 #include <mem/alloc.h>
-#include <sus/defer.h>
 
 #include <algorithm>
 #include <cstddef>
 
 // TarFile / TarDirectory 使用 KOP 内存池
 namespace kop {
-	util::Defer<KOP<tarfs::TarFile>> TarFile;
-	AutoDefer(TarFile);
-	util::Defer<KOP<tarfs::TarDirectory>> TarDirectory;
-	AutoDefer(TarDirectory);
+	KOP<tarfs::TarFile> TarFile;
+	KOP<tarfs::TarDirectory> TarDirectory;
 }
 
 namespace tarfs {
@@ -40,11 +37,11 @@ namespace tarfs {
 
     void *TarFile::operator new(size_t size) {
 		assert(size == sizeof(TarFile));
-		return kop::TarFile->alloc();
+		return kop::TarFile.alloc();
 	}
 
 	void TarFile::operator delete(void *ptr) {
-		kop::TarFile->free(static_cast<TarFile *>(ptr));
+		kop::TarFile.free(static_cast<TarFile *>(ptr));
 	}
 
 	TarFile::TarFile(TarSuperblock *sb, const TarBlock *header, inode_t id)
@@ -73,11 +70,11 @@ namespace tarfs {
 
 	void *TarDirectory::operator new(size_t size) {
 		assert(size == sizeof(TarDirectory));
-		return kop::TarDirectory->alloc();
+		return kop::TarDirectory.alloc();
 	}
 
 	void TarDirectory::operator delete(void *ptr) {
-		kop::TarDirectory->free(static_cast<TarDirectory *>(ptr));
+		kop::TarDirectory.free(static_cast<TarDirectory *>(ptr));
 	}
 
 	Result<inode_t> TarDirectory::lookup(std::string_view name) {
@@ -245,4 +242,8 @@ namespace tarfs {
 		}
 	}
 
+	void init_kop() {
+		new (&kop::TarFile) KOP<TarFile>();
+		new (&kop::TarDirectory) KOP<TarDirectory>();
+	}
 }  // namespace tarfs

@@ -153,6 +153,9 @@ namespace cap {
         util::LinkedMap<size_t, CHolder *> _holders;
         size_t _timestamp = 1;  // 用于记录发送记录的时间戳, 每次发送能力时递增
     public:
+        static void init();
+        static CHolderManager &inst();
+
         CHolderManager() = default;
 
         [[nodiscard]]

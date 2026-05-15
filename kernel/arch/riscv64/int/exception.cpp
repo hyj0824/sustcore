@@ -12,11 +12,11 @@
 #include <arch/riscv64/csr.h>
 #include <arch/riscv64/int/isr.h>
 #include <arch/riscv64/trait.h>
-#include <env.h>
 #include <logger.h>
 #include <sus/logger.h>
 #include <sus/types.h>
 #include <new>
+#include <task/scheduler.h>
 
 extern "C" void handle_trap(csr_scause_t scause, umb_t sepc, umb_t stval,
                             Riscv64Context *ctx) {
@@ -29,10 +29,10 @@ extern "C" void handle_trap(csr_scause_t scause, umb_t sepc, umb_t stval,
         // 异常
         Handlers::exception(scause, sepc, stval, ctx);
     }
-    auto *scheduler = env::inst().scheduler();
-    if (scheduler != nullptr && from_umode) {
-        scheduler->schedule();
-        auto *tcb = scheduler->current_tcb();
+    if (from_umode) {
+        auto &scheduler = schd::Scheduler::inst();
+        scheduler.schedule();
+        auto *tcb = scheduler.current_tcb();
         if (tcb != nullptr) {
             csr_set_sscratch(
                 reinterpret_cast<csr_sscratch_t>(tcb->kstack_top));

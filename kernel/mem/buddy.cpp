@@ -21,13 +21,13 @@
 #include <cstddef>
 #include <new>
 
-util::Defer<BuddyAllocator::BlockList>
+BuddyAllocator::BlockList
     BuddyAllocator::free_area[BuddyAllocator::MAX_BUDDY_ORDER + 1];
 
 void BuddyAllocator::pre_init() {
     // 初始化空闲块链表
     for (int i = 0; i <= BuddyAllocator::MAX_BUDDY_ORDER; i++) {
-        BuddyAllocator::free_area[i].construct();
+        new (&free_area[i]) BlockList();
     }
 
     auto &meminfo = env::inst().meminfo();
@@ -52,7 +52,7 @@ void BuddyAllocator::post_init() {
     // 先进行一次遍历, 打印迁移前的链表状态
     loggers::BUDDY::DEBUG("Buddy Allocator Memory Layout:\n");
     for (int i = 0; i <= MAX_BUDDY_ORDER; i++) {
-        BlockList &list = free_area[i].get();
+        BlockList &list = free_area[i];
         auto *sentinel_pa = convert<PhyAddr>((KvaAddr)&list.sentinel()).addr();
         loggers::BUDDY::DEBUG("Order %d: %d blocks:", i, list.size());
         for (auto iter = list.begin(); iter != list.end(); ++iter) {
@@ -69,7 +69,7 @@ void BuddyAllocator::post_init() {
     }
 
     for (int i = 0; i <= BuddyAllocator::MAX_BUDDY_ORDER; i++) {
-        BlockList &list = free_area[i].get();
+        BlockList &list = free_area[i];
 
         // 哨兵节点
         // 将其从 KA 转换为 PA, 再从 PA 转换回 KPA

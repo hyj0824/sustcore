@@ -141,6 +141,9 @@ namespace cap {
         bool imply(b64 required) const noexcept {
             return perm::imply(_perm, required);
         }
+
+        void *operator new(size_t size);
+        void operator delete(void *ptr);
     };
 
     template <typename PayloadType>
@@ -196,27 +199,30 @@ namespace cap {
 
         [[nodiscard]]
         Capability *get(CapIdx idx) const {
-            return caps[slot(idx)];
+            return caps[cap::slot(idx)];
         }
 
         Result<void> set(CapIdx idx, Capability *cap) {
-            if (caps[slot(idx)] != nullptr) {
-                delete caps[slot(idx)];
+            if (caps[cap::slot(idx)] != nullptr) {
+                delete caps[cap::slot(idx)];
             }
-            caps[slot(idx)] = cap;
+            caps[cap::slot(idx)] = cap;
             void_return();
         }
 
         [[nodiscard]]
         Capability *take(CapIdx idx) {
-            Capability *cap = caps[slot(idx)];
-            caps[slot(idx)] = nullptr;
+            Capability *cap      = caps[cap::slot(idx)];
+            caps[cap::slot(idx)] = nullptr;
             return cap;
         }
 
         Result<void> remove(CapIdx idx) {
             return set(idx, nullptr);
         }
+
+        void *operator new(size_t size);
+        void operator delete(void *ptr);
     };
 
     // CGroup 是一组 Capability 的集合, CSpace 是一组 CGroup 的集合
@@ -244,7 +250,7 @@ namespace cap {
 
         [[nodiscard]]
         Capability *get(CapIdx idx) const {
-            CGroup *grp = groups[group(idx)];
+            CGroup *grp = groups[cap::group(idx)];
             if (grp == nullptr) {
                 return nullptr;
             }
@@ -252,10 +258,10 @@ namespace cap {
         }
 
         Result<void> set(CapIdx idx, Capability *cap) {
-            if (groups[group(idx)] == nullptr) {
-                groups[group(idx)] = new CGroup();
+            if (groups[cap::group(idx)] == nullptr) {
+                groups[cap::group(idx)] = new CGroup();
             }
-            return groups[group(idx)]->set(idx, cap);
+            return groups[cap::group(idx)]->set(idx, cap);
         }
 
         Result<void> remove(CapIdx idx) {
@@ -264,7 +270,7 @@ namespace cap {
 
         [[nodiscard]]
         Capability *take(CapIdx idx) {
-            CGroup *grp = groups[group(idx)];
+            CGroup *grp = groups[cap::group(idx)];
             if (grp == nullptr) {
                 return nullptr;
             }
@@ -294,13 +300,13 @@ namespace cap {
             for (size_t i = 0; i < CSPACE_SIZE; i++) {
                 if (groups[i] == nullptr) {
                     // 该组还未分配, 整组都是空闲的
-                    return make(i, 0);
+                    return cap::make(i, 0);
                 } else {
                     // 该组已经分配, 需要检查组内的每个槽位
                     for (size_t j = 0; j < CGROUP_SLOTS; j++) {
-                        if (groups[i]->get(make(i, j)) == nullptr) {
+                        if (groups[i]->get(cap::make(i, j)) == nullptr) {
                             // 该槽位空闲
-                            return make(i, j);
+                            return cap::make(i, j);
                         }
                     }
                 }
@@ -308,4 +314,6 @@ namespace cap {
             unexpect_return(ErrCode::NO_FREE_SLOT);
         }
     };
+
+    void init_kop();
 }  // namespace cap

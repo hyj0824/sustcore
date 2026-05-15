@@ -247,4 +247,5 @@ namespace tarfs {
         friend class TarFSDriver;
 	};
 
+	void init_kop();
 }  // namespace tarfs

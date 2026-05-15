@@ -422,7 +422,7 @@ namespace Handlers {
                             .gap_ticks = gap_ticks};
 
         timer_info.last_ticks = current_ticks;
-        env::inst().scheduler()->do_tick(e);
+        schd::Scheduler::inst().do_tick(e);
 
         // 重新设置下一次时钟中断
         sbi_legacy_set_timer((current_ticks + timer_info.increment).to_ticks());

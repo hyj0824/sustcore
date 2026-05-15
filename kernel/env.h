@@ -12,13 +12,8 @@
 #pragma once
 
 #include <arch/riscv64/description.h>
-#include <cap/cholder.h>
 #include <mem/vma.h>
 #include <sustcore/addr.h>
-#include <task/scheduler.h>
-#include <task/task.h>
-#include <task/task_struct.h>
-#include <vfs/vfs.h>
 
 namespace env {
     // passkey
@@ -36,10 +31,6 @@ namespace env {
         struct tmm : public tags {};
         struct pgd : public unmodifiable {};
         struct meminfo : public tags {};
-        struct vfs : public tags {};
-        struct chman : public tags {};
-        struct scheduler : public tags {};
-        struct tm : public tags {};
     }  // namespace key
 
     struct MemInfo {
@@ -57,12 +48,8 @@ namespace env {
 
     class Environment {
     private:
-        TaskMemoryManager *_tmm;
-        VFS *_vfs;
-        cap::CHolderManager *_chman;
+        TaskMemoryManager *_tmm = nullptr;
         MemInfo _meminfo;
-        schd::Scheduler *_scheduler;
-        TaskManager *_tm;
     public:
         constexpr Environment() : _meminfo() {}
 
@@ -90,41 +77,6 @@ namespace env {
             return _meminfo;
         }
 
-        [[nodiscard]]
-        VFS *vfs() const {
-            return _vfs;
-        }
-        [[nodiscard]]
-        VFS *&vfs(key::vfs) {
-            return _vfs;
-        }
-
-        [[nodiscard]]
-        cap::CHolderManager *chman() const {
-            return _chman;
-        }
-        [[nodiscard]]
-        cap::CHolderManager *&chman(key::chman) {
-            return _chman;
-        }
-
-        [[nodiscard]]
-        schd::Scheduler *scheduler() const {
-            return _scheduler;
-        }
-        [[nodiscard]]
-        schd::Scheduler *&scheduler(key::scheduler) {
-            return _scheduler;
-        }
-
-        [[nodiscard]]
-        TaskManager *tm() const {
-            return _tm;
-        }
-        [[nodiscard]]
-        TaskManager *&tm(key::tm) {
-            return _tm;
-        }
     };
 
     void construct();

@@ -10,27 +10,32 @@
  */
 
 #include <cap/cholder.h>
-#include <env.h>
 #include <perm/perm.h>
 #include <sustcore/capability.h>
 #include <task/task_struct.h>
+#include <task/scheduler.h>
 
-namespace key {
-    struct cholder : public env::key::chman {};
-}  // namespace key
+namespace {
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+    static cap::CHolderManager inst_cholder_manager;
+}  // namespace
 
 namespace cap {
+    void CHolderManager::init() {
+        // call the constructor explicitly to ensure the instance is initialized before use
+        new (&inst_cholder_manager) CHolderManager();
+    }
+
+    CHolderManager &CHolderManager::inst() {
+        return inst_cholder_manager;
+    }
+
     CHolder::CHolder(size_t id) : _space(), _id(id) {}
 
     CHolder::~CHolder() {}
 
     Result<CHolder *> CHolder::current() {
-        auto *scheduler = env::inst().scheduler();
-        if (scheduler == nullptr) {
-            unexpect_return(ErrCode::INVALID_PARAM);
-        }
-
-        auto *tcb = scheduler->current_tcb();
+        auto *tcb = schd::Scheduler::inst().current_tcb();
         if (tcb == nullptr || tcb->task == nullptr ||
             tcb->task->cholder == nullptr)
         {

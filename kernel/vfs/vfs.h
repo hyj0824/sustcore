@@ -196,6 +196,9 @@ private:
     util::ArrayList<VFile *> open_files;
 
 public:
+    static void init();
+    static VFS &inst();
+
     VFS() = default;
     ~VFS();
 

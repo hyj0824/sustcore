@@ -13,8 +13,8 @@
 #include <mem/slub.h>
 
 namespace slub {
-    util::Defer<SlubAllocator<MixedSizeAllocator::AllocRecord>>
+    SlubAllocator<MixedSizeAllocator::AllocRecord>
         MixedSizeAllocator::AllocRecord::SLUB;
-    util::Defer<util::IntrusiveList<MixedSizeAllocator::AllocRecord>>
+    util::IntrusiveList<MixedSizeAllocator::AllocRecord>
         MixedSizeAllocator::alloc_records;
 }  // namespace slub

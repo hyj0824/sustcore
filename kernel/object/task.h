@@ -9,20 +9,22 @@
 #include <cap/cholder.h>
 #include <sustcore/capability.h>
 
-struct PCB;
-struct TCB;
+namespace task {
+    struct PCB;
+    struct TCB;
+}  // namespace task
 
 namespace cap {
     struct PCBPayload : public _PayloadHelper<PayloadType::PCB> {
-        PCB *pcb;
+        task::PCB *pcb;
 
-        explicit PCBPayload(PCB *pcb) : pcb(pcb) {}
+        explicit PCBPayload(task::PCB *pcb) : pcb(pcb) {}
     };
 
     struct TCBPayload : public _PayloadHelper<PayloadType::TCB> {
-        TCB *tcb;
+        task::TCB *tcb;
 
-        explicit TCBPayload(TCB *tcb) : tcb(tcb) {}
+        explicit TCBPayload(task::TCB *tcb) : tcb(tcb) {}
     };
 
     class PCBObject : public CapObj<PCBPayload> {

@@ -20,6 +20,20 @@
 #include <cstring>
 #include <expected>
 
+namespace {
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+    static VFS inst_vfs;
+}  // namespace
+
+void VFS::init() {
+    // call the constructor explicitly to ensure the instance is initialized before use
+    new (&inst_vfs) VFS();
+}
+
+VFS &VFS::inst() {
+    return inst_vfs;
+}
+
 Result<IDirectory *> IINode::as_directory() {
     IDirectory *dir = this->as<IDirectory>();
     if (dir) {

@@ -74,13 +74,6 @@ extern void *s_misc;
  *
  */
 extern void *s_initrd, *e_initrd;
-
-/**
- * @brief Defer Constructors
- * 
- */
-extern void *s_defer, *e_defer;
-
 #ifdef __cplusplus
 }
 #endif

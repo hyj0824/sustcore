@@ -16,7 +16,6 @@
 #include <sustcore/addr.h>
 #include <mem/gfp_def.h>
 #include <cstddef>
-#include <sus/defer.h>
 #include <sus/list.h>
 #include <sus/types.h>
 #include <cstdio>
@@ -81,7 +80,7 @@ public:
     static void __print_memory_layout() {
         loggers::BUDDY::DEBUG("Buddy Allocator Memory Layout (Stage: %d):\n", static_cast<int>(Stage));
         for (int i = 0; i <= MAX_BUDDY_ORDER; i++) {
-            BlockList &list = free_area[i].get();
+            BlockList &list = free_area[i];
             loggers::BUDDY::DEBUG("Order %d: %d blocks:", i, list.size());
             for (auto iter = list.begin(); iter != list.end(); ++iter) {
                 PhyAddr paddr = block2pa<Stage>(&*iter);
@@ -92,7 +91,7 @@ public:
     }
 private:
     using BlockList = util::OrderedIntrusiveList<FreeBlock, &FreeBlock::list_head, FreeBlockCmp>;
-    static util::Defer<BlockList> free_area[MAX_BUDDY_ORDER + 1];
+    static BlockList free_area[MAX_BUDDY_ORDER + 1];
     /**
      * @brief 按页数添加一段物理内存范围到Buddy分配器
      *
@@ -162,7 +161,7 @@ private:
         // 寻找第一个非空链表
         size_t current_order = order;
         while (current_order <= BuddyAllocator::MAX_BUDDY_ORDER) {
-            BlockList &list = free_area[current_order].get();
+            BlockList &list = free_area[current_order];
             if (!list.empty()) {
                 break;
             }
@@ -176,7 +175,7 @@ private:
         }
 
         // 从链表头部取出一个内存块
-        BlockList &list = free_area[current_order].get();
+        BlockList &list = free_area[current_order];
         FreeBlock &node = list.front();
         PhyAddr paddr   = block2pa<Stage>(&node);
         list.pop_front();
@@ -297,7 +296,7 @@ void BuddyAllocator::put_page_in_order(const PhyAddr paddr, int order) {
         FreeBlock *node = new (block_kva) FreeBlock();
 
         // 插入到有序链表中
-        BlockList &list = free_area[order].get();
+        BlockList &list = free_area[order];
 
         // 插入到有序链表中
         auto inserted_it = list.insert(*node);

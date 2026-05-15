@@ -11,7 +11,6 @@
 
 #include <cap/capability.h>
 #include <cap/cholder.h>
-#include <env.h>
 #include <object/intobj.h>
 #include <perm/intobj.h>
 #include <perm/perm.h>
@@ -35,11 +34,8 @@ namespace test::cap {
     size_t CountingPayload::destruct_count = 0;
 
     static Result<kcap::CHolder *> new_holder() {
-        auto *chman = ::env::inst().chman();
-        if (chman == nullptr) {
-            unexpect_return(ErrCode::NULLPTR);
-        }
-        auto holder_res = chman->create_holder();
+        auto &chman = kcap::CHolderManager::inst();
+        auto holder_res = chman.create_holder();
         propagate(holder_res);
         return holder_res.value();
     }

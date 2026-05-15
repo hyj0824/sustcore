@@ -51,6 +51,8 @@ namespace task::wait {
         // 从等待队列中唤醒所有线程, 返回被唤醒线程的数量
         Result<size_t> wake_all(WaitReasonId id);
 
+        // 初始化等待原因管理器的单例实例
+        static void init();
         // 获取等待原因管理器的单例实例
         static WaitReasonManager &inst();
     };

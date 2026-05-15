@@ -9,16 +9,21 @@
  *
  */
 
-#include <env.h>
 #include <task/scheduler.h>
 #include <task/wait.h>
 
 namespace task::wait {
-    static util::Defer<WaitReasonManager> gWaitReasonMan;
-    AutoDefer(gWaitReasonMan);
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+    static WaitReasonManager inst_wait_reason_manager;
 
     WaitReasonManager &WaitReasonManager::inst() {
-        return gWaitReasonMan.get();
+        return inst_wait_reason_manager;
+    }
+
+    void WaitReasonManager::init() {
+        // call the constructor explicitly to ensure the instance is initialized
+        // before use
+        new (&inst_wait_reason_manager) WaitReasonManager();
     }
 
     WaitReasonId WaitReasonManager::alloc_reason() {
@@ -65,7 +70,7 @@ namespace task::wait {
         auto qres = queue_for_wait(id);
         propagate(qres);
 
-        tcb->wait_reason = id;
+        tcb->wait_reason        = id;
         tcb->basic_entity.state = ThreadState::WAITING;
         qres.value()->threads.push_back(*tcb);
         void_return();
@@ -96,11 +101,8 @@ namespace task::wait {
             return size_t(0);
         }
 
-        auto *scheduler = env::inst().scheduler();
-        if (scheduler == nullptr) {
-            unexpect_return(ErrCode::INVALID_PARAM);
-        }
-        return scheduler->wakeup_waiting(tcb) ? size_t(1) : size_t(0);
+        return schd::Scheduler::inst().wakeup_waiting(tcb) ? size_t(1)
+                                                           : size_t(0);
     }
 
     Result<size_t> WaitReasonManager::wake_all(WaitReasonId id) {
@@ -120,11 +122,7 @@ namespace task::wait {
     }
 
     Result<void> wait_current(WaitReasonId id) {
-        auto *scheduler = env::inst().scheduler();
-        if (scheduler == nullptr) {
-            unexpect_return(ErrCode::INVALID_PARAM);
-        }
-        return scheduler->block_current(id);
+        return schd::Scheduler::inst().block_current(id);
     }
 
     Result<size_t> wake_one(WaitReasonId id) {

@@ -16,6 +16,16 @@
 #include <task/scheduler.h>
 #include <task/wait.h>
 
+#include <cassert>
+#include <new>
+
+namespace {
+    alignas(schd::Scheduler) unsigned char scheduler_storage[sizeof(
+        schd::Scheduler)];
+    // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+    schd::Scheduler *inst_scheduler = nullptr;
+}  // namespace
+
 namespace key {
     using namespace env::key;
     struct schd : public tmm {
@@ -27,6 +37,16 @@ namespace key {
 extern "C" [[noreturn]] void isr_restore_user(void *kstack_top);
 
 namespace schd {
+    using namespace task;
+    void Scheduler::init(util::nonnull<TCB *> init_tcb) {
+        inst_scheduler = new (scheduler_storage) Scheduler(init_tcb);
+    }
+
+    Scheduler &Scheduler::inst() {
+        assert(inst_scheduler != nullptr);
+        return *inst_scheduler;
+    }
+
     void switch_pgd(TaskMemoryManager *tmm) {
         // 只在页表不为null且不等于当前页表时才切换
         if (tmm->pgd().nonnull() && tmm->pgd() != env::inst().pgd()) {
@@ -188,8 +208,8 @@ namespace schd {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
 
-        auto enqueue_res = task::wait::WaitReasonManager::inst().enqueue(
-            reason, _curtcb);
+        auto enqueue_res =
+            task::wait::WaitReasonManager::inst().enqueue(reason, _curtcb);
         propagate(enqueue_res);
 
         _curtcb->basic_entity
@@ -199,9 +219,7 @@ namespace schd {
     }
 
     bool Scheduler::wakeup_waiting(TCB *tcb) {
-        if (tcb == nullptr ||
-            tcb->basic_entity.state != ThreadState::WAITING)
-        {
+        if (tcb == nullptr || tcb->basic_entity.state != ThreadState::WAITING) {
             return false;
         }
         tcb->basic_entity.state = ThreadState::EMPTY;

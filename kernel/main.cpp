@@ -27,7 +27,6 @@
 #include <mem/vma.h>
 #include <perm/permission.h>
 #include <sus/baseio.h>
-#include <sus/defer.h>
 #include <sus/logger.h>
 #include <sus/nonnull.h>
 #include <sus/path.h>
@@ -36,7 +35,9 @@
 #include <sus/types.h>
 #include <sustcore/addr.h>
 #include <symbols.h>
+#include <task/scheduler.h>
 #include <task/task.h>
+#include <task/wait.h>
 #include <test/framework.h>
 #include <vfs/ops.h>
 #include <vfs/tarfs.h>
@@ -62,7 +63,7 @@ namespace env {
 
 namespace key {
     using namespace env::key;
-    struct main : public tmm, meminfo, vfs, chman, scheduler, tm {
+    struct main : public tmm, meminfo {
     public:
         main() = default;
     };
@@ -80,42 +81,9 @@ util::owner<RamDiskDevice *> make_initrd() {
     auto s_initrd_ptr = reinterpret_cast<char *>(&s_initrd);
     size_t sz         = e_initrd_ptr - s_initrd_ptr;
     auto device       = util::owner(new RamDiskDevice(&s_initrd, sz, 1));
-    loggers::SUSTCORE::INFO("initrd大小为 %u KB =  %u MB", sz / 1024, sz / 1024 / 1024);
+    loggers::SUSTCORE::INFO("initrd大小为 %u KB =  %u MB", sz / 1024,
+                            sz / 1024 / 1024);
     return device;
-}
-
-void run_defers(void *s_defer, void *e_defer) {
-    auto *s_defer_ptr  = static_cast<util::DeferEntry *>(s_defer);
-    auto *e_defer_ptr  = static_cast<util::DeferEntry *>(e_defer);
-    size_t defer_count = (e_defer_ptr - s_defer_ptr);
-    loggers::SUSTCORE::INFO(
-        "开始运行defer构造函数。本批次defer起始地址为%p, 终结于%p, "
-        "总共%u个defer",
-        s_defer_ptr, e_defer_ptr, defer_count);
-    for (size_t i = 0; i < defer_count; i++) {
-        auto *entry     = &s_defer_ptr[i];
-        bool duplicated = false;
-        for (size_t j = 0; j < i; j++) {
-            auto *prev = &s_defer_ptr[j];
-            if (prev->_instance == entry->_instance &&
-                prev->_constructor == entry->_constructor)
-            {
-                duplicated = true;
-                loggers::SUSTCORE::WARN(
-                    "跳过重复defer注册: 当前第%d项与第%d项重复, "
-                    "defer实例地址为%p, 构造器为%p",
-                    i, j, entry->_instance, entry->_constructor);
-                break;
-            }
-        }
-        if (duplicated) {
-            continue;
-        }
-        loggers::SUSTCORE::DEBUG(
-            "运行第%d个defer构造函数, defer实例地址为%p, 构造器为%p", i,
-            entry->_instance, entry->_constructor);
-        entry->_constructor(entry->_instance);
-    }
 }
 
 void kernel_paging_setup() {
@@ -147,33 +115,24 @@ void kernel_paging_setup() {
 }
 
 Result<void> init_vfs() {
-    auto &e = env::inst();
-
     // 构造VFS
-    auto vfs           = new VFS();
-    e.vfs(key::main()) = vfs;
+    VFS::init();
+    auto &vfs = VFS::inst();
 
     // 加载驱动程序
     auto tarfs        = util::owner(new tarfs::TarFSDriver());
-    auto register_res = vfs->register_fs(tarfs);
+    auto register_res = vfs.register_fs(tarfs);
     propagate(register_res);
 
     auto initrd_device = make_initrd();
-    auto mount_res     = vfs->mount("tarfs", initrd_device, INITRD_PATH,
-                                    MountFlags::NONE, nullptr);
+    auto mount_res     = vfs.mount("tarfs", initrd_device, INITRD_PATH,
+                                   MountFlags::NONE, nullptr);
     propagate(mount_res);
     void_return();
 }
 
-Result<void> init_tm() {
-    auto &e           = env::inst();
-    e.tm(key::main()) = new TaskManager();
-    void_return();
-}
-
 Result<void> init_scheduler() {
-    auto &e       = env::inst();
-    auto load_res = e.tm()->load_init(INITMOD_PATH);
+    auto load_res = task::TaskManager::inst().load_init(INITMOD_PATH);
     if (!load_res.has_value()) {
         loggers::SUSTCORE::ERROR("加载初始进程失败! 错误码: %s",
                                  to_cstring(load_res.error()));
@@ -182,12 +141,28 @@ Result<void> init_scheduler() {
 
     auto task = load_res.value();
     assert(task->threads.size() == 1);
-    e.scheduler(key::main()) =
-        new schd::Scheduler(task->threads.front());
-    e.scheduler()->init();
+    schd::Scheduler::init(task->threads.front());
+    schd::Scheduler::inst().init();
     void_return();
 }
 
+void after_init() {
+    // 打开中断
+    Interrupt::sti();
+
+    // Kernel tests
+#ifdef __CONF_KERNEL_TESTS
+    TestFramework framework;
+    collect_tests(framework);
+    framework.run_all();
+#else
+#endif
+
+    loggers::SUSTCORE::INFO("Test complete. Start scheduler.");
+    schd::Scheduler::inst().run_current();
+}
+
+void init_kop();
 
 extern "C" void post_init(void) {
     loggers::SUSTCORE::INFO("已进入 post-init 阶段");
@@ -198,10 +173,6 @@ extern "C" void post_init(void) {
     PageMan::init();
 
     Allocator::init();
-
-    // Allocator初始化后, 系统的基本功能已经可用
-    // 此时可以执行绝大部分的构造函数, 因此在此时调用defer初始化
-    run_defers(&s_defer, &e_defer);
 
     // 初始化中断处理程序
     Interrupt::init();
@@ -218,7 +189,10 @@ extern "C" void post_init(void) {
         meminfo.lowvm, meminfo.uppm - meminfo.lowpm, PageMan::RWX::NONE, true,
         false);
 
-    e.chman(key::main()) = new cap::CHolderManager();
+    // 初始化 kernel object pool
+    init_kop();
+
+    cap::CHolderManager::init();
 
     auto init_res = init_vfs();
     if (!init_res.has_value()) {
@@ -227,12 +201,7 @@ extern "C" void post_init(void) {
         while (true);
     }
 
-    init_res = init_tm();
-    if (!init_res.has_value()) {
-        loggers::SUSTCORE::ERROR("初始化TaskManager失败! 错误码: %s",
-                                 to_cstring(init_res.error()));
-        while (true);
-    }
+    task::TaskManager::init();
 
     init_res = init_scheduler();
     if (!init_res.has_value()) {
@@ -241,19 +210,9 @@ extern "C" void post_init(void) {
         while (true);
     }
 
-    // 打开中断
-    Interrupt::sti();
+    task::wait::WaitReasonManager::init();
 
-    // Kernel tests
-#ifdef __CONF_KERNEL_TESTS
-    TestFramework framework;
-    collect_tests(framework);
-    framework.run_all();
-#else
-#endif
-
-    loggers::SUSTCORE::INFO("Test complete. Start scheduler.");
-    e.scheduler()->run_current();
+    after_init();
 }
 
 extern "C" void redive(void);

@@ -18,6 +18,9 @@
 #include <task/task_struct.h>
 
 namespace schd {
+    using task::PCB;
+    using task::TCB;
+
     class Scheduler {
     private:
         RQ _rq;
@@ -27,7 +30,11 @@ namespace schd {
         idle::IDLE<TCB> _idle_schd;
 
     public:
-        constexpr Scheduler(util::nonnull<TCB *> init_tcb) : _idle_schd(init_tcb) {}
+        static void init(util::nonnull<TCB *> init_tcb);
+        static Scheduler &inst();
+
+        constexpr Scheduler(util::nonnull<TCB *> init_tcb)
+            : _idle_schd(init_tcb) {}
 
         constexpr util::nonnull<RQ *> rq() {
             return _rq;
@@ -68,12 +75,14 @@ namespace schd {
         /**
          * @brief 按优先级遍历调度器类
          *
-         * 该函数会按照优先级顺序(从高到低)遍历调度器类, 并对每个调度器类调用传入的函数对象
+         * 该函数会按照优先级顺序(从高到低)遍历调度器类,
+         * 并对每个调度器类调用传入的函数对象
          * 当对应调度器类优先级低于指定的bot时, 遍历将会停止
-         * 
+         *
          * @tparam Func 函数对象类型, 期望类型为: BaseSchedPtr -> void
          * @param f 函数对象, 将会被调用来处理每个调度器类
-         * @param bot 遍历的优先级下界, 默认为 ClassType::BOT, 即遍历所有调度器类
+         * @param bot 遍历的优先级下界, 默认为 ClassType::BOT,
+         * 即遍历所有调度器类
          */
         template <typename Func>
         void foreach_schdclass(Func f, ClassType bot = ClassType::BOT) {

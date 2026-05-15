@@ -9,9 +9,9 @@
  *
  */
 
-#include <env.h>
 #include <object/vfile.h>
 #include <perm/vfile.h>
+#include <vfs/vfs.h>
 
 namespace cap {
     Result<size_t> VFileObject::read(off_t offset, void *buf, size_t len) {
@@ -21,7 +21,7 @@ namespace cap {
             return {unexpect, ErrCode::INSUFFICIENT_PERMISSIONS};
         }
         // 调用VFS的read接口
-        return env::inst().vfs()->read(_vind, offset, buf, len);
+        return VFS::inst().read(_vind, offset, buf, len);
     }
 
     Result<size_t> VFileObject::write(off_t offset, const void *buf,
@@ -32,7 +32,7 @@ namespace cap {
             return {unexpect, ErrCode::INSUFFICIENT_PERMISSIONS};
         }
         // 调用VFS的write接口
-        return env::inst().vfs()->write(_vind, offset, buf, len);
+        return VFS::inst().write(_vind, offset, buf, len);
     }
 
     Result<size_t> VFileObject::size() {
@@ -42,7 +42,7 @@ namespace cap {
             return {unexpect, ErrCode::INSUFFICIENT_PERMISSIONS};
         }
         // 调用VFS的size接口
-        return env::inst().vfs()->size(_vind);
+        return VFS::inst().size(_vind);
     }
 
     Result<void> VFileObject::sync() {
@@ -52,6 +52,6 @@ namespace cap {
             return {unexpect, ErrCode::INSUFFICIENT_PERMISSIONS};
         }
         // 调用VFS的sync接口
-        return env::inst().vfs()->sync(_vind);
+        return VFS::inst().sync(_vind);
     }
 }  // namespace cap

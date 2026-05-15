@@ -9,7 +9,6 @@
  *
  */
 
-#include <env.h>
 #include <logger.h>
 #include <mem/alloc.h>
 #include <object/vfile.h>
@@ -28,19 +27,18 @@ namespace test::fs {
         CaseMountOpenRead() : TestCase("VFS 挂载 initrd 并读取 license") {}
 
         void _run(void* env) const noexcept override {
-            auto* vfs = ::env::inst().vfs();
-            tassert(vfs != nullptr, "测试环境应提供已初始化的 VFS 实例");
+            auto& vfs = VFS::inst();
 
             RamDiskDevice* initrd = make_initrd();
             tassert(initrd != nullptr, "应能成功创建 initrd RamDisk 设备");
 
             action("挂载 tarfs 到根目录 /");
             auto mount_res =
-                vfs->mount("tarfs", initrd, "/", MountFlags::NONE, nullptr);
+                vfs.mount("tarfs", initrd, "/", MountFlags::NONE, nullptr);
             tassert(mount_res.has_value(), "应能将 tarfs 挂载到根目录 /");
 
             action("打开 initrd 中的 /license 文件");
-            auto open_res = vfs->open("/license");
+            auto open_res = vfs.open("/license");
             tassert(open_res.has_value(), "应能成功打开 /license 文件");
 
             auto* cap = new cap::Capability(open_res.value(), perm::allperm());
@@ -64,11 +62,11 @@ namespace test::fs {
             delete cap;
             tassert(true, "应能成功关闭 /license 文件能力");
 
-            auto tidy_res = vfs->tidy_up();
+            auto tidy_res = vfs.tidy_up();
             tassert(tidy_res.has_value(),
                     "tidy_up 应成功整理 dentry/inode 缓存");
 
-            auto umount_res = vfs->umount("/");
+            auto umount_res = vfs.umount("/");
             tassert(umount_res.has_value(), "卸载根目录 / 应成功");
 
             delete initrd;
@@ -80,20 +78,19 @@ namespace test::fs {
         CaseMountBusyUmount() : TestCase("VFS 忙状态阻止卸载") {}
 
         void _run(void* env) const noexcept override {
-            auto* vfs = ::env::inst().vfs();
-            tassert(vfs != nullptr, "测试环境应提供已初始化的 VFS 实例");
+            auto& vfs = VFS::inst();
 
             RamDiskDevice* initrd = make_initrd();
             tassert(initrd != nullptr, "应能成功创建 initrd RamDisk 设备");
 
             auto mount_res =
-                vfs->mount("tarfs", initrd, "/", MountFlags::NONE, nullptr);
+                vfs.mount("tarfs", initrd, "/", MountFlags::NONE, nullptr);
             tassert(mount_res.has_value(), "应能将 tarfs 挂载到根目录 /");
 
-            auto open_res = vfs->open("/license");
+            auto open_res = vfs.open("/license");
             tassert(open_res.has_value(), "第一次打开 /license 应成功");
 
-            auto open_res2 = vfs->open("/license");
+            auto open_res2 = vfs.open("/license");
             tassert(open_res2.has_value(), "第二次打开 /license 应成功");
 
             auto* cap1 = new cap::Capability(open_res.value(), perm::allperm());
@@ -101,7 +98,7 @@ namespace test::fs {
                 new cap::Capability(open_res2.value(), perm::allperm());
 
             action("文件仍在打开时卸载, 应返回 BUSY");
-            auto busy_umount = vfs->umount("/");
+            auto busy_umount = vfs.umount("/");
             tassert(!busy_umount.has_value() &&
                         busy_umount.error() == ErrCode::BUSY,
                     "有文件打开时卸载应被拒绝 (BUSY)");
@@ -110,7 +107,7 @@ namespace test::fs {
             tassert(true, "应能成功关闭第二个 /license 文件能力");
 
             action("仍有一个访问器打开时再次卸载, 仍应 BUSY");
-            busy_umount = vfs->umount("/");
+            busy_umount = vfs.umount("/");
             tassert(!busy_umount.has_value() &&
                         busy_umount.error() == ErrCode::BUSY,
                     "仍有文件打开时卸载应被拒绝 (BUSY)");
@@ -118,11 +115,11 @@ namespace test::fs {
             delete cap1;
             tassert(true, "应能成功关闭第一个 /license 文件能力");
 
-            auto tidy_res = vfs->tidy_up();
+            auto tidy_res = vfs.tidy_up();
             tassert(tidy_res.has_value(),
                     "tidy_up 应成功整理 dentry/inode 缓存");
 
-            auto umount_res = vfs->umount("/");
+            auto umount_res = vfs.umount("/");
             tassert(umount_res.has_value(), "释放所有访问器后卸载应成功");
 
             delete initrd;
@@ -134,20 +131,19 @@ namespace test::fs {
         CaseOpenMissingFile() : TestCase("VFS 打开不存在文件应失败") {}
 
         void _run(void* env) const noexcept override {
-            auto* vfs = ::env::inst().vfs();
-            tassert(vfs != nullptr, "测试环境应提供已初始化的 VFS 实例");
+            auto& vfs = VFS::inst();
 
             RamDiskDevice* initrd = make_initrd();
             tassert(initrd != nullptr, "应能成功创建 initrd RamDisk 设备");
 
             auto mount_res =
-                vfs->mount("tarfs", initrd, "/", MountFlags::NONE, nullptr);
+                vfs.mount("tarfs", initrd, "/", MountFlags::NONE, nullptr);
             tassert(mount_res.has_value(), "应能将 tarfs 挂载到根目录 /");
 
-            auto missing_open = vfs->open("/this_file_should_not_exist");
+            auto missing_open = vfs.open("/this_file_should_not_exist");
             tassert(!missing_open.has_value(), "打开不存在文件应失败");
 
-            auto umount_res = vfs->umount("/");
+            auto umount_res = vfs.umount("/");
             tassert(umount_res.has_value(), "卸载根目录 / 应成功");
 
             delete initrd;
@@ -159,32 +155,31 @@ namespace test::fs {
         CaseMountParamValidation() : TestCase("VFS 挂载参数与重复挂载检查") {}
 
         void _run(void* env) const noexcept override {
-            auto* vfs = ::env::inst().vfs();
-            tassert(vfs != nullptr, "测试环境应提供已初始化的 VFS 实例");
+            auto& vfs = VFS::inst();
 
             RamDiskDevice* initrd = make_initrd();
             tassert(initrd != nullptr, "应能成功创建 initrd RamDisk 设备");
 
             action("挂载未注册文件系统应失败");
             auto invalid_mount =
-                vfs->mount("unknownfs", initrd, "/", MountFlags::NONE, nullptr);
+                vfs.mount("unknownfs", initrd, "/", MountFlags::NONE, nullptr);
             tassert(!invalid_mount.has_value() &&
                         invalid_mount.error() == ErrCode::INVALID_PARAM,
                     "未注册文件系统的挂载应被拒绝");
 
             auto mount_res =
-                vfs->mount("tarfs", initrd, "/", MountFlags::NONE, nullptr);
+                vfs.mount("tarfs", initrd, "/", MountFlags::NONE, nullptr);
             tassert(mount_res.has_value(),
                     "首次将 tarfs 挂载到根目录 / 应成功");
 
             action("同一挂载点重复挂载应失败");
             auto duplicate_mount =
-                vfs->mount("tarfs", initrd, "/", MountFlags::NONE, nullptr);
+                vfs.mount("tarfs", initrd, "/", MountFlags::NONE, nullptr);
             tassert(!duplicate_mount.has_value() &&
                         duplicate_mount.error() == ErrCode::INVALID_PARAM,
                     "同一挂载点重复挂载应被拒绝");
 
-            auto umount_res = vfs->umount("/");
+            auto umount_res = vfs.umount("/");
             tassert(umount_res.has_value(), "卸载根目录 / 应成功");
 
             delete initrd;
