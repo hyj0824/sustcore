@@ -11,21 +11,24 @@
 
 #pragma once
 
+#include <concepts>
 #include <cstring>
+#include <exception>
+#include <new>
 #include <utility>
 
 namespace std {
 
     template <typename F, typename... Args>
-    constexpr auto invoke(F&& f, Args&&... args)
-        -> invoke_result_t<F, Args...> {
+    constexpr auto invoke(F&& f,
+                          Args&&... args) -> invoke_result_t<F, Args...> {
         return detail::invoke_impl(std::forward<F>(f),
                                    std::forward<Args>(args)...);
     }
 
     template <typename MemPtr>
     class __mem_fn {
-      public:
+    public:
         using result_type = MemPtr;
 
         constexpr explicit __mem_fn(MemPtr ptr) noexcept : __pm(ptr) {}
@@ -36,7 +39,7 @@ namespace std {
             return std::invoke(__pm, std::forward<Args>(args)...);
         }
 
-      private:
+    private:
         MemPtr __pm;
     };
 
@@ -74,28 +77,28 @@ namespace std {
 
     template <typename T>
     struct less {
-        constexpr bool operator()(const T &a, const T &b) const noexcept {
+        constexpr bool operator()(const T& a, const T& b) const noexcept {
             return a < b;
         }
     };
 
     template <typename T>
     struct greater {
-        constexpr bool operator()(const T &a, const T &b) const noexcept {
+        constexpr bool operator()(const T& a, const T& b) const noexcept {
             return a > b;
         }
     };
 
     template <typename T>
     struct equal_to {
-        constexpr bool operator()(const T &a, const T &b) const noexcept {
+        constexpr bool operator()(const T& a, const T& b) const noexcept {
             return a == b;
         }
     };
 
     template <>
-    struct equal_to<const char *> {
-        constexpr bool operator()(const char *a, const char *b) const noexcept {
+    struct equal_to<const char*> {
+        constexpr bool operator()(const char* a, const char* b) const noexcept {
             return strcmp(a, b) == 0;
         }
     };
@@ -134,7 +137,8 @@ namespace std {
     template <>
     struct hash<long long> : public __trival_hash<long long> {};
     template <>
-    struct hash<unsigned long long> : public __trival_hash<unsigned long long> {};
+    struct hash<unsigned long long> : public __trival_hash<unsigned long long> {
+    };
     template <>
     struct hash<char> : public __trival_hash<char> {};
     template <>
@@ -145,6 +149,230 @@ namespace std {
     struct hash<unsigned short> : public __trival_hash<unsigned short> {};
     template <>
     struct hash<bool> : public __trival_hash<bool> {};
+    template <>
+    struct hash<void*> {
+        size_t operator()(void* ptr) const noexcept {
+            return hash<size_t>()(reinterpret_cast<size_t>(ptr));
+        }
+    };
 
-    
+    struct bad_function_call : public exception {
+        [[nodiscard]]
+        const char* what() const noexcept override {
+            return "bad function call";
+        }
+    };
+
+    template <typename _Fp>
+    class function;
+
+    namespace __functional_detail {
+        template <typename _Callable, typename _Function, typename _Ret,
+                  typename... _Args>
+        concept __callable_as_function =
+            !is_same_v<decay_t<_Callable>, _Function> &&
+            requires(const decay_t<_Callable>& callable) {
+                decay_t<_Callable>(callable);
+            } &&
+            ((is_void_v<_Ret> &&
+              requires(decay_t<_Callable>& callable, _Args... args) {
+                  std::invoke(callable, std::forward<_Args>(args)...);
+              }) ||
+             (!is_void_v<_Ret> &&
+              requires(decay_t<_Callable>& callable, _Args... args) {
+                  {
+                      std::invoke(callable, std::forward<_Args>(args)...)
+                  } -> convertible_to<_Ret>;
+              }));
+    }  // namespace __functional_detail
+
+    template <typename _Ret, typename... _Args>
+    class function<_Ret(_Args...)> {
+        static constexpr size_t __storage_size  = sizeof(void*) * 3;
+        static constexpr size_t __storage_align = alignof(void*);
+
+        using __storage_t = unsigned char[__storage_size];
+
+        template <typename _Tp>
+        static constexpr bool __fits_inline =
+            sizeof(_Tp) <= __storage_size && alignof(_Tp) <= __storage_align &&
+            (__storage_align % alignof(_Tp)) == 0;
+
+        struct __manager {
+            _Ret (*call)(void*, _Args&&...);
+            void (*clone)(void*, const void*);
+            void (*move)(void*, void*);
+            void (*destroy)(void*);
+        };
+
+        template <typename _Callable, bool _Inline>
+        struct __ops;
+
+        template <typename _Callable>
+        struct __ops<_Callable, true> {
+            static _Ret call(void* data, _Args&&... args) {
+                auto* callable = static_cast<_Callable*>(data);
+                if constexpr (is_void_v<_Ret>) {
+                    std::invoke(*callable, std::forward<_Args>(args)...);
+                } else {
+                    return std::invoke(*callable, std::forward<_Args>(args)...);
+                }
+            }
+
+            static void clone(void* dst, const void* src) {
+                auto* callable = static_cast<const _Callable*>(src);
+                new (dst) _Callable(*callable);
+            }
+
+            static void move(void* dst, void* src) {
+                auto* callable = static_cast<_Callable*>(src);
+                new (dst) _Callable(std::move(*callable));
+                callable->~_Callable();
+            }
+
+            static void destroy(void* data) {
+                static_cast<_Callable*>(data)->~_Callable();
+            }
+        };
+
+        template <typename _Callable>
+        struct __ops<_Callable, false> {
+            static _Ret call(void* data, _Args&&... args) {
+                auto* callable = *static_cast<_Callable**>(data);
+                if constexpr (is_void_v<_Ret>) {
+                    std::invoke(*callable, std::forward<_Args>(args)...);
+                } else {
+                    return std::invoke(*callable, std::forward<_Args>(args)...);
+                }
+            }
+
+            static void clone(void* dst, const void* src) {
+                auto* callable = *static_cast<_Callable* const*>(src);
+                *static_cast<_Callable**>(dst) = new _Callable(*callable);
+            }
+
+            static void move(void* dst, void* src) {
+                auto*& src_callable            = *static_cast<_Callable**>(src);
+                *static_cast<_Callable**>(dst) = src_callable;
+                src_callable                   = nullptr;
+            }
+
+            static void destroy(void* data) {
+                delete *static_cast<_Callable**>(data);
+            }
+        };
+
+        template <typename _Callable>
+        static constexpr __manager __manager_for = {
+            &__ops<_Callable, __fits_inline<_Callable>>::call,
+            &__ops<_Callable, __fits_inline<_Callable>>::clone,
+            &__ops<_Callable, __fits_inline<_Callable>>::move,
+            &__ops<_Callable, __fits_inline<_Callable>>::destroy,
+        };
+
+        alignas(__storage_align) __storage_t _storage{};
+        const __manager* _manager = nullptr;
+
+        void* __data() noexcept {
+            return static_cast<void*>(_storage);
+        }
+
+        const void* __data() const noexcept {
+            return static_cast<const void*>(_storage);
+        }
+
+        void __reset() noexcept {
+            if (_manager != nullptr) {
+                _manager->destroy(__data());
+                _manager = nullptr;
+            }
+        }
+
+        void __clone_from(const function& other) {
+            if (other._manager == nullptr) {
+                return;
+            }
+            other._manager->clone(__data(), other.__data());
+            _manager = other._manager;
+        }
+
+    public:
+        function() = default;
+
+        template <typename _Callable>
+            requires __functional_detail::__callable_as_function<
+                _Callable, function, _Ret, _Args...>
+        function(_Callable&& callable)
+            : _manager(&__manager_for<decay_t<_Callable>>) {
+            using _Target = decay_t<_Callable>;
+            if constexpr (__fits_inline<_Target>) {
+                new (__data()) _Target(std::forward<_Callable>(callable));
+            } else {
+                *static_cast<_Target**>(__data()) =
+                    new _Target(std::forward<_Callable>(callable));
+            }
+        }
+
+        function(const function& other) {
+            __clone_from(other);
+        }
+
+        function(function&& other) noexcept {
+            if (other._manager != nullptr) {
+                other._manager->move(__data(), other.__data());
+                _manager       = other._manager;
+                other._manager = nullptr;
+            }
+        }
+
+        ~function() {
+            __reset();
+        }
+
+        function& operator=(const function& other) {
+            if (this != &other) {
+                __reset();
+                __clone_from(other);
+            }
+            return *this;
+        }
+
+        function& operator=(function&& other) noexcept {
+            if (this != &other) {
+                __reset();
+                if (other._manager != nullptr) {
+                    other._manager->move(__data(), other.__data());
+                    _manager       = other._manager;
+                    other._manager = nullptr;
+                }
+            }
+            return *this;
+        }
+
+        template <typename _Callable>
+            requires __functional_detail::__callable_as_function<
+                _Callable, function, _Ret, _Args...>
+        function& operator=(_Callable&& callable) {
+            function tmp(std::forward<_Callable>(callable));
+            *this = std::move(tmp);
+            return *this;
+        }
+
+        explicit operator bool() const noexcept {
+            return _manager != nullptr;
+        }
+
+        _Ret operator()(_Args... args) const {
+            if (_manager == nullptr) {
+                _THROW(std::bad_function_call());
+            }
+            if constexpr (is_void_v<_Ret>) {
+                _manager->call(const_cast<void*>(__data()),
+                               std::forward<_Args>(args)...);
+            } else {
+                return _manager->call(const_cast<void*>(__data()),
+                                      std::forward<_Args>(args)...);
+            }
+        }
+    };
 }  // namespace std

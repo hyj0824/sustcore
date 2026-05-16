@@ -186,29 +186,28 @@ namespace syscall {
         bool ok;
     };
 
-    static bool recv_post_action(task::TCB *, void *raw_ctx) {
-        auto *ctx = static_cast<RecvPostContext *>(raw_ctx);
-        if (ctx == nullptr || ctx->endpoint == nullptr) {
+    static bool handle_received_message(RecvPostContext &ctx) {
+        if (ctx.endpoint == nullptr) {
             return false;
         }
-        if (ctx->endpoint->messages.empty()) {
+        if (ctx.endpoint->messages.empty()) {
             return false;
         }
 
-        cap::EndpointMessage *msg = &ctx->endpoint->messages.front();
-        ctx->endpoint->messages.pop_front();
+        cap::EndpointMessage *msg = &ctx.endpoint->messages.front();
+        ctx.endpoint->messages.pop_front();
         auto msg_guard = util::Guard([&]() { delete msg; });
 
-        auto wake_res = task::wait::wake_one(ctx->endpoint->send_wait_reason);
+        auto wake_res = task::wait::wake_one(ctx.endpoint->send_wait_reason);
         if (!wake_res.has_value()) {
-            ctx->ok = false;
+            ctx.ok = false;
             return true;
         }
 
-        auto write_res = write_received_msg(ctx->holder, msg, ctx->msgbuf,
-                                            ctx->msgsz, ctx->caplist,
-                                            ctx->capsz);
-        ctx->ok = write_res.has_value();
+        auto write_res = write_received_msg(ctx.holder, msg, ctx.msgbuf,
+                                            ctx.msgsz, ctx.caplist,
+                                            ctx.capsz);
+        ctx.ok = write_res.has_value();
         if (!write_res.has_value()) {
             loggers::SYSCALL::ERROR("接收endpoint消息失败: 写回失败 err=%d",
                                     write_res.error());
@@ -289,7 +288,10 @@ namespace syscall {
             .ok       = true,
         };
 
-        auto recv_res = endpoint_obj.recv_sync(recv_post_action, &ctx);
+        auto recv_res =
+            endpoint_obj.recv_sync([&ctx](task::TCB *) {
+                return handle_received_message(ctx);
+            });
         if (!recv_res.has_value()) {
             loggers::SYSCALL::ERROR("接收endpoint消息失败: err=%d",
                                     recv_res.error());

@@ -123,13 +123,12 @@ namespace cap {
         return msg;
     }
 
-    Result<bool> EndpointObject::recv_sync(task::wait::WakePostAction action,
-                                           void *ctx) {
+    Result<bool> EndpointObject::recv_sync(task::wait::WakePostAction action) {
         if (!imply(perm::endpoint::READ)) {
             loggers::CAPABILITY::ERROR("Endpoint READ权限不足");
             unexpect_return(ErrCode::INSUFFICIENT_PERMISSIONS);
         }
-        if (action == nullptr) {
+        if (!action) {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
 
@@ -137,7 +136,7 @@ namespace cap {
         guard.enter();
 
         if (!_obj->messages.empty()) {
-            return action(nullptr, ctx);
+            return action(nullptr);
         }
 
         loggers::CAPABILITY::INFO("Endpoint没有消息可接收, 线程进入等待");
@@ -146,8 +145,8 @@ namespace cap {
         // 但是我们希望在线程调度状态回到就绪态时进行后半部分的处理(即从消息队列中取出消息并返回)
         // 因此引入一个编译期协程框架可能会对其实现有所裨益
         // 目前先通过向 wait_current() 传入一个回调函数来实现这个功能
-        auto wait_res =
-            task::wait::wait_current(_obj->recv_wait_reason, action, ctx);
+        auto wait_res = task::wait::wait_current(_obj->recv_wait_reason,
+                                                 std::move(action));
         return wait_res.transform(always(true));
     }
 }  // namespace cap

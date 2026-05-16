@@ -43,6 +43,6 @@ namespace cap {
         Result<bool> send(pid_t sender_pid, const char *msgbuf, size_t msgsz,
                           Capability **caps, size_t capsz, bool blocking);
         Result<EndpointMessage *> recv_async();
-        Result<bool> recv_sync(task::wait::WakePostAction action, void *ctx);
+        Result<bool> recv_sync(task::wait::WakePostAction action);
     };
 }  // namespace cap

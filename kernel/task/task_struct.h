@@ -22,6 +22,8 @@
 #include <sus/tree.h>
 #include <sustcore/addr.h>
 
+#include <functional>
+
 using tid_t        = size_t;
 using pid_t        = size_t;
 using WaitReasonId = size_t;
@@ -31,7 +33,7 @@ namespace task {
     struct PCB;
 
     namespace wait {
-        using WakePostAction = bool (*)(TCB *tcb, void *ctx);
+        using WakePostAction = std::function<bool(TCB *tcb)>;
     }
 
     // Make sure that TCB is has standard layout,
@@ -63,7 +65,6 @@ namespace task {
         // wait data
         WaitReasonId wait_reason;
         wait::WakePostAction wait_post_action;
-        void *wait_post_action_ctx;
         util::ListHead<TCB> wait_head;
 
         void *operator new(size_t size);

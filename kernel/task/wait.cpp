@@ -75,12 +75,11 @@ namespace task::wait {
     }
 
     Result<void> WaitReasonManager::enqueue(WaitReasonId id, TCB *tcb) {
-        return enqueue(id, tcb, nullptr, nullptr);
+        return enqueue(id, tcb, {});
     }
 
     Result<void> WaitReasonManager::enqueue(WaitReasonId id, TCB *tcb,
-                                            WakePostAction action,
-                                            void *ctx) {
+                                            WakePostAction action) {
         if (tcb == nullptr) {
             unexpect_return(ErrCode::NULLPTR);
         }
@@ -88,8 +87,7 @@ namespace task::wait {
         propagate(qres);
 
         tcb->wait_reason        = id;
-        tcb->wait_post_action     = action;
-        tcb->wait_post_action_ctx = ctx;
+        tcb->wait_post_action   = std::move(action);
         tcb->basic_entity.state = ThreadState::WAITING;
         qres.value()->threads.push_back(*tcb);
         void_return();
@@ -107,8 +105,7 @@ namespace task::wait {
         TCB *tcb = &queue->threads.front();
         queue->threads.pop_front();
         tcb->wait_reason        = 0;
-        tcb->wait_post_action     = nullptr;
-        tcb->wait_post_action_ctx = nullptr;
+        tcb->wait_post_action   = {};
         tcb->wait_head.clear();
         return tcb;
     }
@@ -117,7 +114,7 @@ namespace task::wait {
         if (tcb == nullptr) {
             return false;
         }
-        if (tcb->wait_post_action == nullptr) {
+        if (!tcb->wait_post_action) {
             return true;
         }
 
@@ -132,8 +129,7 @@ namespace task::wait {
             PageMan::flush_tlb();
         }
 
-        bool should_wake =
-            tcb->wait_post_action(tcb, tcb->wait_post_action_ctx);
+        bool should_wake = tcb->wait_post_action(tcb);
 
         if (target_tmm != nullptr && target_tmm->pgd().nonnull() &&
             target_tmm->pgd() != origin_pgd) {
@@ -148,8 +144,7 @@ namespace task::wait {
     static void clear_wait_metadata(TCB *tcb) {
         assert(tcb != nullptr);
         tcb->wait_reason        = 0;
-        tcb->wait_post_action     = nullptr;
-        tcb->wait_post_action_ctx = nullptr;
+        tcb->wait_post_action   = {};
         tcb->wait_head.clear();
     }
 
@@ -232,9 +227,8 @@ namespace task::wait {
         return schd::Scheduler::inst().block_current(id);
     }
 
-    Result<void> wait_current(WaitReasonId id, WakePostAction action,
-                              void *ctx) {
-        return schd::Scheduler::inst().block_current(id, action, ctx);
+    Result<void> wait_current(WaitReasonId id, WakePostAction action) {
+        return schd::Scheduler::inst().block_current(id, std::move(action));
     }
 
     Result<size_t> wake_one(WaitReasonId id) {

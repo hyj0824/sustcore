@@ -36,6 +36,7 @@ void collect_tests(TestFramework& framework) {
     test::schd_test::rr::collect_tests(framework);
     test::string::collect_tests(framework);
     test::string_view::collect_tests(framework);
+    test::functional::collect_tests(framework);
     test::tree::collect_tests(framework);
     test::unordered_map::collect_tests(framework);
 

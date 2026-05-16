@@ -81,11 +81,59 @@ namespace test::functional {
         }
     };
 
+    class CaseFunctionObject : public TestCase {
+    public:
+        CaseFunctionObject() : TestCase("function 小对象、复制与移动") {}
+
+        struct BigCapture {
+            int values[8];
+
+            int operator()(int x) {
+                return values[0] + values[7] + x;
+            }
+        };
+
+        void _run(void* env [[maybe_unused]]) const noexcept override {
+            int base = 7;
+            std::function<int(int)> small = [base](int x) {
+                return base + x;
+            };
+            ttest(static_cast<bool>(small));
+            ttest(small(5) == 12);
+
+            std::function<int(int)> copied = small;
+            ttest(static_cast<bool>(copied));
+            ttest(copied(6) == 13);
+            ttest(small(1) == 8);
+
+            std::function<int(int)> moved = std::move(copied);
+            ttest(static_cast<bool>(moved));
+            ttest(!static_cast<bool>(copied));
+            ttest(moved(2) == 9);
+
+            BigCapture big{{1, 2, 3, 4, 5, 6, 7, 8}};
+            std::function<int(int)> heap_backed = big;
+            ttest(static_cast<bool>(heap_backed));
+            ttest(heap_backed(10) == 19);
+
+            std::function<void(int&)> void_func = [](int& value) {
+                value += 3;
+            };
+            int value = 4;
+            void_func(value);
+            ttest(value == 7);
+
+            std::function<int(int)> empty;
+            ttest(!static_cast<bool>(empty));
+        }
+    };
+
     void collect_tests(TestFramework& framework) {
         auto cases = util::ArrayList<TestCase*>();
         cases.push_back(new CaseInvokeFunction());
         cases.push_back(new CaseInvokeMember());
         cases.push_back(new CaseMemFn());
+        cases.push_back(new CaseFunctionObject());
 
         framework.add_category(new TestCategory("functional", std::move(cases)));
     }

@@ -59,8 +59,7 @@ namespace task {
             tcb->basic_entity = {};
             tcb->rr_entity   = {};
             tcb->wait_reason = 0;
-            tcb->wait_post_action = nullptr;
-            tcb->wait_post_action_ctx = nullptr;
+            tcb->wait_post_action = {};
             tcb->wait_head   = {};
             return util::nnullforce(tcb);
         }
