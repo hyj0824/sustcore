@@ -156,11 +156,15 @@ void after_init() {
     TestFramework framework;
     collect_tests(framework);
     framework.run_all();
-#else
+    loggers::SUSTCORE::INFO("Test complete.");
 #endif
 
-    loggers::SUSTCORE::INFO("Test complete. Start scheduler.");
+#ifdef __CONF_KERNEL_RUN_MODULES
+    // Run kernel modules
     schd::Scheduler::inst().run_current();
+#endif
+
+    while (true);
 }
 
 void init_kop();

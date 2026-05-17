@@ -24,8 +24,8 @@ private:
     mutable bool passflag = false;
     mutable util::ArrayList<std::string> fail_reasons;
 
-    // 是否在检查通过时也输出信息; 默认 true 保持原有语义
-    bool verbose_pass = true;
+    // 是否输出通过断言和步骤说明; 默认关闭以保持测试输出精简
+    bool verbose_pass = false;
 
 public:
     TestCase(const char* name) : _name(name) {}
@@ -45,8 +45,10 @@ public:
 protected:
     bool test(bool condition, std::string&& reason) const {
         if (!condition) {
-            kprintfln(ANSI_GRAPHIC(ANSI_FG_RED) "      - 检查失败:" ANSI_GRAPHIC(
-                ANSI_GM_RESET)" %s" , reason.c_str());
+            if (verbose_pass) {
+                kprintfln(ANSI_GRAPHIC(ANSI_FG_RED) "      - 检查失败:" ANSI_GRAPHIC(
+                    ANSI_GM_RESET)" %s" , reason.c_str());
+            }
             fail_reasons.emplace_back(std::move(reason));
         } else if (verbose_pass) {
             kprintfln(ANSI_GRAPHIC(ANSI_FG_GREEN) "    - 检查通过:" ANSI_GRAPHIC(
@@ -58,8 +60,10 @@ protected:
     }
     bool test(bool condition, const char* reason) const {
         if (!condition) {
-            kprintfln(ANSI_GRAPHIC(ANSI_FG_RED) "      - 检查失败:" ANSI_GRAPHIC(
-                ANSI_GM_RESET)" %s" , reason);
+            if (verbose_pass) {
+                kprintfln(ANSI_GRAPHIC(ANSI_FG_RED) "      - 检查失败:" ANSI_GRAPHIC(
+                    ANSI_GM_RESET)" %s" , reason);
+            }
             fail_reasons.emplace_back(reason);
         } else if (verbose_pass) {
             kprintfln(ANSI_GRAPHIC(ANSI_FG_GREEN) "    - 检查通过:" ANSI_GRAPHIC(
@@ -71,16 +75,24 @@ protected:
     }
 
     void expect(const char* reason) const {
-        kprintfln("    - [预期行为] %s", reason);
+        if (verbose_pass) {
+            kprintfln("    - [预期行为] %s", reason);
+        }
     }
     void check(const char* reason) const {
-        kprintfln("    - [状态检查] %s", reason);
+        if (verbose_pass) {
+            kprintfln("    - [状态检查] %s", reason);
+        }
     }
     void action(const char* reason) const {
-        kprintfln("    - [执行动作] %s", reason);
+        if (verbose_pass) {
+            kprintfln("    - [执行动作] %s", reason);
+        }
     }
     void comment(const char* reason) const {
-        kprintfln("    - [注] %s", reason);
+        if (verbose_pass) {
+            kprintfln("    - [注] %s", reason);
+        }
     }
 
     void expect(const std::string& reason) const {

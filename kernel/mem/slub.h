@@ -417,7 +417,7 @@ namespace slub {
             void *ptr;
             size_t size;
             // TODO: 改成用哈希表/红黑树?
-            util::ListHead<AllocRecord> list_head;
+            util::ListHead<AllocRecord> list_head{};
             static SlubAllocator<AllocRecord> SLUB;
 
             constexpr AllocRecord(void *ptr, size_t size)
@@ -434,9 +434,18 @@ namespace slub {
         };
         static util::IntrusiveList<AllocRecord> alloc_records;
 
-        static void add_record(void *ptr, size_t rsz) {
+        static bool add_record(void *ptr, size_t rsz) {
             auto *record = new AllocRecord(ptr, rsz);
-            alloc_records.push_back(*record);
+            auto inserted = alloc_records.insert(alloc_records.end(), *record);
+            if (inserted == alloc_records.end()) {
+                loggers::MEMORY::ERROR(
+                    "无法记录分配: ptr=%p size=%u record=%p prev=%p next=%p",
+                    ptr, static_cast<unsigned int>(rsz), record,
+                    record->list_head.prev, record->list_head.next);
+                delete record;
+                return false;
+            }
+            return true;
         }
 
         static AllocRecord *get_record(void *ptr) {
@@ -533,7 +542,11 @@ namespace slub {
             }
             loggers::MEMORY::DEBUG("分配了 %p, size = %d(实际大小为%d)", ptr,
                                    sz, rsz);
-            add_record(ptr, rsz);
+            if (!add_record(ptr, rsz)) {
+                _free(ptr, rsz);
+                assert(false);
+                return nullptr;
+            }
             return ptr;
         }
 

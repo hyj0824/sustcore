@@ -166,9 +166,7 @@ namespace test::buddy {
         cases.push_back(new CaseMerge());
         cases.push_back(new CaseInvalidArgs());
         cases.push_back(new CaseAlignment());
-        // TODO: 这一测试会引发空指针错误
-        // 暂时注释该测试, 需要后续修复后再启用
-        // cases.push_back(new CaseStressSmall());
+        cases.push_back(new CaseStressSmall());
 
         framework.add_category(new TestCategory("buddy", std::move(cases)));
     }

@@ -111,8 +111,12 @@ namespace test::slub {
             expect("分配 150 个小对象以触发 Slab 扩张");
             for (int i = 0; i < kCount; i++) {
                 objs[i] = reinterpret_cast<SlubSmallObj*>(alloc.alloc());
-                if (!test(objs[i] != nullptr, "分配成功")) break;
+                if (objs[i] == nullptr) {
+                    test(false, "分配失败");
+                    break;
+                }
             }
+            test(true, "分配成功");
 
             auto stats = alloc.get_stats();
             check("查看统计信息 : Slabs 数量应大于 1");
@@ -151,7 +155,10 @@ namespace test::slub {
             // 第三阶段 : 再次填满
             for (int i = 0; i < kIter; i += 2) {
                 pool[i] = alloc.alloc();
-                ttest(pool[i] != nullptr);
+                if (pool[i] == nullptr) {
+                    test(false, "分配失败");
+                    break;
+                }
             }
 
             action("清理所有对象");
@@ -162,6 +169,62 @@ namespace test::slub {
         }
     };
 
+    class CaseMixedAllocatorRecords : public TestCase {
+    public:
+        CaseMixedAllocatorRecords() : TestCase("SLUB 全局分配记录回归测试") {}
+        void _run(void* env [[maybe_unused]]) const noexcept override {
+            constexpr size_t kSizes[] = {1,   8,   9,   17,   33,  65,
+                                         129, 257, 513, 1025, 2048};
+            constexpr int kRounds     = 8;
+            constexpr int kSizeCount  = sizeof(kSizes) / sizeof(kSizes[0]);
+            void* ptrs[kRounds][kSizeCount] = {};
+
+            expect("通过 Allocator 批量分配不同尺寸对象");
+            for (int round = 0; round < kRounds; ++round) {
+                for (int i = 0; i < kSizeCount; ++i) {
+                    ptrs[round][i] = Allocator::malloc(kSizes[i]);
+                    if (ptrs[round][i] == nullptr) {
+                        test(false, "Allocator 分配失败");
+                        break;
+                    }
+                }
+            }
+
+            action("交错释放一半对象, 触发 AllocRecord 复用");
+            for (int round = 0; round < kRounds; round += 2) {
+                for (int i = 0; i < kSizeCount; ++i) {
+                    if (ptrs[round][i] != nullptr) {
+                        Allocator::free(ptrs[round][i]);
+                        ptrs[round][i] = nullptr;
+                    }
+                }
+            }
+
+            action("重新填充已释放槽位");
+            for (int round = 0; round < kRounds; round += 2) {
+                for (int i = 0; i < kSizeCount; ++i) {
+                    ptrs[round][i] = Allocator::malloc(kSizes[i]);
+                    if (ptrs[round][i] == nullptr) {
+                        test(false, "Allocator 复用分配失败");
+                        break;
+                    }
+                }
+            }
+
+            action("释放所有对象, 验证分配记录可查找并移除");
+            for (int round = 0; round < kRounds; ++round) {
+                for (int i = 0; i < kSizeCount; ++i) {
+                    if (ptrs[round][i] != nullptr) {
+                        Allocator::free(ptrs[round][i]);
+                        ptrs[round][i] = nullptr;
+                    }
+                }
+            }
+
+            ttest(true);
+        }
+    };
+
     void collect_tests(TestFramework& framework) {
         auto cases = util::ArrayList<TestCase*>();
         cases.push_back(new CaseSmallObjAlloc());
@@ -169,6 +232,7 @@ namespace test::slub {
         cases.push_back(new CaseHugeObjPath());
         cases.push_back(new CaseMultiSlab());
         cases.push_back(new CaseStressFreelist());
+        cases.push_back(new CaseMixedAllocatorRecords());
 
         framework.add_category(new TestCategory("slub", std::move(cases)));
     }

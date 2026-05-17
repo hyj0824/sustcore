@@ -267,15 +267,12 @@ Result<PhyAddr> BuddyAllocator::get_free_pages_in_order(size_t order) {
 
 template <KernelStage Stage>
 void BuddyAllocator::put_page(PhyAddr paddr, size_t frame_count) {
-    if (!paddr.nonnull())
+    if (!paddr.nonnull() || frame_count == 0)
         return;
-    size_t order = pages2order(frame_count);
 
     assert(paddr.aligned<PAGESIZE>());
-    assert(order >= 0);
-    assert(order <= MAX_BUDDY_ORDER);
 
-    put_page_in_order<Stage>(paddr, order);
+    add_memory_range<Stage>(paddr, frame_count);
 }
 
 template <KernelStage Stage>

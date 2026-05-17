@@ -29,19 +29,19 @@
 #include <test/unordered_map.h>
 
 void collect_tests(TestFramework& framework) {
+    test::buddy::collect_tests(framework);
     test::cap::collect_tests(framework);
+    test::expected::collect_tests(framework);
     test::fs::collect_tests(framework);
+    test::functional::collect_tests(framework);
     test::path::collect_tests(framework);
     test::schd_test::fcfs::collect_tests(framework);
     test::schd_test::rr::collect_tests(framework);
+    test::slub::collect_tests(framework);
     test::string::collect_tests(framework);
     test::string_view::collect_tests(framework);
-    test::functional::collect_tests(framework);
     test::tree::collect_tests(framework);
     test::unordered_map::collect_tests(framework);
-
-    test::buddy::collect_tests(framework);
-    test::slub::collect_tests(framework);
 }
 
 void TestFramework::run_all() const {
@@ -77,18 +77,26 @@ void TestFramework::run_all() const {
             : category(cat), test_case(tc), reasons(tc->fail_reasons_list()) {}
     };
     util::ArrayList<FailedReason> failed_cases;
+    unsigned int category_count = 0;
+    unsigned int case_count     = 0;
+    unsigned int passed_count   = 0;
+
     for (auto* category : _categories) {
+        ++category_count;
         kprintfln("运行测试范畴: %s", category->name());
         void* env = category->setup();
         for (const auto* test_case : category->cases()) {
-            kprintfln("  运行测试案例: %s... ", test_case->name());
+            ++case_count;
             bool result = test_case->run(env);
             if (result) {
-                kprintfln(ANSI_GRAPHIC(ANSI_FG_GREEN) "  测试通过" ANSI_GRAPHIC(
-                    ANSI_GM_RESET));
+                ++passed_count;
+                kprintfln(ANSI_GRAPHIC(ANSI_FG_GREEN) "  [PASS]" ANSI_GRAPHIC(
+                              ANSI_GM_RESET) " %s",
+                          test_case->name());
             } else {
-                kprintfln(ANSI_GRAPHIC(ANSI_FG_RED) "  测试失败" ANSI_GRAPHIC(
-                    ANSI_GM_RESET));
+                kprintfln(ANSI_GRAPHIC(ANSI_FG_RED) "  [FAIL]" ANSI_GRAPHIC(
+                              ANSI_GM_RESET) " %s",
+                          test_case->name());
                 failed_cases.emplace_back(category, test_case);
             }
         }
@@ -97,12 +105,16 @@ void TestFramework::run_all() const {
     }
 
     if (failed_cases.empty()) {
-        kprintfln(ANSI_GRAPHIC(ANSI_FG_GREEN) "所有测试通过!" ANSI_GRAPHIC(
-            ANSI_GM_RESET));
+        kprintfln(ANSI_GRAPHIC(ANSI_FG_GREEN)
+                      "所有测试通过! 范畴: %u, 案例: %u" ANSI_GRAPHIC(
+                          ANSI_GM_RESET),
+                  category_count, case_count);
     } else {
-        kprintfln(ANSI_GRAPHIC(ANSI_FG_RED) "%u 个测试失败:" ANSI_GRAPHIC(
-                      ANSI_GM_RESET),
-                  failed_cases.size());
+        kprintfln(ANSI_GRAPHIC(ANSI_FG_RED)
+                      "测试完成: 范畴: %u, 案例: %u, 通过: %u, 失败: %u" ANSI_GRAPHIC(
+                          ANSI_GM_RESET),
+                  category_count, case_count, passed_count,
+                  static_cast<unsigned int>(failed_cases.size()));
         for (const auto& [category, test_case, reasons] : failed_cases) {
             kprintfln("  - %s:%s 失败! 原因是:", category->name(),
                       test_case->name());
