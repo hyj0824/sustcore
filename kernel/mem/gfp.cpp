@@ -21,7 +21,7 @@ PhyAddr LinearGrowGFP::boundary = PhyAddr::null;
 
 void LinearGrowGFP::pre_init() {
     PhyAddr _baseaddr = PhyAddr::null;
-    // 从regions中找到大小最大的可用内存区域，作为线性增长GFP的内存池
+    // 从regions中找到大小最大的可用内存区域, 作为线性增长GFP的内存池
     size_t max_size   = 0;
     auto &meminfo = env::inst().meminfo();
     for (size_t i = 0; i < meminfo.region_cnt; i++) {

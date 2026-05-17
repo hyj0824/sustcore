@@ -14,7 +14,7 @@
 #include <exe/task.h>
 
 namespace loader::elf {
-	// 解析 ELF 并将 PT_LOAD 段加载到 TaskSpec 的地址空间中。
-	// 该实现不直接映射页，依赖缺页异常路径完成物理页分配与映射。
+	// 解析 ELF 并将 PT_LOAD 段加载到 TaskSpec 的地址空间中. 
+	// 该实现不直接映射页, 依赖缺页异常路径完成物理页分配与映射. 
 	Result<void> load(TaskSpec &spec, const LoadPrm &prm);
 };

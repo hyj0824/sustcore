@@ -118,12 +118,12 @@ enum FID {
 // 所有可能的 HSM 状态
 enum HSM_STATE {
     STARTED         = 0,  // Hart 已物理上电并正常执行
-    STOPPED         = 1,  // Hart 未在监控模式及更低权限模式，或已被 SBI 下电
-    START_PENDING   = 2,  // 已请求启动该 hart，仍在努力使其进入 STARTED
-    STOP_PENDING    = 3,  // 已请求停止或下电自身，仍在努力使其进入 STOPPED
-    SUSPENDED       = 4,  // 此 hart 处于平台特定的挂起（或低功耗）状态
-    SUSPEND_PENDING = 5,  // 已请求挂起该 hart，仍在努力使其进入 SUSPENDED
-    RESUME_PENDING  = 6   // 已请求恢复该 hart，仍在努力使其进入 STARTED
+    STOPPED         = 1,  // Hart 未在监控模式及更低权限模式, 或已被 SBI 下电
+    START_PENDING   = 2,  // 已请求启动该 hart, 仍在努力使其进入 STARTED
+    STOP_PENDING    = 3,  // 已请求停止或下电自身, 仍在努力使其进入 STOPPED
+    SUSPENDED       = 4,  // 此 hart 处于平台特定的挂起 (或低功耗）状态
+    SUSPEND_PENDING = 5,  // 已请求挂起该 hart, 仍在努力使其进入 SUSPENDED
+    RESUME_PENDING  = 6   // 已请求恢复该 hart, 仍在努力使其进入 STARTED
 };
 
 #ifdef __cplusplus

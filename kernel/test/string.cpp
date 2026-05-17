@@ -153,7 +153,7 @@ namespace test::string {
             ttest(s1.empty());
             ttest(s1.size() == 0);
             ttest(s1.c_str() !=
-                  nullptr);  // 应指向一个有效地址（哪怕是内部缓冲区）
+                  nullptr);  // 应指向一个有效地址 (哪怕是内部缓冲区）
             ttest(s1.c_str()[0] == '\0');
 
             action("清空长字符串并验证状态");
@@ -210,7 +210,7 @@ namespace test::string {
     public:
         CaseSSOThreshold() : TestCase("String SSO 临界容量测试") {}
         void _run(void* env [[maybe_unused]]) const noexcept override {
-            // 在 64 位环境下，SSO 容量通常是 23
+            // 在 64 位环境下, SSO 容量通常是 23
             std::string s;
             size_t sso_cap = s.capacity();
 
@@ -224,7 +224,7 @@ namespace test::string {
             action("再追加一个字符触发临界转换");
             s.push_back('y');
             ttest(s.size() == sso_cap + 1);
-            ttest(s.data() != sso_ptr);  // 指针应当发生变化，转换到了长模式
+            ttest(s.data() != sso_ptr);  // 指针应当发生变化, 转换到了长模式
             ttest(s[sso_cap] == 'y');
         }
     };

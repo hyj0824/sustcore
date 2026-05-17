@@ -170,7 +170,7 @@ namespace tarfs {
 		size_t size   = device->block_sz() * device->block_cnt();
 		uint8_t *data = nullptr;
 		if (device->is<RamDiskDevice>()) {
-			// 直接使用其内存作为数据源，减少复制
+			// 直接使用其内存作为数据源, 减少复制
 			data = static_cast<uint8_t *>(device->as<RamDiskDevice>()->base());
 		} else {
 			data = new uint8_t[size];

@@ -5,8 +5,8 @@
  * @version alpha-1.0.0
  * @date 2026-02-13
  *
- * 生命周期由 Dentry 树管理，INode 和 Dentry 保证一一对应；
- * 所以 TarNode 糅合了 Dentry 与 INode，
+ * 生命周期由 Dentry 树管理, INode 和 Dentry 保证一一对应; 
+ * 所以 TarNode 糅合了 Dentry 与 INode, 
  * 负责析构 File/Directory 视图
  *
  * @copyright Copyright (c) 2026
@@ -40,7 +40,7 @@ namespace tarfs {
 				break;
 			}
 			if (c < '0' || c > '7') {
-				// 非法字符，返回当前结果
+				// 非法字符, 返回当前结果
 				break;
 			}
 			result = (result << 3) + (c - '0');

@@ -275,7 +275,7 @@ namespace util::tree_base {
     }  // namespace traits
 
     // 子类注入的实现
-    // 在这里不是用CustomTag来条件编译，是用来让编译器区分不同的树结构，避免多树无法区分
+    // 在这里不是用CustomTag来条件编译, 是用来让编译器区分不同的树结构, 避免多树无法区分
 
     template <typename Derived, typename CustomTag,
               template <typename, typename> typename Trait>

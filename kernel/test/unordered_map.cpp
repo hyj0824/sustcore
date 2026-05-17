@@ -69,7 +69,7 @@ namespace test::unordered_map {
             ttest(first.second);
             ttest(map.size() == 1);
 
-            action("重复键再次插入应返回失败，并保留原值");
+            action("重复键再次插入应返回失败, 并保留原值");
             auto second = map.insert(std::make_pair(3, 999));
             ttest(!second.second);
             ttest(map.size() == 1);
@@ -212,7 +212,7 @@ namespace test::unordered_map {
             ttest(map.find(2)->second == 20);
             ttest(map.find(3)->second == 30);
 
-            action("删除链中间元素后，其余元素仍应可达");
+            action("删除链中间元素后, 其余元素仍应可达");
             ttest(map.erase(2) == 1);
             ttest(map.size() == 2);
             ttest(map.find(2) == map.end());
@@ -230,7 +230,7 @@ namespace test::unordered_map {
         void _run(void* env [[maybe_unused]]) const noexcept override {
             std::unordered_map<int, int> map;
 
-            action("批量插入 64 个元素，覆盖 rehash 路径");
+            action("批量插入 64 个元素, 覆盖 rehash 路径");
             for (int i = 0; i < 64; ++i) {
                 auto result = map.insert(std::make_pair(i, i * 10));
                 ttest(result.second);

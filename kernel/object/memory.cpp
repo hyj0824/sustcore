@@ -19,14 +19,14 @@
 
 namespace {
     /**
-     * @brief 将 Memory 内偏移向下对齐到页边界。
+     * @brief 将 Memory 内偏移向下对齐到页边界. 
      */
     size_t page_offset(size_t offset) {
         return page_align_down(offset);
     }
 
     /**
-     * @brief 判断请求的增长/收缩方式是否被 Memory 属性允许。
+     * @brief 判断请求的增长/收缩方式是否被 Memory 属性允许. 
      */
     bool growth_allows(cap::MemoryGrowth owned, cap::MemoryGrowth requested) {
         if (requested == cap::MemoryGrowth::FIXED) {
@@ -36,9 +36,9 @@ namespace {
     }
 
     /**
-     * @brief 为 continuity Memory 预分配连续物理页。
+     * @brief 为 continuity Memory 预分配连续物理页. 
      *
-     * 已分配过物理页或大小为 0 时不做任何操作。
+     * 已分配过物理页或大小为 0 时不做任何操作. 
      */
     Result<void> ensure_contiguous(cap::MemoryPayload *memory) {
         if (memory == nullptr) {

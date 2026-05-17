@@ -27,7 +27,7 @@ public:
     /**
      * @brief 获得块大小
      *
-     * @return size_t 块大小（字节）
+     * @return size_t 块大小 (字节）
      */
     virtual size_t block_sz(void) const                          = 0;
     /**

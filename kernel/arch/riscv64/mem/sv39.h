@@ -57,7 +57,7 @@ constexpr umb_t rwx_cast(Riscv64SV39RWX rwx) {
         case Riscv64SV39RWX::X:   return 0b100;
         case Riscv64SV39RWX::RX:  return 0b101;
         case Riscv64SV39RWX::RWX: return 0b111;
-        default:                  return 0b000;  // 非法组合，设置为P
+        default:                  return 0b000;  // 非法组合, 设置为P
     }
 }
 
@@ -352,7 +352,7 @@ public:
                 unexpect_return(ErrCode::PAGE_NOT_PRESENT);
             }
 
-            // 不为P且有效，说明是叶子页表项
+            // 不为P且有效, 说明是叶子页表项
             if (pte.rwx != RWX::P) {
                 // 大页映射
                 PageSize size = PageSize::_4K;
@@ -495,7 +495,7 @@ public:
             PhyAddr _pa   = _ps;
 
             // 寻找合适的大页映射
-            // 优先使用1G大页，其次2M大页，最后4K小页
+            // 优先使用1G大页, 其次2M大页, 最后4K小页
             // 且使用时保证地址对齐
             while (remcnt > 0) {
                 if ((remcnt >= cnt1g) && _va.aligned<sz1g>() &&

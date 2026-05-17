@@ -105,7 +105,7 @@ namespace schd::rr {
                 entity->slice_cnt--;
             }
             if (entity->slice_cnt == 0) {
-                // 时间片用尽，添加 NEED_RESCHED 标志
+                // 时间片用尽, 添加 NEED_RESCHED 标志
                 util::nonnull<SchedMeta *> meta = this->asmeta(unit);
                 meta->flags_set<SchedMeta::FLAGS_NEED_RESCHED>();
             }

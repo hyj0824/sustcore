@@ -49,7 +49,7 @@ namespace test::slub {
                 }
             }
 
-            check("验证统计信息：inuse 应归零");
+            check("验证统计信息 : inuse 应归零");
             auto stats = alloc.get_stats();
             ttest(stats.objects_inuse == 0);
         }
@@ -66,7 +66,7 @@ namespace test::slub {
             tassert(p1 != nullptr);
             alloc.free(p1);
 
-            expect("再次分配对象，验证是否重用 (理想情况下 p1 == p2)");
+            expect("再次分配对象, 验证是否重用 (理想情况下 p1 == p2)");
             SlubSmallObj* p2 = alloc.alloc();
             ttest(p2 == p1);
 
@@ -103,7 +103,7 @@ namespace test::slub {
         void _run(void* env [[maybe_unused]]) const noexcept override {
             ::slub::SlubAllocator<SlubSmallObj> alloc;
             
-            // 假设一个小对象 40 字节，4KB 页面大约容纳 100 个
+            // 假设一个小对象 40 字节, 4KB 页面大约容纳 100 个
             // 分配 150 个强制触发第二个 Slab 页面的创建
             constexpr int kCount = 150;
             SlubSmallObj* objs[kCount] = {nullptr};
@@ -115,7 +115,7 @@ namespace test::slub {
             }
 
             auto stats = alloc.get_stats();
-            check("查看统计信息：Slabs 数量应大于 1");
+            check("查看统计信息 : Slabs 数量应大于 1");
             ttest(stats.total_slabs > 1);
 
             action("释放所有对象并检查 Slab 是否维持或正确回收");
@@ -137,10 +137,10 @@ namespace test::slub {
             SlubSmallObj* pool[kIter] = {nullptr};
 
             expect("执行随机顺序的分配与释放以打乱空闲列表");
-            // 第一阶段：铺满
+            // 第一阶段 : 铺满
             for (int i = 0; i < kIter; i++) pool[i] = alloc.alloc();
 
-            // 第二阶段：部分释放（偶数下标）
+            // 第二阶段 : 部分释放 (偶数下标）
             for (int i = 0; i < kIter; i += 2) {
                 if (pool[i]) {
                     alloc.free(pool[i]);
@@ -148,7 +148,7 @@ namespace test::slub {
                 }
             }
 
-            // 第三阶段：再次填满
+            // 第三阶段 : 再次填满
             for (int i = 0; i < kIter; i += 2) {
                 pool[i] = alloc.alloc();
                 ttest(pool[i] != nullptr);
@@ -158,7 +158,7 @@ namespace test::slub {
             for (int i = 0; i < kIter; i++) {
                 if (pool[i]) alloc.free(pool[i]);
             }
-            check("压力测试完成，系统稳定");
+            check("压力测试完成, 系统稳定");
         }
     };
 

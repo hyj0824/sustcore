@@ -216,7 +216,7 @@ namespace task {
 
         // 将线程加入进程的线程列表
         pcb->threads.push_back(*tcb);
-        tcb_guard.release();  // 线程已成功构造，释放TCB的自动释放机制
+        tcb_guard.release();  // 线程已成功构造, 释放TCB的自动释放机制
         return tcb;
     }
 
@@ -426,7 +426,7 @@ namespace task {
         }
 
         _pid_map.put(pcb->pid, pcb);
-        pcb_guard.release();  // 进程已成功构造，释放PCB的自动释放机制
+        pcb_guard.release();  // 进程已成功构造, 释放PCB的自动释放机制
         return pcb;
     }
 

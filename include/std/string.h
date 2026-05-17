@@ -90,7 +90,7 @@ char *strcpy_s(void *restrict dst, size_t dstsz, const char *restrict src);
  *
  * @param str 字符串
  * @param ch 要查找的字符
- * @return char* 指向首次出现字符的指针，若未找到则返回NULL
+ * @return char* 指向首次出现字符的指针, 若未找到则返回NULL
  */
 char *strchr(const char *restrict str, char ch);
 
@@ -122,7 +122,7 @@ char *strncpy(char *restrict dst, const char *restrict src, int count);
  *
  * @param str 字符串
  * @param ch 要查找的字符
- * @return char* 指向末次出现字符的指针，若未找到则返回NULL
+ * @return char* 指向末次出现字符的指针, 若未找到则返回NULL
  */
 char *strrchr(const char *restrict str, char ch);
 
@@ -149,7 +149,7 @@ int strcspn(const char *restrict str, const char *restrict accept);
  *
  * @param str 字符串
  * @param accept 接受的字符集合
- * @return char* 指向首次出现字符的指针，若未找到则返回NULL
+ * @return char* 指向首次出现字符的指针, 若未找到则返回NULL
  */
 char *strpbrk(const char *restrict str, const char *restrict accept);
 
@@ -177,12 +177,12 @@ char *strncat(char *dst, const char *src, int count);
  *
  * @param str 字符串
  * @param split 分隔符字符串
- * @return char* 指向分割后子字符串的指针，若无更多子字符串则返回NULL
+ * @return char* 指向分割后子字符串的指针, 若无更多子字符串则返回NULL
  */
 char *strtok(char *restrict str, const char *restrict split);
 
 /**
- * @brief 从src中复制size个字节到dst中，可内存重叠情况
+ * @brief 从src中复制size个字节到dst中, 可内存重叠情况
  *
  * @param dst 目标内存地址
  * @param src 源内存地址
@@ -210,7 +210,7 @@ int memcmp(const void *restrict str1, const void *restrict str2, int count);
  * @param str 内存区域
  * @param ch 要查找的字符
  * @param count 查找的字节数
- * @return void* 指向首次出现字符的指针，若未找到则返回NULL
+ * @return void* 指向首次出现字符的指针, 若未找到则返回NULL
  */
 void *memchr(const void *restrict str, char ch, int count);
 

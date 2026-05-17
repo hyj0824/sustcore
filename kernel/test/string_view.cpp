@@ -42,7 +42,7 @@ namespace test::string_view {
             std::string_view sv(s, 0);
             ttest(sv.empty());
             ttest(sv.size() == 0);
-            ttest(sv.data() == s);  // 虽然长度为0，但data指针应指向s
+            ttest(sv.data() == s);  // 虽然长度为0, 但data指针应指向s
 
             std::string_view sv2("Hello", 5);
             ttest(sv2.size() == 5);

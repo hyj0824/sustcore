@@ -151,7 +151,7 @@ namespace schd {
         _curtcb->basic_entity
             .template flags_reset<SchedMeta::FLAGS_NEED_RESCHED>();
 
-        // 如果当前线程仍然可运行, 将其放回就绪队列; 等待线程不再入队。
+        // 如果当前线程仍然可运行, 将其放回就绪队列; 等待线程不再入队. 
         if (_curtcb->basic_entity.state != ThreadState::WAITING) {
             auto schd_res = schd(_curtcb->schd_class);
             if (!schd_res.has_value()) {

@@ -30,7 +30,7 @@
 
 namespace syscall {
     /**
-     * @brief 查找当前进程 capability 空间中的 PCB payload。
+     * @brief 查找当前进程 capability 空间中的 PCB payload. 
      */
     static Result<cap::PCBPayload *> lookup_pcb(CapIdx idx,
                                                 cap::Capability **out_cap) {
@@ -47,7 +47,7 @@ namespace syscall {
     }
 
     /**
-     * @brief 查找当前进程 capability 空间中的 Memory payload。
+     * @brief 查找当前进程 capability 空间中的 Memory payload. 
      */
     static Result<cap::MemoryPayload *> lookup_memory(
         CapIdx idx, cap::Capability **out_cap) {
@@ -64,10 +64,10 @@ namespace syscall {
     }
 
     /**
-     * @brief 将父进程指定 capability 按相同 CapIdx 复制到子 CHolder。
+     * @brief 将父进程指定 capability 按相同 CapIdx 复制到子 CHolder. 
      *
-     * 该函数只处理 capability transfer 的 CLONE 语义；对象自身权限检查
-     * 仍由对应 CapObj 方法完成。
+     * 该函数只处理 capability transfer 的 CLONE 语义; 对象自身权限检查
+     * 仍由对应 CapObj 方法完成. 
      */
     static Result<void> copy_initial_caps_in_place(cap::CHolder *src_holder,
                                                    cap::CHolder *dst_holder,

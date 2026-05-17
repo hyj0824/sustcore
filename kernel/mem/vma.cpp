@@ -341,7 +341,7 @@ bool TaskMemoryManager::on_np(const NoPresentEvent &e) {
     bool cow_page    = !vma->memory->shared && GFP::ref_count(paddr) > 1 &&
                     PageMan::is_writable(rwx);
     PageMan::RWX map_rwx = cow_page ? PageMan::without_write(rwx) : rwx;
-    bool u = !vma->loading;  // 加载过程中按内核页处理，加载完成后按用户页处理
+    bool u = !vma->loading;  // 加载过程中按内核页处理, 加载完成后按用户页处理
 
     _pman.map_page<PageMan::PageSize::_4K>(aligned_vaddr, paddr, map_rwx, u,
                                            false);

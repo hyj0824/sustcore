@@ -64,10 +64,10 @@ namespace task {
         schd::rr::Entity rr_entity;
 
         struct SystemCoroutines {
-            // Endpoint IPC recv 协程句柄, 只由 endpoint recv/send 路径使用。
+            // Endpoint IPC recv 协程句柄, 只由 endpoint recv/send 路径使用. 
             std::coroutine_handle<> ipc_handle = nullptr;
-            // syscall 协程状态。pending 表示线程正在等待一个尚未返回用户态的
-            // syscall; done 表示返回值已经写入上下文并且可以重新进入用户态。
+            // syscall 协程状态. pending 表示线程正在等待一个尚未返回用户态的
+            // syscall; done 表示返回值已经写入上下文并且可以重新进入用户态. 
             bool syscall_pending               = false;
             bool syscall_done                  = true;
         };

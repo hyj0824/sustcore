@@ -20,7 +20,7 @@
 
 namespace {
     /**
-     * @brief 查找当前进程 capability 空间中的 Memory payload。
+     * @brief 查找当前进程 capability 空间中的 Memory payload. 
      */
     Result<cap::MemoryPayload *> lookup_memory(
         CapIdx idx, cap::Capability **out_cap = nullptr) {

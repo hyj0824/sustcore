@@ -19,7 +19,7 @@
 #include <syscall/uaccess.h>
 
 namespace syscall {
-    // 将 capability 操作的 Result 映射为 bool，避免入口重复处理
+    // 将 capability 操作的 Result 映射为 bool, 避免入口重复处理
     bool cap_clone(CapIdx src, CapIdx target) {
         auto clone_res = cap::CHolder::clone(target, src);
         if (!clone_res.has_value()) {

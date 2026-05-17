@@ -18,93 +18,93 @@ extern "C" {
 #endif
 
 /**
- * @brief 判断字符是否为空白字符（空格、制表符等）
+ * @brief 判断字符是否为空白字符 (空格、制表符等）
  * @param ch 要判断的字符
- * @return 非零表示是空白字符，零表示不是
+ * @return 非零表示是空白字符, 零表示不是
  */
 int isspace(int ch);
 
 /**
  * @brief 判断字符是否为大写字母
  * @param ch 要判断的字符
- * @return 非零表示是大写字母，零表示不是
+ * @return 非零表示是大写字母, 零表示不是
  */
 int isupper(int ch);
 
 /**
  * @brief 判断字符是否为小写字母
  * @param ch 要判断的字符
- * @return 非零表示是小写字母，零表示不是
+ * @return 非零表示是小写字母, 零表示不是
  */
 int islower(int ch);
 
 /**
  * @brief 判断字符是否为字母
  * @param ch 要判断的字符
- * @return 非零表示是字母，零表示不是
+ * @return 非零表示是字母, 零表示不是
  */
 int isalpha(int ch);
 
 /**
  * @brief 判断字符是否为数字
  * @param ch 要判断的字符
- * @return 非零表示是数字，零表示不是
+ * @return 非零表示是数字, 零表示不是
  */
 int isdigit(int ch);
 
 /**
  * @brief 判断字符是否为数字或字母
  * @param ch 要判断的字符
- * @return 非零表示是数字或字母，零表示不是
+ * @return 非零表示是数字或字母, 零表示不是
  */
 int isalnum(int ch);
 
 /**
  * @brief 判断字符是否为空白字符
  * @param ch 要判断的字符
- * @return 非零表示是空白字符，零表示不是
+ * @return 非零表示是空白字符, 零表示不是
  */
 int isblank(int ch);
 
 /**
  * @brief 判断字符是否为控制字符
  * @param ch 要判断的字符
- * @return 非零表示是控制字符，零表示不是
+ * @return 非零表示是控制字符, 零表示不是
  */
 int iscntrl(int ch);
 
 /**
  * @brief 判断字符是否为可打印字符
  * @param ch 要判断的字符
- * @return 非零表示是可打印字符，零表示不是
+ * @return 非零表示是可打印字符, 零表示不是
  */
 int isprint(int ch);
 
 /**
  * @brief 判断字符是否为可打印字符(非空格)
  * @param ch 要判断的字符
- * @return 非零表示是可打印字符(非空格)，零表示不是
+ * @return 非零表示是可打印字符(非空格), 零表示不是
  */
 int isgraph(int ch);
 
 /**
  * @brief 判断字符是否为标点符号
  * @param ch 要判断的字符
- * @return 非零表示是标点符号，零表示不是
+ * @return 非零表示是标点符号, 零表示不是
  */
 int ispunct(int ch);
 
 /**
  * @brief 判断字符是否为十六进制字符
  * @param ch 要判断的字符
- * @return 非零表示是十六进制字符，零表示不是
+ * @return 非零表示是十六进制字符, 零表示不是
  */
 int isxdigit(int ch);
 
 /**
  * @brief 判断字符是否为八进制字符
  * @param ch 要判断的字符
- * @return 非零表示是八进制字符，零表示不是
+ * @return 非零表示是八进制字符, 零表示不是
  */
 int isodigit(int ch);
 

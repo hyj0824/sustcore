@@ -14,7 +14,7 @@
 #include <cstddef>
 
 namespace std {
-    // 基础模板：integral_constant（整型常量包装器）
+    // 基础模板 : integral_constant (整型常量包装器）
     template <typename T, T v>
     struct integral_constant {
         using value_type = T;
@@ -22,12 +22,12 @@ namespace std {
 
         static constexpr value_type value = v;
 
-        // 转换函数：可以转换为值类型
+        // 转换函数 : 可以转换为值类型
         constexpr operator value_type() const noexcept {
             return value;
         }
 
-        // 函数调用运算符：可以像函数一样使用
+        // 函数调用运算符 : 可以像函数一样使用
         constexpr value_type operator()() const noexcept {
             return value;
         }
@@ -300,7 +300,7 @@ namespace std {
 
     // extent
 
-    // 默认情况: 非数组类型，大小为0
+    // 默认情况: 非数组类型, 大小为0
     template <typename, unsigned _Uint = 0>
     struct extent : public size_constant<0> {};
 

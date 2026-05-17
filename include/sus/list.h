@@ -383,7 +383,7 @@ namespace util {
 
         // insert & erase
         iterator insert(iterator pos, NodeType& node) noexcept {
-            // 节点已在链表中，无法插入
+            // 节点已在链表中, 无法插入
             if (P_link(&node)) {
                 return end();
             }
@@ -475,7 +475,7 @@ namespace util {
 
         // 根据Cmp比较函数插入
         iterator insert(NodeType& node) noexcept {
-            // 节点已在链表中，无法插入
+            // 节点已在链表中, 无法插入
             if (Base::P_link(&node)) {
                 return Base::end();
             }
@@ -974,9 +974,9 @@ namespace util {
     };
 
     /**
-     * @brief 数组形式的动态列表，支持随机访问和动态扩容
+     * @brief 数组形式的动态列表, 支持随机访问和动态扩容
      *
-     * @tparam _Tp 对象结构。其应当是一个POD类型
+     * @tparam _Tp 对象结构. 其应当是一个POD类型
      */
     template <typename _Tp>
     class ArrayList {

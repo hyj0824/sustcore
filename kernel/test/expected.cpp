@@ -120,7 +120,7 @@ namespace test::expected {
 			tassert(!err.has_value());
 			ttest(err.error() == 5);
 
-			action("从 value 赋值为 error，再 emplace 回 value");
+			action("从 value 赋值为 error, 再 emplace 回 value");
 			ok = std::unexpected<int>(8);
 			tassert(!ok.has_value());
 			ttest(ok.error() == 8);

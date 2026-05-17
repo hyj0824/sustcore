@@ -40,7 +40,7 @@ namespace std {
         using difference_type = ptrdiff_t;
         using is_always_equal = true_type;  // 无状态分配器总是相等
 
-        // 默认构造函数、复制构造函数、析构函数（无状态，可默认）
+        // 默认构造函数、复制构造函数、析构函数 (无状态, 可默认）
         allocator() = default;
         template <typename U>
         allocator(const allocator<U>&) noexcept {}  // 支持跨类型转换
@@ -51,21 +51,21 @@ namespace std {
                 return nullptr;  // 标准允许分配 0 字节时返回空指针
             // 检查是否超出最大可分配大小
             if (n > numeric_limits<size_type>::max() / sizeof(T))
-                _THROW(bad_alloc());  // 超出限制，抛出 bad_alloc
+                _THROW(bad_alloc());  // 超出限制, 抛出 bad_alloc
 
-            // 调用全局 operator new，失败时它会抛出 bad_alloc
+            // 调用全局 operator new, 失败时它会抛出 bad_alloc
             void* ptr = ::operator new(n * sizeof(T));
             return static_cast<pointer>(ptr);
         }
 
         // 释放内存
         void deallocate(pointer p, size_type n) noexcept {
-            // 调用全局 operator delete，它对空指针安全
+            // 调用全局 operator delete, 它对空指针安全
             ::operator delete(p);
         }
 
-        // C++11/14 中需要 construct/destroy（C++17
-        // 后容器不再强制使用它们，但保留无害）
+        // C++11/14 中需要 construct/destroy (C++17
+        // 后容器不再强制使用它们, 但保留无害）
         template <typename U, typename... Args>
         void construct(U* p, Args&&... args) {
             ::new ((void*)p) U(forward<Args>(args)...);
@@ -76,7 +76,7 @@ namespace std {
             p->~U();
         }
 
-        // rebind 机制，允许分配器为其他类型分配内存
+        // rebind 机制, 允许分配器为其他类型分配内存
         template <typename U>
         struct rebind {
             using other = allocator<U>;

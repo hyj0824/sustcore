@@ -201,7 +201,7 @@ namespace handlers::paging {
 
                     // for debug:
                     if (processsed) {
-                        // 再次查询，验证该页已被映射
+                        // 再次查询, 验证该页已被映射
                         PhyAddr hw_root_after = PageMan::read_root();
                         PageMan verify_pman(hw_root_after);
                         auto verify_res = verify_pman.query_page(fault_addr);

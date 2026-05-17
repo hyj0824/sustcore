@@ -202,7 +202,7 @@ namespace FDTHelper {
         }
     }
 
-    // 打印属性值（根据属性类型）
+    // 打印属性值 (根据属性类型）
     static void print_property_value(const char *name, const void *value,
                                      int len) {
         // 根据属性名称和长度判断类型并打印
@@ -420,7 +420,7 @@ namespace FDTHelper {
         }
     }
 
-    // 主函数：打印整个设备树的所有信息
+    // 主函数 : 打印整个设备树的所有信息
     void print_entire_device_tree(void) {
         // 检查设备树有效性
         if (fdt_check_header(fdt) != 0) {

@@ -177,7 +177,7 @@ Result<void> VFS::tidy_up() {
         it = open_files.erase(it);
     }
 
-    // 遍历 dentry_cache，记录可以删除的 dentry
+    // 遍历 dentry_cache, 记录可以删除的 dentry
     util::ArrayList<util::Path> closable_list;
     for (const auto &entry : dentry_cache) {
         DEntry *dentry = entry.second.get();
@@ -212,7 +212,7 @@ Result<void> VFS::tidy_up() {
 
 // 整理inode_cache
 Result<void> VSuperblock::tidy_up() {
-    // 遍历 inode_cache，记录可以删除的 inode
+    // 遍历 inode_cache, 记录可以删除的 inode
     util::ArrayList<inode_t> closable_list;
     for (const auto &entry : inode_cache) {
         VINode *vind = entry.second.get();

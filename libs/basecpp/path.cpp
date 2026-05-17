@@ -29,7 +29,7 @@ namespace util {
 
     Path operator/(Path &&lhs, const Path &rhs) {
         if (!lhs.path_.empty()) {
-            // 空的不能拼完变成绝对路径了，语义不对
+            // 空的不能拼完变成绝对路径了, 语义不对
             lhs.path_.push_back('/');
         }
         lhs.path_.append(rhs.path_);
@@ -42,7 +42,7 @@ namespace util {
         return *this;
     }
 
-    // 其他可能的成员函数，如获取文件名、扩展名等
+    // 其他可能的成员函数, 如获取文件名、扩展名等
     bool Path::is_absolute() const {
         return path_[0] == '/';
     }
@@ -57,7 +57,7 @@ namespace util {
         if (path_[last_slash] == '/') {
             // 找到了最后一个斜杠
             if (last_slash == 0) {
-                // 如果最后一个斜杠是第一个字符，说明父路径是根目录
+                // 如果最后一个斜杠是第一个字符, 说明父路径是根目录
                 return Path{"/"};
             } else {
                 return Path{path_.substr(0, last_slash)};
@@ -70,16 +70,16 @@ namespace util {
         size_t last_slash = path_.length();
         while (last_slash && path_[--last_slash] != '/');
         if (path_[last_slash] == '/') {
-            // 找到了最后一个斜杠，返回它之后的部分
+            // 找到了最后一个斜杠, 返回它之后的部分
             return Path{path_.substr(last_slash + 1)};
         }
-        return *this;  // 没有斜杠，整个路径就是文件名
+        return *this;  // 没有斜杠, 整个路径就是文件名
     }
 
     Path Path::stem() const {
         Path fname = filename();
         if (fname == "." || fname == "..") {
-            // 特殊的，如果文件名是 "." 或 ".."，认为它没有 stem
+            // 特殊的, 如果文件名是 "." 或 "..", 认为它没有 stem
             return fname;
         }
         size_t last_dot = fname.path_.length();
@@ -87,27 +87,27 @@ namespace util {
         if (fname.path_[last_dot] == '.') {
             if (last_dot == 0)
                 return fname;
-            // 找到了最后一个点，返回它之前的部分
+            // 找到了最后一个点, 返回它之前的部分
             return Path{fname.path_.substr(0, last_dot)};
         }
-        return fname;  // 没有点，整个文件名就是 stem
+        return fname;  // 没有点, 整个文件名就是 stem
     }
 
     Path Path::extension() const {
         Path fname = filename();
         if (fname == "." || fname == "..") {
-            // 如果文件名是 "." 或 ".."，认为它没有扩展名
+            // 如果文件名是 "." 或 "..", 认为它没有扩展名
             return "";
         }
         size_t last_dot = fname.path_.length();
         while (last_dot && fname.path_[--last_dot] != '.');
         if (fname.path_[last_dot] == '.') {
             if (last_dot == 0)
-                return "";  // 说明是 dotfile，没有扩展名
-            // 找到了最后一个点，返回它以及之后的部分
+                return "";  // 说明是 dotfile, 没有扩展名
+            // 找到了最后一个点, 返回它以及之后的部分
             return Path{fname.path_.substr(last_dot)};
         }
-        return "";  // 没有点，没有扩展名
+        return "";  // 没有点, 没有扩展名
     }
 
     bool Path::operator==(const Path &other) const {
@@ -149,7 +149,7 @@ namespace util {
             // 说明路径被规范化成了当前目录
             return ".";
         } else if (path_builder.length() > 1) {
-            // 去掉末尾的斜杠，除非路径是根目录 "/"
+            // 去掉末尾的斜杠, 除非路径是根目录 "/"
             path_builder.pop_back();
         }
         return path_builder;
@@ -174,7 +174,7 @@ namespace util {
         std::string relative_path;
         // 从不匹配的位置开始构建相对路径
         while (it2 != norm_base.end()) {
-            // 对于 base 中剩余的每个元素，添加一个 ".."
+            // 对于 base 中剩余的每个元素, 添加一个 ".."
             relative_path.append("../");
             ++it2;
         }
@@ -186,8 +186,8 @@ namespace util {
     void Path::const_iterator::locate_next() {
         assert(owner_ != nullptr);
         const size_t len = owner_->path_.length();
-        // 这个算法对于第一个和后面的都适用，
-        // 第一个时 end_ = 0，会跳过开头的斜杠
+        // 这个算法对于第一个和后面的都适用, 
+        // 第一个时 end_ = 0, 会跳过开头的斜杠
         size_t i         = end_;
         // skip the leading '/'
         while (i < len && owner_->path_[i] == '/') {
@@ -198,7 +198,7 @@ namespace util {
             ++i;
         }
         end_ = i;
-        // 如果 begin_ == end_ == len，说明已经遍历完了
+        // 如果 begin_ == end_ == len, 说明已经遍历完了
 
         // 更新 current_entry_
         assert(begin_ != npos && "没有 locate 到合法元素");
@@ -267,7 +267,7 @@ namespace util {
             return true;
         }
 
-        // 只有匹配到路径段边界时才认为是前缀。
+        // 只有匹配到路径段边界时才认为是前缀. 
         return prefix.path_[prefix_len - 1] == '/' || path_[prefix_len] == '/';
     }
 
@@ -290,12 +290,12 @@ namespace util {
             return true;
         }
 
-        // 只有对齐到路径段边界时才认为是后缀。
+        // 只有对齐到路径段边界时才认为是后缀. 
         if (path_[start - 1] != '/') {
             return false;
         }
 
-        // 以 '/' 开头的后缀代表绝对路径，必须从开头对齐。
+        // 以 '/' 开头的后缀代表绝对路径, 必须从开头对齐. 
         if (suffix.path_[0] == '/') {
             return false;
         }

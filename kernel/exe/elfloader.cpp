@@ -41,7 +41,7 @@ namespace loader::elf {
     }
 
     constexpr VMA::Type phdr_to_vma_type(Elf64_Word flags) {
-        // 可执行段优先映射为 CODE，其余按可写属性归类到 DATA。
+        // 可执行段优先映射为 CODE, 其余按可写属性归类到 DATA. 
         if ((flags & PF_X) != 0) {
             return VMA::Type::CODE;
         }
@@ -75,7 +75,7 @@ namespace loader::elf {
             unexpect_return(ErrCode::NOT_SUPPORTED);
         }
 
-        // 检查程序头表是否越界。
+        // 检查程序头表是否越界. 
         const uint64_t ph_bytes =
             static_cast<uint64_t>(ehdr.e_phnum) * sizeof(Elf64_Phdr);
         if (overflow_add_u64(ehdr.e_phoff, ph_bytes)) {
@@ -108,7 +108,7 @@ namespace loader::elf {
                 fop.read_exact(phdr.p_offset, segvaddr.addr(), phdr.p_filesz);
             propagate(read_res);
 
-            // 如果内存大小大于文件大小，说明需要将剩余部分清零
+            // 如果内存大小大于文件大小, 说明需要将剩余部分清零
             if (phdr.p_memsz > phdr.p_filesz) {
                 size_t zero_sz   = phdr.p_memsz - phdr.p_filesz;
                 void *zero_start = (segvaddr + phdr.p_filesz).addr();
@@ -224,7 +224,7 @@ namespace loader::elf {
         spec.heap_mem_cap = heap_slot_res.value();
 
         // 输出TM中的VMA信息以供调试
-        loggers::SUSTCORE::INFO("ELF加载完成，TM中的VMA列表:");
+        loggers::SUSTCORE::INFO("ELF加载完成, TM中的VMA列表:");
         for (const auto &vma : spec.tmm->vmas()) {
             loggers::SUSTCORE::INFO("  VMA类型: %s, 地址: %p~%p, 大小: %u B",
                                     to_string(vma.type), vma.varea.begin.addr(),
@@ -238,7 +238,7 @@ namespace loader::elf {
         spec.tmm->pman().switch_root();
         PageMan::flush_tlb();
 
-        // 开始加载段。这里在 S-Mode 直接写用户虚拟地址，需要打开 SUM。
+        // 开始加载段. 这里在 S-Mode 直接写用户虚拟地址, 需要打开 SUM. 
         {
             ker_paddr::SumGuard sum_guard;
             sum_guard.open();

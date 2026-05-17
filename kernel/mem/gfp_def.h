@@ -70,7 +70,7 @@ public:
     }
     template <KernelStage Stage = KernelStage::POST_INIT>
     static void put_page(PhyAddr addr, size_t page_count = 1) {
-        // 线性增长GFP不支持释放页框，因此该函数不执行任何操作
+        // 线性增长GFP不支持释放页框, 因此该函数不执行任何操作
     }
 };
 

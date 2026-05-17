@@ -262,12 +262,12 @@ namespace task {
         Result<CapIdx> create_thread_current(VirAddr entry, VirAddr stack_addr,
                                              size_t stack_size);
         /**
-         * @brief 用指定ELF替换当前进程镜像, 并保留指定能力。
+         * @brief 用指定ELF替换当前进程镜像, 并保留指定能力. 
          *
-         * @param path 新程序路径。
-         * @param reserved_caps 需要保留的能力槽位列表, 可为空。
-         * @param reserved_count reserved_caps 中的元素数量。
-         * @return Result<void> 成功不返回旧用户镜像, 失败保持当前进程不变。
+         * @param path 新程序路径. 
+         * @param reserved_caps 需要保留的能力槽位列表, 可为空. 
+         * @param reserved_count reserved_caps 中的元素数量. 
+         * @return Result<void> 成功不返回旧用户镜像, 失败保持当前进程不变. 
          */
         Result<void> exec_current(const char *path, const CapIdx *reserved_caps,
                                   size_t reserved_count);
@@ -298,16 +298,16 @@ namespace task {
         Result<util::nonnull<PCB *>> load_elf(const char *path,
                                               schd::ClassType schd_class);
         /**
-         * @brief 使用调用方提供的 CHolder 加载 ELF 并创建进程。
+         * @brief 使用调用方提供的 CHolder 加载 ELF 并创建进程. 
          *
-         * 该接口不会创建新的 CHolder；调用方应先完成需要继承或注入的
-         * capability 配置，再把 holder 传入。ELF image、heap/stack Memory、
-         * PCB/TCB capability 会在该 holder 的空闲槽中继续创建。
+         * 该接口不会创建新的 CHolder; 调用方应先完成需要继承或注入的
+         * capability 配置, 再把 holder 传入. ELF image、heap/stack Memory、
+         * PCB/TCB capability 会在该 holder 的空闲槽中继续创建. 
          *
-         * @param path 可执行文件路径。
-         * @param holder 预先构造并配置好的进程 CHolder。
-         * @param schd_class 调度类别。
-         * @return 创建成功的 PCB。
+         * @param path 可执行文件路径. 
+         * @param holder 预先构造并配置好的进程 CHolder. 
+         * @param schd_class 调度类别. 
+         * @return 创建成功的 PCB. 
          */
         Result<util::nonnull<PCB *>> load_elf_into(const char *path,
                                                    cap::CHolder *holder,

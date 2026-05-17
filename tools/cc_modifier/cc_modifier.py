@@ -43,7 +43,7 @@ class AddFlags(ArgOperation):
 
 def process_compile_entry(entry, operations):
     """处理单个 compile_commands 实体"""
-    # 优先处理 arguments 列表，如果不存在则处理 command 字符串
+    # 优先处理 arguments 列表, 如果不存在则处理 command 字符串
     if 'arguments' in entry and isinstance(entry['arguments'], list):
         args = entry['arguments']
         for op in operations:
@@ -56,7 +56,7 @@ def process_compile_entry(entry, operations):
                 args = op.process(args)
             entry['command'] = ' '.join(shlex.quote(p) for p in args)
         except ValueError:
-            # 如果 shlex 失败，回退到简单的字符串替换（仅支持移除）
+            # 如果 shlex 失败, 回退到简单的字符串替换 (仅支持移除）
             for op in operations:
                 if isinstance(op, RemoveFlags):
                     for flag in op.flags:

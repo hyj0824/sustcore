@@ -19,7 +19,7 @@
 
 namespace syscall {
     static Result<cap::NotificationObject> notif_object(CapIdx capidx) {
-        // 统一能力查找与类型校验，减少各 handler 的重复逻辑
+        // 统一能力查找与类型校验, 减少各 handler 的重复逻辑
         auto cap_res = cap::CHolder::lookup(capidx);
         propagate(cap_res);
         auto *cap = cap_res.value();

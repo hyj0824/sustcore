@@ -6,7 +6,7 @@ set -e  # 遇到错误立即退出
 
 echo -e "\\e[34mdownloading packages...\\e[0m"
 
-echo "输入当前发行版的包管理器（仅输入序号）：
+echo "输入当前发行版的包管理器 (仅输入序号） : 
 	1) apt
 	2) pacman
 	3) 其他"
@@ -16,7 +16,7 @@ case $packman in
 	;;
 	2) sudo pacman -S     libglib2.0-dev libfdt-dev libpixman-1-dev zlib1g-dev ninja-build flex bison pip
 	;;
-	*) echo "暂不支持该发行版，请手动安装 libglib2.0-dev libfdt-dev libpixman-1-dev zlib1g-dev ninja-build flex pip（软件包名称可能因发行版而不同）"
+	*) echo "暂不支持该发行版, 请手动安装 libglib2.0-dev libfdt-dev libpixman-1-dev zlib1g-dev ninja-build flex pip (软件包名称可能因发行版而不同）"
 	;;
 esac
 

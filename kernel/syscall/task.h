@@ -31,26 +31,26 @@ namespace syscall {
     CapIdx create_thread(VirAddr entry, VirAddr stack_addr, size_t stack_size);
     ForkRet fork();
     /**
-     * @brief 通过 PCB Capability 杀死进程。
+     * @brief 通过 PCB Capability 杀死进程. 
      *
-     * syscall 层只 lookup PCB capability；KILL 权限检查由 PCBObject 完成。
+     * syscall 层只 lookup PCB capability; KILL 权限检查由 PCBObject 完成. 
      *
-     * @param pcb_cap PCB capability。
-     * @param exit_code 退出码。
-     * @return true 成功；false 失败。
+     * @param pcb_cap PCB capability. 
+     * @param exit_code 退出码. 
+     * @return true 成功; false 失败. 
      */
     bool pcb_kill(CapIdx pcb_cap, int exit_code);
     /**
-     * @brief 通过 PCB Capability 将 Memory 映射到目标进程地址空间。
+     * @brief 通过 PCB Capability 将 Memory 映射到目标进程地址空间. 
      *
-     * VMCONTEXT 权限由 PCBObject 校验，Memory 映射权限由 MemoryObject 校验。
+     * VMCONTEXT 权限由 PCBObject 校验, Memory 映射权限由 MemoryObject 校验. 
      *
-     * @param pcb_cap 目标 PCB capability。
-     * @param mem_cap Memory capability。
-     * @param vaddr 目标虚拟地址。
-     * @param rwx 页权限。
-     * @param growth VMA 增长方式。
-     * @return true 成功；false 失败。
+     * @param pcb_cap 目标 PCB capability. 
+     * @param mem_cap Memory capability. 
+     * @param vaddr 目标虚拟地址. 
+     * @param rwx 页权限. 
+     * @param growth VMA 增长方式. 
+     * @return true 成功; false 失败. 
      */
     bool pcb_map(CapIdx pcb_cap, CapIdx mem_cap, VirAddr vaddr,
                  PageMan::RWX rwx, cap::MemoryGrowth growth);

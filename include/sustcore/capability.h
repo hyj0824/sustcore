@@ -86,7 +86,7 @@ namespace cap {
     constexpr b64 MASK_RSVD =
         0xFFFFFFFFFFFFFFFF & ~(MASK_VALID | MASK_SLOT | MASK_GROUP);
 
-    // 计算掩码的位宽（从最低有效位到最高有效位的位数）
+    // 计算掩码的位宽 (从最低有效位到最高有效位的位数）
     template <b64 mask>
     consteval b64 CALC_MASK_WIDTH() {
         static_assert(mask != 0, "Mask cannot be zero");

@@ -31,19 +31,19 @@ namespace util {
         constexpr Path(T &&path) : path_(std::forward<T>(path)) {}
         constexpr Path(const std::string_view &path) : path_(path.data(), path.size()) {}
 
-        // 直接拼接。注意，这个不会加斜杠
+        // 直接拼接. 注意, 这个不会加斜杠
         Path &concat(const Path &other);
 
         constexpr const char *c_str() const {
             return path_.c_str();
         }
 
-        // 允许转换为 std::string，但有可能会发生拷贝
+        // 允许转换为 std::string, 但有可能会发生拷贝
         operator std::string() const {
             return path_;
         }
 
-        // 其他可能的成员函数，如获取文件名、扩展名等
+        // 其他可能的成员函数, 如获取文件名、扩展名等
         bool is_absolute() const;
         bool is_relative() const;
         Path parent_path() const;
@@ -54,8 +54,8 @@ namespace util {
         bool operator==(const Path &other) const;
         bool operator!=(const Path &other) const;
 
-        // 迭代器，返回每个以 / 分割的 entry
-        // 注意，如果有根目录 / 也要作为作为元素
+        // 迭代器, 返回每个以 / 分割的 entry
+        // 注意, 如果有根目录 / 也要作为作为元素
         class const_iterator {
         private:
             const Path *owner_{};

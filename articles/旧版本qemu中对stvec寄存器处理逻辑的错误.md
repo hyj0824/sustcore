@@ -57,7 +57,7 @@ Copyright (c) 2003-2023 Fabrice Bellard and the QEMU Project developers
 
 ## 6. 残留疑点
 
-该部分处理逻辑在2019年已被更新. 而我们使用的`qemu`版本为8.2.0, 依理论应已修复。
+该部分处理逻辑在2019年已被更新. 而我们使用的`qemu`版本为8.2.0, 依理论应已修复. 
 
 在qemu仓库中发现该issue
 https://gitlab.com/qemu-project/qemu/-/issues/2855

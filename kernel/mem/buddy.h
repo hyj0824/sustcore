@@ -180,7 +180,7 @@ private:
         PhyAddr paddr   = block2pa<Stage>(&node);
         list.pop_front();
 
-        // 如果分配的块大于请求的块，则将剩余部分重新放回链表
+        // 如果分配的块大于请求的块, 则将剩余部分重新放回链表
         while (current_order > order) {
             current_order--;
 
@@ -194,7 +194,7 @@ private:
 
             put_page<Stage>(buddy_paddr, 1ul << current_order);
 
-            // paddr 保持指向左半部分，继续下一轮分裂或结束
+            // paddr 保持指向左半部分, 继续下一轮分裂或结束
         }
         return paddr;
     }
