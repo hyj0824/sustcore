@@ -205,10 +205,13 @@ extern "C" void post_init(void) {
         false);
 
     // 初始化 kernel object pool
+    loggers::SUSTCORE::INFO("初始化内核对象池");
     init_kop();
 
+    loggers::SUSTCORE::INFO("初始化权限系统");
     cap::CHolderManager::init();
 
+    loggers::SUSTCORE::INFO("初始化VFS");
     auto init_res = init_vfs();
     if (!init_res.has_value()) {
         loggers::SUSTCORE::ERROR("初始化VFS失败! 错误码: %s",
@@ -216,8 +219,10 @@ extern "C" void post_init(void) {
         while (true);
     }
 
+    loggers::SUSTCORE::INFO("初始化任务管理器");
     task::TaskManager::init();
 
+    loggers::SUSTCORE::INFO("初始化调度器");
     init_res = init_scheduler();
     if (!init_res.has_value()) {
         loggers::SUSTCORE::ERROR("初始化Scheduler失败! 错误码: %s",

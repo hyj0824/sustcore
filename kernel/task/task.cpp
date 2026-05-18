@@ -13,6 +13,7 @@
 #include <cap/permission.h>
 #include <env.h>
 #include <exe/elfloader.h>
+#include <exe/task.h>
 #include <logger.h>
 #include <mem/alloc.h>
 #include <mem/slub.h>
@@ -529,8 +530,11 @@ namespace task {
 
     Result<util::nonnull<PCB *>> TaskManager::load_elf(
         const char *path, schd::ClassType schd_class) {
-        TaskSpec spec{util::owner<TaskMemoryManager *>(nullptr), nullptr,
-                      VirAddr(static_cast<addr_t>(0))};
+        TaskSpec spec = {
+            .tmm = util::owner<TaskMemoryManager *>(nullptr),
+            .holder = nullptr,
+            .entrypoint = VirAddr(static_cast<addr_t>(0)),
+        };
         LoadPrm load_prm{};
         auto preload_res = preload(path, spec, load_prm);
         if (!preload_res.has_value()) {
@@ -552,8 +556,11 @@ namespace task {
 
     Result<util::nonnull<PCB *>> TaskManager::load_elf_into(
         const char *path, cap::CHolder *holder, schd::ClassType schd_class) {
-        TaskSpec spec{util::owner<TaskMemoryManager *>(nullptr), nullptr,
-                      VirAddr(static_cast<addr_t>(0))};
+        TaskSpec spec = {
+            .tmm = util::owner<TaskMemoryManager *>(nullptr),
+            .holder = nullptr,
+            .entrypoint = VirAddr(static_cast<addr_t>(0)),
+        };
         LoadPrm load_prm{};
         auto preload_res = preload_into(path, holder, spec, load_prm);
         if (!preload_res.has_value()) {
@@ -585,8 +592,11 @@ namespace task {
     }
 
     Result<util::nonnull<PCB *>> TaskManager::load_init(const char *path) {
-        TaskSpec spec{util::owner<TaskMemoryManager *>(nullptr), nullptr,
-                      VirAddr(static_cast<addr_t>(0))};
+        TaskSpec spec = {
+            .tmm = util::owner<TaskMemoryManager *>(nullptr),
+            .holder = nullptr,
+            .entrypoint = VirAddr(static_cast<addr_t>(0)),
+        };
         LoadPrm load_prm{};
         auto preload_res = preload(path, spec, load_prm);
         if (!preload_res.has_value()) {
@@ -830,8 +840,11 @@ namespace task {
         propagate(reserved_res);
 
         // 预加载程序到cholder和tmm中, 并构造加载参数
-        TaskSpec spec{util::owner<TaskMemoryManager *>(nullptr), nullptr,
-                      VirAddr(static_cast<addr_t>(0))};
+        TaskSpec spec = {
+            .tmm = util::owner<TaskMemoryManager *>(nullptr),
+            .holder = nullptr,
+            .entrypoint = VirAddr(static_cast<addr_t>(0)),
+        };
         LoadPrm load_prm{};
         auto preload_res = preload_into(path, pcb->cholder, spec, load_prm);
         propagate(preload_res);

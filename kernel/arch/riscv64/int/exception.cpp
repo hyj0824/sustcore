@@ -47,15 +47,22 @@ extern "C" void isr_entry(void);
 void Riscv64Interrupt::init(void) {
     // 重置 sscratch 寄存器
     csr_set_sscratch(0);
+
+    auto isr_addr = (umb_t)isr_entry;
+    if (isr_addr & 0x3) {
+        loggers::INTERRUPT::ERROR("错误: isr_entry地址未对齐!");
+        return;
+    }
+
     csr_stvec_t stvec = {};
-    stvec.ivt_addr = (umb_t)isr_entry;
+    stvec.ivt_addr = isr_addr;
     // 采用direct模式
     stvec.mode     = 0b00;
     if (stvec.value & 0x3) {
         loggers::INTERRUPT::ERROR("错误: stvec地址未对齐!");
         return;
     }
-    loggers::INTERRUPT::DEBUG("isr_entry 地址: 0x%lx", (umb_t)isr_entry);
+    loggers::INTERRUPT::DEBUG("isr_entry 地址: 0x%lx", isr_addr);
 
     // 写入stvec寄存器
     csr_set_stvec(stvec);

@@ -15,6 +15,7 @@ STACK_SIZE = 272
 .globl isr_entry
 .extern handle_trap
 /* ISR入口 */
+.balign 4
 isr_entry:
 save_context:
     /* 第1步: 切换到内核栈空间 */
