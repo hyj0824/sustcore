@@ -98,7 +98,7 @@ int kmod_main() {
     sys_notif_unsignal(kThreadNotifCap, kSignalDone);
 
     printf("test_thread: final x=%u rounds=%u\n", x, rounds);
-    sys_exit();
+    exit(-1);
     while (true) {
     }
     return 0;

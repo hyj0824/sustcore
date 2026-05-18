@@ -59,7 +59,7 @@ def emit_logger_header(logger_config, config):
     declarations = []
     for key, entry in logger_config.items():
         entry = require_object(entry, f"logger.{key}")
-        channel = require_string(entry.get("channel"), f"logger.{key}.channel")
+        require_string(entry.get("channel"), f"logger.{key}.channel")
         name = require_string(entry.get("name"), f"logger.{key}.name")
         default = entry.get("default")
         if default is None:
@@ -72,7 +72,7 @@ def emit_logger_header(logger_config, config):
             level_enum = level_to_enum(level, f"logger.{key}")
 
         declarations.append(
-            f"    DECLARE_LOGGER({channel}, LogLevel::{level_enum}, {name});"
+            f"    DECLARE_LOGGER(kputer, LogLevel::{level_enum}, {name});"
         )
 
     lines = [
@@ -88,6 +88,13 @@ def emit_logger_header(logger_config, config):
         "",
         "#include <kio.h>",
         "#include <sus/logger.h>",
+        "",
+        "struct kputer {",
+        "    int operator()(const char *str) const",
+        "    {",
+        "        return kputs(str);",
+        "    }",
+        "};",
         "",
         "namespace loggers {",
     ]

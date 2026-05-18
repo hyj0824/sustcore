@@ -125,7 +125,7 @@ int kmod_main() {
     printf("test_fork: completion signaled\n");
 
     printf("test_fork: %s exit\n", tag);
-    sys_exit();
+    exit(-1);
 
     while (true) {
     }

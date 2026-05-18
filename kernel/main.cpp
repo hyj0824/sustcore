@@ -27,7 +27,6 @@
 #include <mem/kaddr.h>
 #include <mem/slub.h>
 #include <mem/vma.h>
-#include <sus/baseio.h>
 #include <sus/logger.h>
 #include <sus/nonnull.h>
 #include <sus/path.h>

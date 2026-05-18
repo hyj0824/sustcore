@@ -20,6 +20,7 @@
 #include <test/fs.h>
 #include <test/functional.h>
 #include <test/path.h>
+#include <test/printf.h>
 #include <test/schd/fcfs.h>
 #include <test/schd/rr.h>
 #include <test/slub.h>
@@ -35,6 +36,7 @@ void collect_tests(TestFramework& framework) {
     test::fs::collect_tests(framework);
     test::functional::collect_tests(framework);
     test::path::collect_tests(framework);
+    test::printf::collect_tests(framework);
     test::schd_test::fcfs::collect_tests(framework);
     test::schd_test::rr::collect_tests(framework);
     test::slub::collect_tests(framework);

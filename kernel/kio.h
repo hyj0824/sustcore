@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include <sus/baseio.h>
+#include <cstddef>
 
 int kputs(const char* str);
 int sys_write_serial(const char* str, size_t len);
@@ -19,13 +19,3 @@ int kputchar(char ch);
 char kgetchar();
 int kprintf(const char* fmt, ...);
 int kprintfln(const char* fmt, ...);
-
-struct KernelIO {
-    static int putchar(char c);
-    static int puts(const char* str);
-    static char getchar();
-};
-
-constexpr KernelIO kio;
-
-static_assert(basecpp::IOTrait<KernelIO>, "KernelIO does not satisfy IOTrait");

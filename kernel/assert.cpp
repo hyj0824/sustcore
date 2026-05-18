@@ -13,6 +13,20 @@
 #include <logger.h>
 
 #include <cstdarg>
+#include <cstdio>
+
+namespace {
+    int panic_write_chunk(const char *data, size_t len, void *) {
+        sys_write_serial(data, len);
+        return len;
+    }
+
+    int vpanic_print(const char *format, va_list args) {
+        char chunk[256];
+        return vcbprintf(chunk, sizeof(chunk), panic_write_chunk, nullptr,
+                         format, args);
+    }
+}  // namespace
 
 extern "C" void assertion_failure(const char *expression, const char *file,
                                   const char *base_file, int line) {
@@ -31,7 +45,7 @@ extern "C" void panic_failure(const char *expression, const char *file,
 extern "C" void panic(const char *format, ...) {
     va_list args;
     va_start(args, format);
-    vbprintf<KernelIO>(format, args);
+    vpanic_print(format, args);
     va_end(args);
     kputs("\n");
     while (true);

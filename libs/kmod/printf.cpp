@@ -11,10 +11,15 @@
 
 #include <kmod/syscall.h>
 #include <prm.h>
-#include <sus/baseio.h>
-
 #include <cstdio>
 #include <cstring>
+
+namespace {
+    int serial_write_chunk(const char *data, size_t len, void *) {
+        sys_write_serial(data, len);
+        return len;
+    }
+}  // namespace
 
 extern "C" {
 int kputs(const char *str) {
@@ -24,13 +29,12 @@ int kputs(const char *str) {
 }
 
 int printf(const char *format, ...) {
-    // 简单实现一个简单的printf
-    char buf[256];
+    char chunk[256];
     va_list args;
     va_start(args, format);
-    int len = vsprintf(buf, format, args);
+    int ret = vcbprintf(chunk, sizeof(chunk), serial_write_chunk, nullptr,
+                        format, args);
     va_end(args);
-    kputs(buf);
-    return len;
+    return ret;
 }
 }

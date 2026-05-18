@@ -13,6 +13,24 @@
 #include <arch/description.h>
 #include <sustcore/addr.h>
 
+#include <cstdarg>
+#include <cstdio>
+#include <cstring>
+
+namespace {
+    int serial_write_chunk(const char *data, size_t len, void *) {
+        PhyAddr paddr = convert_pointer(data);
+        Serial::serial_write_string(len, paddr.as<char>());
+        return len;
+    }
+
+    int kvprintf(const char *fmt, va_list args) {
+        char chunk[256];
+        return vcbprintf(chunk, sizeof(chunk), serial_write_chunk, nullptr, fmt,
+                         args);
+    }
+}  // namespace
+
 int kputs(const char *str) {
     size_t len        = strlen(str);
     PhyAddr str_paddr = convert_pointer(str);
@@ -36,22 +54,10 @@ char kgetchar() {
     return '\0';
 }
 
-int KernelIO::putchar(char c) {
-    return kputchar(c);
-}
-
-int KernelIO::puts(const char *str) {
-    return kputs(str);
-}
-
-char KernelIO::getchar() {
-    return kgetchar();
-}
-
 int kprintf(const char *fmt, ...) {
     va_list args;
     va_start(args, fmt);
-    int len = vbprintf<KernelIO>(fmt, args);
+    int len = kvprintf(fmt, args);
     va_end(args);
     return len;
 }
@@ -59,7 +65,7 @@ int kprintf(const char *fmt, ...) {
 int kprintfln(const char *fmt, ...) {
     va_list args;
     va_start(args, fmt);
-    int len = vbprintf<KernelIO>(fmt, args);
+    int len = kvprintf(fmt, args);
     va_end(args);
     kputchar('\n');
     return len + 1;

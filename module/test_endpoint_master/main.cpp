@@ -23,7 +23,7 @@ static uint64_t recv_u64(CapIdx endpoint, const char *tag) {
     sys_endpoint_recv(endpoint, &packet);
     if (msgsz != sizeof(value) || capsz != 0) {
         printf("%s: 无效的消息 msgsz=%u capsz=%u\n", tag, msgsz, capsz);
-        sys_exit();
+        exit(-1);
     }
 
     return value;
@@ -35,7 +35,7 @@ int kmod_main() {
 
     if (!sys_endpoint_create(kEndpointCap)) {
         printf("test-endpoint-master: 创建端点失败!\n");
-        sys_exit();
+        exit(-1);
     }
 
     CapIdx initial_caps[] = {kEndpointCap};
@@ -43,7 +43,7 @@ int kmod_main() {
                                           (CapIdx *)initial_caps, 1, 3);
     if (slave_pcb == cap::error) {
         printf("test-endpoint-master: 创建 test-endpoint-slave 失败!\n");
-        sys_exit();
+        exit(-1);
     }
 
     uint64_t k = recv_u64(kEndpointCap, "test-endpoint-master");
@@ -65,6 +65,6 @@ int kmod_main() {
         sys_endpoint_send(kEndpointCap, &packet);
     }
 
-    sys_exit();
+    exit(-1);
     return 0;
 }

@@ -57,7 +57,7 @@ int kmod_main() {
     sys_notif_unsignal(notif_cap, kSignalAck);
 
     printf("test_execve: 握手完成!\n");
-    sys_exit();
+    exit(-1);
     while (true) {
     }
     return 0;

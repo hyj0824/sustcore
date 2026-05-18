@@ -13,9 +13,9 @@
 #pragma once
 
 #include <sus/ansi.h>
-#include <sus/baseio.h>
-
+#include <concepts>
 #include <cstdio>
+#include <cstddef>
 
 enum class LogLevel { DEBUG = 0, INFO, WARN, ERROR, FATAL, DISABLE };
 
@@ -52,9 +52,30 @@ namespace basecpp {
             T::level
         } -> std::same_as<const LogLevel &>;
     };
+
+    template <typename... Args>
+    void append_log(char *buffer, size_t buffer_size, size_t &offset,
+                    const char *fmt, Args... args) {
+        if (buffer_size == 0 || offset >= buffer_size) {
+            return;
+        }
+
+        int len = snprintf(buffer + offset, buffer_size - offset, fmt, args...);
+        if (len < 0) {
+            buffer[buffer_size - 1] = '\0';
+            return;
+        }
+
+        size_t written = static_cast<size_t>(len);
+        if (written >= buffer_size - offset) {
+            offset = buffer_size - 1;
+        } else {
+            offset += written;
+        }
+    }
 }  // namespace basecpp
 
-template <basecpp::IOTrait IOChannel, basecpp::LogInfo LogInfo>
+template <basecpp::LogInfo LogInfo, typename PutFunctor>
 class Logger {
 private:
     template <LogLevel level, typename... Args>
@@ -63,7 +84,7 @@ private:
 
     template <LogLevel level, typename... Args>
     static void __log__(const char *fmt, Args... args);
-
+    inline static PutFunctor __put{};
 public:
     template <typename... Args>
     static void debug(const char *file, const int line, const char *func,
@@ -86,9 +107,9 @@ public:
                       const char *fmt, Args... args);
 };
 
-template <basecpp::IOTrait IOChannel, basecpp::LogInfo LogInfo>
+template <basecpp::LogInfo LogInfo, typename PutFunctor>
 template <LogLevel level, typename... Args>
-void Logger<IOChannel, LogInfo>::__log__(const char *file, const int line,
+void Logger<LogInfo, PutFunctor>::__log__(const char *file, const int line,
                                          const char *func, const char *fmt,
                                          Args... args) {
     if constexpr (level < GLOBAL_LOG_LEVEL) {
@@ -100,20 +121,21 @@ void Logger<IOChannel, LogInfo>::__log__(const char *file, const int line,
     }
 
     char buffer[256];
-    int offset = 0;
+    size_t offset = 0;
 
-    offset += sprintf(buffer + offset, "(%s:%d:%s)", file, line, func);
-    offset += sprintf(buffer + offset, "[%s:%s]: ", LogInfo::name,
-                      level_to_string(level));
+    basecpp::append_log(buffer, sizeof(buffer), offset, "(%s:%d:%s)", file,
+                        line, func);
+    basecpp::append_log(buffer, sizeof(buffer), offset, "[%s:%s]: ",
+                        LogInfo::name, level_to_string(level));
 
-    offset += sprintf(buffer + offset, fmt, args...);
-    offset += sprintf(buffer + offset, "\n");
-    IOChannel::puts(buffer);
+    basecpp::append_log(buffer, sizeof(buffer), offset, fmt, args...);
+    basecpp::append_log(buffer, sizeof(buffer), offset, "\n");
+    __put(buffer);
 }
 
-template <basecpp::IOTrait IOChannel, basecpp::LogInfo LogInfo>
+template <basecpp::LogInfo LogInfo, typename PutFunctor>
 template <LogLevel level, typename... Args>
-void Logger<IOChannel, LogInfo>::__log__(const char *fmt, Args... args) {
+void Logger<LogInfo, PutFunctor>::__log__(const char *fmt, Args... args) {
     if constexpr (level < GLOBAL_LOG_LEVEL) {
         return;
     }
@@ -123,19 +145,19 @@ void Logger<IOChannel, LogInfo>::__log__(const char *fmt, Args... args) {
     }
 
     char buffer[256];
-    int offset = 0;
+    size_t offset = 0;
 
-    offset += sprintf(buffer + offset, "[%s:%s]: ", LogInfo::name,
-                      level_to_string(level));
+    basecpp::append_log(buffer, sizeof(buffer), offset, "[%s:%s]: ",
+                        LogInfo::name, level_to_string(level));
 
-    offset += sprintf(buffer + offset, fmt, args...);
-    offset += sprintf(buffer + offset, "\n");
-    IOChannel::puts(buffer);
+    basecpp::append_log(buffer, sizeof(buffer), offset, fmt, args...);
+    basecpp::append_log(buffer, sizeof(buffer), offset, "\n");
+    __put(buffer);
 }
 
-template <basecpp::IOTrait IOChannel, basecpp::LogInfo LogInfo>
+template <basecpp::LogInfo LogInfo, typename PutFunctor>
 template <typename... Args>
-void Logger<IOChannel, LogInfo>::debug(const char *file, const int line,
+void Logger<LogInfo, PutFunctor>::debug(const char *file, const int line,
                                        const char *func, const char *fmt,
                                        Args... args) {
     __log__<LogLevel::DEBUG>(file, line, func, fmt, args...);
@@ -143,9 +165,9 @@ void Logger<IOChannel, LogInfo>::debug(const char *file, const int line,
 
 #define DEBUG(fmt, ...) debug(__FILE__, __LINE__, __func__, fmt, ##__VA_ARGS__)
 
-template <basecpp::IOTrait IOChannel, basecpp::LogInfo LogInfo>
+template <basecpp::LogInfo LogInfo, typename PutFunctor>
 template <typename... Args>
-void Logger<IOChannel, LogInfo>::info(const char *file, const int line,
+void Logger<LogInfo, PutFunctor>::info(const char *file, const int line,
                                       const char *func, const char *fmt,
                                       Args... args) {
     __log__<LogLevel::INFO>(file, line, func, fmt, args...);
@@ -153,9 +175,9 @@ void Logger<IOChannel, LogInfo>::info(const char *file, const int line,
 
 #define INFO(fmt, ...) info(__FILE__, __LINE__, __func__, fmt, ##__VA_ARGS__)
 
-template <basecpp::IOTrait IOChannel, basecpp::LogInfo LogInfo>
+template <basecpp::LogInfo LogInfo, typename PutFunctor>
 template <typename... Args>
-void Logger<IOChannel, LogInfo>::warn(const char *file, const int line,
+void Logger<LogInfo, PutFunctor>::warn(const char *file, const int line,
                                       const char *func, const char *fmt,
                                       Args... args) {
     __log__<LogLevel::WARN>(file, line, func, fmt, args...);
@@ -163,9 +185,9 @@ void Logger<IOChannel, LogInfo>::warn(const char *file, const int line,
 
 #define WARN(fmt, ...) warn(__FILE__, __LINE__, __func__, fmt, ##__VA_ARGS__)
 
-template <basecpp::IOTrait IOChannel, basecpp::LogInfo LogInfo>
+template <basecpp::LogInfo LogInfo, typename PutFunctor>
 template <typename... Args>
-void Logger<IOChannel, LogInfo>::error(const char *file, const int line,
+void Logger<LogInfo, PutFunctor>::error(const char *file, const int line,
                                        const char *func, const char *fmt,
                                        Args... args) {
     __log__<LogLevel::ERROR>(file, line, func, fmt, args...);
@@ -173,9 +195,9 @@ void Logger<IOChannel, LogInfo>::error(const char *file, const int line,
 
 #define ERROR(fmt, ...) error(__FILE__, __LINE__, __func__, fmt, ##__VA_ARGS__)
 
-template <basecpp::IOTrait IOChannel, basecpp::LogInfo LogInfo>
+template <basecpp::LogInfo LogInfo, typename PutFunctor>
 template <typename... Args>
-void Logger<IOChannel, LogInfo>::fatal(const char *file, const int line,
+void Logger<LogInfo, PutFunctor>::fatal(const char *file, const int line,
                                        const char *func, const char *fmt,
                                        Args... args) {
     __log__<LogLevel::FATAL>(file, line, func, fmt, args...);
@@ -183,11 +205,11 @@ void Logger<IOChannel, LogInfo>::fatal(const char *file, const int line,
 
 #define FATAL(fmt, ...) fatal(__FILE__, __LINE__, __func__, fmt, ##__VA_ARGS__)
 
-#define DECLARE_LOGGER(IOChannel, _logLevel, loggerName)       \
+#define DECLARE_LOGGER(PutFunctor, _logLevel, loggerName)       \
     struct loggerName##Logger {                                \
         static constexpr const char name[] = #loggerName;      \
         static constexpr LogLevel level    = _logLevel;        \
     };                                                         \
     static_assert(basecpp::LogInfo<loggerName##Logger>,        \
                   #loggerName " Logger static assert failed"); \
-    using loggerName = Logger<IOChannel, loggerName##Logger>;
+    using loggerName = Logger<loggerName##Logger, PutFunctor>;

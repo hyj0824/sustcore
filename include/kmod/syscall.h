@@ -30,7 +30,6 @@ struct ForkRet {
 
 extern "C" {
 void sys_write_serial(const char *str, size_t len);
-void sys_exit();
 bool sys_pcb_kill(CapIdx pcb_cap, int exit_code);
 bool sys_pcb_map(CapIdx pcb_cap, CapIdx mem_cap, void *vaddr, uint64_t rwx,
                  uint64_t growth);
@@ -105,4 +104,5 @@ extern "C" {
 int kputs(const char *str);
 size_t brk(size_t newbrk);
 void *sbrk(ptrdiff_t increment);
+void exit(int exit_code);
 }

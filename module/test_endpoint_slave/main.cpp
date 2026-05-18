@@ -34,7 +34,7 @@ static CapIdx find_unique_endpoint_cap() {
             "test-endpoint-slave: 预期找到一个端点 capability, 但是找到了 %u "
             "个\n",
             count);
-        sys_exit();
+        exit(-1);
     }
 
     return found;
@@ -54,7 +54,7 @@ static uint64_t recv_u64(CapIdx endpoint, const char *tag) {
     sys_endpoint_recv(endpoint, &packet);
     if (msgsz != sizeof(value) || capsz != 0) {
         printf("%s: 无效的消息 msgsz=%u capsz=%u\n", tag, msgsz, capsz);
-        sys_exit();
+        exit(-1);
     }
 
     return value;
@@ -85,6 +85,6 @@ int kmod_main() {
                round, kValueK, c, v);
     }
 
-    sys_exit();
+    exit(-1);
     return 0;
 }

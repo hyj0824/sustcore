@@ -54,6 +54,9 @@ namespace std {
         }
     };
 
+    // TODO: 这是一个标准库实现哈希表, 但其会产生pointer-chasing等问题
+    // 一般来说, unordered_map 适合于写多读少的场景
+    // 当需要读多写少的场景时, 要考虑实现一个 flat_hash_map 来解决这一问题
     template <class Key, class T, class Hash = std::hash<Key>,
               class KeyEqual  = std::equal_to<Key>,
               class Allocator = std::allocator<std::pair<const Key, T>>>

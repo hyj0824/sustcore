@@ -15,8 +15,8 @@
 #include <cstring>
 
 extern "C" {
-void sys_exit() {
-    sys_pcb_kill(__pcb_cap, 0);
+void exit(int exit_code) {
+    sys_pcb_kill(__pcb_cap, exit_code);
     while (true) {}
 }
 
@@ -32,6 +32,7 @@ CapIdx sys_create_thread(void (*entry)(), void *stack_addr,
 
 ForkRet fork() {
     ForkRet ret = sys_pcb_fork(__pcb_cap);
+    // 子进程, 更新 pcb cap index
     if (ret.ret1 != cap::error && ret.ret2 == 0) {
         __pcb_cap = ret.ret1;
     }

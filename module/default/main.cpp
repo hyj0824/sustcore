@@ -11,7 +11,6 @@
 
 #include <cstddef>
 #include <cstdio>
-#include <sus/baseio.h>
 #include <kmod/syscall.h>
 
 class Test {
