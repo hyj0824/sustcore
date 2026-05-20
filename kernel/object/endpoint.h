@@ -30,14 +30,14 @@ namespace cap {
      */
     struct EndpointMsgView {
         const char *msgbuf = nullptr;
-        size_t msgsz = 0;
-        CapIdx *capidxs = nullptr;
-        size_t capsz = 0;
+        size_t msgsz       = 0;
+        CapIdx *capidxs    = nullptr;
+        size_t capsz       = 0;
     };
 
     /**
      * @brief 端点消息
-     * 
+     *
      */
     struct EndpointMessage {
         pid_t sender_pid = 0;
@@ -46,16 +46,13 @@ namespace cap {
         CapIdx capidxs[MAX_MSG_CAPS]{};
         size_t capsz = 0;
         util::ListHead<EndpointMessage> list_head{};
-
-        EndpointMessage() = default;
-        ~EndpointMessage();
     };
 
     /**
      * @brief Endpoint对象的payload.
      *
      * 包含消息列表与接收/发送等待队列
-     * 
+     *
      */
     struct EndpointPayload : public _PayloadHelper<PayloadType::ENDPOINT> {
         util::IntrusiveList<EndpointMessage, &EndpointMessage::list_head>
@@ -90,8 +87,7 @@ namespace cap {
         /**
          * @brief 异步向endpoint写入消息.
          */
-        Result<bool> send_async(pid_t sender_pid,
-                                const EndpointMsgView &msg);
+        Result<bool> send_async(pid_t sender_pid, const EndpointMsgView &msg);
         /**
          * @brief 同步发送endpoint消息, 直到消息被接收方消费.
          */
@@ -99,12 +95,12 @@ namespace cap {
                                              const EndpointMsgView &msg);
         /**
          * @brief 异步接收endpoint消息.
-         * 
+         *
          */
         Result<EndpointMessage *> recv_async();
         /**
          * @brief 同步接收endpoint消息.
-         * 
+         *
          */
         util::cotask<Result<EndpointMessage *>> recv_sync();
         /**
@@ -132,8 +128,7 @@ namespace cap {
          *
          * 调用者必须持有REPLIER权限. ReplyObject已有消息时返回false.
          */
-        Result<bool> send_reply(pid_t sender_pid,
-                                const EndpointMsgView &msg);
+        Result<bool> send_reply(pid_t sender_pid, const EndpointMsgView &msg);
         /**
          * @brief 发送一次回复并从 holder 中移除本方一次性 reply cap.
          */

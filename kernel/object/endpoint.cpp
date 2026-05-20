@@ -146,10 +146,6 @@ namespace cap {
         }
     }  // namespace
 
-    EndpointMessage::~EndpointMessage() {
-        capsz = 0;
-    }
-
     EndpointPayload::EndpointPayload()
         : send_wait_reason(task::wait::alloc_reason()),
           recv_wait_reason(task::wait::alloc_reason()) {}
