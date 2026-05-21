@@ -1,18 +1,49 @@
 #include <kmod/syscall.h>
+#include <rpc/metahelper.h>
 #include <rpc/packet.h>
-#include <rpc/session.h>
 #include <sustcore/capability.h>
 
 #include <cstddef>
 #include <cstdio>
 #include <string>
-#include <vector>
 
-constexpr sus_u32 kServiceMagic = 0x12345678;
-constexpr sus_u32 kSetFunction  = 0;
-constexpr sus_u32 kGetFunction  = 1;
 constexpr sus_i32 kTestValue    = 114514;
 constexpr size_t kScanSlots     = 16;
+
+class SampleServiceInterface {
+public:
+    [[=rpc::service_name]]
+    constexpr static const char *SERVICE_NAME = "sample_service";
+
+    [[=rpc::service_magic]]
+    constexpr static sus_u32 SERVICE_MAGIC = 0x12345678;
+
+    [[=rpc::expose(0)]]
+    virtual void set(sus_i32 value) = 0;
+
+    [[=rpc::expose(1)]]
+    virtual sus_i32 get() = 0;
+};
+
+class SampleClient : public rpc::MetaClient<SampleServiceInterface> {
+public:
+    explicit SampleClient(CapIdx endpoint)
+        : rpc::MetaClient<SampleServiceInterface>(endpoint) {}
+
+    Result<void> set(sus_i32 value) {
+        return call<^^SampleServiceInterface::set>(value);
+    }
+
+    Result<sus_i32> get() {
+        return call<^^SampleServiceInterface::get>();
+    }
+
+    Result<void> close() {
+        auto session_res = start();
+        propagate(session_res);
+        return session_res.value().get().close();
+    }
+};
 
 static CapIdx find_unique_endpoint_cap() {
     CapIdx found = cap::null;
@@ -48,52 +79,26 @@ int kmod_main() {
     printf("test_rpc_client: start pid=%u\n", sys_getpid(__pcb_cap));
     CapIdx endpoint = find_unique_endpoint_cap();
 
-    rpc::Client client(endpoint, "sample_service", kServiceMagic);
-    auto session_res = client.start();
-    if (!session_res.has_value()) {
-        fail("启动RPC session失败");
-    }
-    auto &session = session_res.value().get();
+    SampleClient client(endpoint);
 
-    rpc::ByteBuffer set_args(sizeof(kTestValue));
-    auto write_res = set_args.write(kTestValue);
-    if (!write_res.has_value()) {
-        fail("写入set参数失败");
-    }
-
-    std::vector<sus_u32> set_types;
-    set_types.push_back(rpc::prim_typeid(rpc::PrimitiveTypeId::i32));
-    auto set_res = session.call(
-        kSetFunction, set_types, set_args,
-        rpc::prim_typeid(rpc::PrimitiveTypeId::void_type));
+    auto set_res = client.set(kTestValue);
     if (!set_res.has_value()) {
         fail("RPC set(i32)调用失败");
     }
-    if (set_res.value().retbuf.size() != 0) {
-        fail("RPC set(i32)返回值长度错误");
-    }
     printf("test_rpc_client: set(%d) ok\n", kTestValue);
 
-    rpc::ByteBuffer get_args(0);
-    std::vector<sus_u32> get_types;
-    auto get_res = session.call(
-        kGetFunction, get_types, get_args,
-        rpc::prim_typeid(rpc::PrimitiveTypeId::i32));
+    auto get_res = client.get();
     if (!get_res.has_value()) {
         fail("RPC get()调用失败");
     }
 
-    auto value_res = get_res.value().retbuf.read<sus_i32>();
-    if (!value_res.has_value()) {
-        fail("读取RPC get()返回值失败");
-    }
-    sus_i32 value = value_res.value();
+    sus_i32 value = get_res.value();
     printf("test_rpc_client: get()=%d expected=%d\n", value, kTestValue);
     if (value != kTestValue) {
         fail("RPC get()返回值不匹配");
     }
 
-    auto close_res = session.close();
+    auto close_res = client.close();
     if (!close_res.has_value()) {
         fail("关闭RPC session失败");
     }

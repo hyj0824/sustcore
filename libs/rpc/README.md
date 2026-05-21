@@ -130,22 +130,22 @@ public:
     constexpr static const char *SERVICE_NAME = "MyService";
     [[=rpc::service_magic]]
     constexpr static b32 SERVICE_MAGIC = std::hash<>(SERVICE_NAME);
-    [[=rpc::expose]]
+    [[=rpc::expose(0)]]
     virtual int add(int a, int b) = 0;
 };
 
-class MyServiceImpl : public MyServiceInterface, rpc::Service<MyServiceInterface> {
+class MyServiceImpl : public MyServiceInterface, rpc::MetaService<MyServiceInterface> {
 public:
     int add(int a, int b) override {
         return a + b;
     }
 };
 
-class MyServiceClient : public MyServiceInterface, rpc::Client<MyServiceInterface> {
+class MyServiceClient : public MyServiceInterface, rpc::MetaClient<MyServiceInterface> {
 public:
     int add(int a, int b) override
     {
-        return rpc::Client::call<&MyServiceInterface::add>(a, b);
+        return rpc::MetaClient::call<&MyServiceInterface::add>(a, b);
     }
 };
 ```

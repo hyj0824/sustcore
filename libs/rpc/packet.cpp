@@ -10,6 +10,7 @@
  */
 
 #include <rpc/packet.h>
+#include <rpc/typeparse.h>
 
 namespace rpc {
     namespace {

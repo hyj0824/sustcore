@@ -159,6 +159,10 @@ Result<void> VFS::umount(const char *mountpoint) {
 }
 
 Result<VFile *> VFS::open(const char *filepath) {
+    if (*filepath == '\0') {
+        unexpect_return(ErrCode::INVALID_PARAM);
+    }
+
     util::Path path = util::Path::from(filepath).normalize();
 
     // try update dentry cache
@@ -171,7 +175,7 @@ Result<VFile *> VFS::open(const char *filepath) {
     util::nonnull<VINode *> vind = get_res.value().get()->vind();
     auto *file = new VFile(vind);
     if (file == nullptr) {
-        unexpect_return(ErrCode::OUT_OF_MEMORY);
+        unexpect_return(ErrCode::ALLOCATION_FAILED);
     }
     open_files.push_back(file);
     return file;

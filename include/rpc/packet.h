@@ -52,9 +52,8 @@ namespace rpc {
         f32       = 8,
         f64       = 9,
         size      = 10,
-        off       = 11,
-        boolean   = 12,
-        void_type = 13
+        boolean   = 11,
+        void_type = 12
     };
 
     inline constexpr sus_u32 prim_typeid(PrimitiveTypeId t) {
@@ -66,36 +65,6 @@ namespace rpc {
         UNKNOWN_ERROR = 1,
         INVALID_MAGIC = 2
     };
-
-    inline Result<void> rpc_bytebuffer_write(ByteBuffer &buf,
-                                             const PacketType &t) {
-        return buf._write_direct(t);
-    }
-
-    inline Result<void> rpc_bytebuffer_write(ByteBuffer &buf,
-                                             const PrimitiveTypeId &t) {
-        return buf._write_direct(t);
-    }
-
-    inline Result<void> rpc_bytebuffer_write(ByteBuffer &buf,
-                                             const RPCErrorCode &t) {
-        return buf._write_direct(t);
-    }
-
-    inline Result<void> rpc_ByteBuffer_read(const ByteBuffer &buf,
-                                            PacketType &t) {
-        return buf._read_direct(t);
-    }
-
-    inline Result<void> rpc_ByteBuffer_read(const ByteBuffer &buf,
-                                            PrimitiveTypeId &t) {
-        return buf._read_direct(t);
-    }
-
-    inline Result<void> rpc_ByteBuffer_read(const ByteBuffer &buf,
-                                            RPCErrorCode &t) {
-        return buf._read_direct(t);
-    }
 
     struct SessionPacket {
         sus_u32 service_magic{};

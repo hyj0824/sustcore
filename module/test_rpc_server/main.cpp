@@ -1,79 +1,40 @@
 #include <kmod/syscall.h>
+#include <rpc/metahelper.h>
 #include <rpc/packet.h>
-#include <rpc/session.h>
 #include <sustcore/msg.h>
 
 #include <cstdio>
 #include <string>
 
-class SampleService : public rpc::ServerSession {
-private:
-    int _x = 0;
-
+class SampleServiceInterface {
 public:
-    SampleService(rpc::Server &server, sus_u32 session_number)
-        : rpc::ServerSession(server, session_number) {}
+    [[= rpc::service_name]] constexpr static const char *SERVICE_NAME =
+        "sample_service";
 
-    Result<void> handle_call(const rpc::CallPacket &msg,
-                             CallResult &result) override {
-        switch (msg.function_id) {
-            case 0: {
-                // check types
-                if (msg.types.size() != 1) {
-                    result.is_error = true;
-                    void_return();
-                }
-                if (msg.types[0] != rpc::prim_typeid(rpc::PrimitiveTypeId::i32))
-                {
-                    result.is_error = true;
-                    void_return();
-                }
+    [[= rpc::service_magic]] constexpr static sus_u32 SERVICE_MAGIC =
+        0x12345678;
 
-                // check if argument buffer is valid
-                if (msg.argbuf.size() != sizeof(sus_i32)) {
-                    result.is_error = true;
-                    void_return();
-                }
+    [[= rpc::expose(0)]] virtual void set(sus_i32 value) = 0;
 
-                auto read_res = msg.argbuf.read<sus_i32>();
-                propagate(read_res);
-                _x              = read_res.value();
-                result.is_error = false;
-                result.return_type =
-                    rpc::prim_typeid(rpc::PrimitiveTypeId::void_type);
-                void_return();
-            }
-            case 1: {
-                // check types
-                if (msg.types.size() != 0) {
-                    result.is_error = true;
-                    void_return();
-                }
-                // check if argument buffer is valid
-                if (msg.argbuf.size() != 0) {
-                    result.is_error = true;
-                    void_return();
-                }
-
-                result.is_error = false;
-                result.return_type =
-                    rpc::prim_typeid(rpc::PrimitiveTypeId::i32);
-                auto write_res = result.retbuf.write(_x);
-                propagate(write_res);
-                void_return();
-            }
-        };
-        unexpect_return(ErrCode::NOT_SUPPORTED);
-    }
+    [[= rpc::expose(1)]] virtual sus_i32 get() = 0;
 };
 
-class SampleServer : public rpc::Server {
+class SampleServer
+    : public SampleServiceInterface,
+      public rpc::MetaServer<SampleServiceInterface, SampleServer> {
+private:
+    sus_i32 _x = 0;
+    using MetaServer = rpc::MetaServer<SampleServiceInterface, SampleServer>;
 public:
-    SampleServer(CapIdx endpoint)
-        : rpc::Server(endpoint, "sample_service", 0x12345678) {}
+    explicit SampleServer(CapIdx endpoint)
+        : MetaServer(endpoint) {}
 
-    rpc::ServerSession *create_session(sus_u32 session_number) override {
-        return new SampleService(*this, session_number);
+    void set(sus_i32 value) override {
+        _x = value;
+    }
+
+    sus_i32 get() override {
+        return _x;
     }
 };
 
@@ -88,8 +49,9 @@ int kmod_main() {
     printf("Server is running endpoint=%p\n", (void *)endpoint);
 
     CapIdx initial_caps[] = {endpoint};
-    CapIdx client_pcb = sys_create_process("/initrd/test_rpc_client.mod",
-                                           initial_caps, 1, SCHED_CLASS_RR);
+    CapIdx client_pcb     = sys_create_process("/initrd/test_rpc_client.mod",
+                                               initial_caps, 1,
+                                               SCHED_CLASS_FCFS);
     if (client_pcb == cap::error) {
         printf("Failed to create test_rpc_client\n");
         exit(0);

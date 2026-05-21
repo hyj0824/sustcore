@@ -53,6 +53,10 @@ namespace loader::elf {
         return a > (~uint64_t(0) - b);
     }
 
+    inline void local_fence_i() {
+        asm volatile("fence.i" ::: "memory");
+    }
+
     Result<void> validate_elf64(const Elf64_Ehdr &ehdr, size_t file_size) {
         if (!check_magic(ehdr.e_ident)) {
             unexpect_return(ErrCode::NOT_SUPPORTED);
@@ -249,6 +253,10 @@ namespace loader::elf {
                 PageMan::flush_tlb();
                 propagate_return(load_res);
             }
+            // loadsegs() writes executable user pages through the data path.
+            // RISC-V requires fence.i before those freshly written bytes are
+            // fetched as instructions on this hart.
+            local_fence_i();
         }
 
         // 将各个段的VMA的loading标记为false

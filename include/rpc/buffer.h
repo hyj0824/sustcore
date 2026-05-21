@@ -134,15 +134,8 @@ namespace rpc {
         }
 
         template <typename _Tp>
-        [[nodiscard]] Result<void> _write_direct(const _Tp &t) {
-            return writes(reinterpret_cast<const byte *>(&t), sizeof(_Tp));
-        }
-
-        template <typename _Tp>
         [[nodiscard]] Result<void> write(const _Tp &t) {
-            if (_dir != WRITE)
-                unexpect_return(ErrCode::NOT_SUPPORTED);
-            return rpc_bytebuffer_write(*this, t);
+            return writes(reinterpret_cast<const byte *>(&t), sizeof(_Tp));
         }
 
         [[nodiscard]] size_t size() const {
@@ -166,33 +159,18 @@ namespace rpc {
         }
 
         template <typename _Tp>
-        [[nodiscard]] Result<void> _read_direct(_Tp &t) const
+        [[nodiscard]] Result<void> read(_Tp &t) const
         {
             return reads(reinterpret_cast<byte *>(&t), sizeof(_Tp));
         }
 
         template <typename _Tp>
-        [[nodiscard]] Result<void> read(_Tp &t) const {
-            if (_dir != READ)
-                unexpect_return(ErrCode::NOT_SUPPORTED);
-            return rpc_ByteBuffer_read(*this, t);
-        }
-
-        template <typename _Tp>
-        [[nodiscard]] Result<_Tp> _read_direct() const
+        [[nodiscard]] Result<_Tp> read() const
         {
             if (_dir != READ)
                 unexpect_return(ErrCode::NOT_SUPPORTED);
             _Tp t;
-            return _read_direct(t).transform(always(t));
-        }
-
-        template <typename _Tp>
-        [[nodiscard]] Result<_Tp> read() const {
-            if (_dir != READ)
-                unexpect_return(ErrCode::NOT_SUPPORTED);
-            _Tp t;
-            return rpc_ByteBuffer_read(*this, t).transform(always(t));
+            return read(t).transform(always(t));
         }
 
         template <typename _Tp>
@@ -214,85 +192,4 @@ namespace rpc {
             return _buf;
         }
     };
-
-    inline Result<void> rpc_bytebuffer_write(ByteBuffer &buf, const sus_u8 &t) {
-        return buf._write_direct(t);
-    }
-
-    inline Result<void> rpc_bytebuffer_write(ByteBuffer &buf, const sus_u16 &t) {
-        return buf._write_direct(t);
-    }
-
-    inline Result<void> rpc_bytebuffer_write(ByteBuffer &buf, const sus_u32 &t) {
-        return buf._write_direct(t);
-    }
-
-    inline Result<void> rpc_bytebuffer_write(ByteBuffer &buf, const sus_u64 &t) {
-        return buf._write_direct(t);
-    }
-
-    inline Result<void> rpc_bytebuffer_write(ByteBuffer &buf, const sus_i8 &t) {
-        return buf._write_direct(t);
-    }
-
-    inline Result<void> rpc_bytebuffer_write(ByteBuffer &buf, const sus_i16 &t) {
-        return buf._write_direct(t);
-    }
-
-    inline Result<void> rpc_bytebuffer_write(ByteBuffer &buf, const sus_i32 &t) {
-        return buf._write_direct(t);
-    }
-
-    inline Result<void> rpc_bytebuffer_write(ByteBuffer &buf, const sus_i64 &t) {
-        return buf._write_direct(t);
-    }
-
-    inline Result<void> rpc_bytebuffer_write(ByteBuffer &buf, const bool &t) {
-        return buf._write_direct(t);
-    }
-
-    // other types
-    inline Result<void> rpc_bytebuffer_write(ByteBuffer &buf, const ErrCode &t) {
-        return buf._write_direct(t);
-    }
-
-    inline Result<void> rpc_ByteBuffer_read(const ByteBuffer &buf, sus_u8 &t) {
-        return buf._read_direct(t);
-    }
-
-    inline Result<void> rpc_ByteBuffer_read(const ByteBuffer &buf, sus_u16 &t) {
-        return buf._read_direct(t);
-    }
-
-    inline Result<void> rpc_ByteBuffer_read(const ByteBuffer &buf, sus_u32 &t) {
-        return buf._read_direct(t);
-    }
-
-    inline Result<void> rpc_ByteBuffer_read(const ByteBuffer &buf, sus_u64 &t) {
-        return buf._read_direct(t);
-    }
-
-    inline Result<void> rpc_ByteBuffer_read(const ByteBuffer &buf, sus_i8 &t) {
-        return buf._read_direct(t);
-    }
-
-    inline Result<void> rpc_ByteBuffer_read(const ByteBuffer &buf, sus_i16 &t) {
-        return buf._read_direct(t);
-    }
-
-    inline Result<void> rpc_ByteBuffer_read(const ByteBuffer &buf, sus_i32 &t) {
-        return buf._read_direct(t);
-    }
-
-    inline Result<void> rpc_ByteBuffer_read(const ByteBuffer &buf, sus_i64 &t) {
-        return buf._read_direct(t);
-    }
-
-    inline Result<void> rpc_ByteBuffer_read(const ByteBuffer &buf, bool &t) {
-        return buf._read_direct(t);
-    }
-
-    inline Result<void> rpc_ByteBuffer_read(const ByteBuffer &buf, ErrCode &t) {
-        return buf._read_direct(t);
-    }
 }  // namespace rpc

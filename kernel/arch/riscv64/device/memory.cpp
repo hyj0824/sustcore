@@ -14,6 +14,7 @@
 #include <arch/trait.h>
 #include <env.h>
 #include <logger.h>
+#include <sustcore/addr.h>
 #include <sustcore/errcode.h>
 #include <symbols.h>
 #include <algorithm>
@@ -136,10 +137,13 @@ Result<void> Riscv64MemoryLayout::detect() {
 
     int idx = 0;
 
-    // 将内核划入保留区域
+    // FDT 中的内存区域使用物理地址, linker symbols 是内核高半区虚拟地址.
+    // 因此这里必须先转换成物理地址, 否则 kernel/initrd 会被误加入 FREE 区域.
+    auto kernel_start_pa       = reinterpret_cast<void *>(
+        KVA2PA(reinterpret_cast<addr_t>(&skernel)));
     size_t kernel_sz           = (size_t)(&ekernel - &skernel);
     reserved_buf[num_reserved] = {
-        .ptr  = &skernel,
+        .ptr  = kernel_start_pa,
         .size = kernel_sz,
     };
     num_reserved++;
