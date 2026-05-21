@@ -120,11 +120,13 @@ namespace syscall {
 
     static Result<schd::ClassType> parse_user_sched_class(size_t value) {
         switch (static_cast<schd::ClassType>(value)) {
+            case schd::ClassType::RT:
             case schd::ClassType::RR:
             case schd::ClassType::FCFS:
-            case schd::ClassType::IDLE:
                 return static_cast<schd::ClassType>(value);
             case schd::ClassType::INIT:
+            case schd::ClassType::IDLE:
+            case schd::ClassType::BOT:
                 unexpect_return(ErrCode::INVALID_PARAM);
             default: unexpect_return(ErrCode::INVALID_PARAM);
         }

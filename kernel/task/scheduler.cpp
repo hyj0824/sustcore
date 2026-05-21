@@ -36,11 +36,17 @@ namespace key {
 }  // namespace key
 
 extern "C" [[noreturn]] void isr_restore_user(void *kstack_top);
+extern "C" [[noreturn]] void isr_restore_kernel(void *kstack_top);
+extern "C" void riscv64_kernel_switch(void *prev_ctx, void *next_ctx);
+extern "C" void riscv64_kernel_switch_to_user(void *prev_ctx,
+                                              void *next_kstack);
+extern PhyAddr kernel_root;
 
 namespace schd {
     using namespace task;
-    void Scheduler::init(util::nonnull<TCB *> init_tcb) {
-        inst_scheduler = new (scheduler_storage) Scheduler(init_tcb);
+    void Scheduler::init(util::nonnull<TCB *> idle_tcb,
+                         util::nonnull<TCB *> init_tcb) {
+        inst_scheduler = new (scheduler_storage) Scheduler(idle_tcb, init_tcb);
         inst_scheduler_initialized = true;
     }
 
@@ -56,6 +62,14 @@ namespace schd {
     }
 
     void switch_pgd(TaskMemoryManager *tmm) {
+        if (tmm == nullptr) {
+            if (kernel_root.nonnull() && kernel_root != env::inst().pgd()) {
+                PageMan(kernel_root).switch_root();
+                PageMan::flush_tlb();
+            }
+            env::inst().tmm(key::schd()) = nullptr;
+            return;
+        }
         // 只在页表不为null且不等于当前页表时才切换
         if (tmm->pgd().nonnull() && tmm->pgd() != env::inst().pgd()) {
             PageMan(tmm->pgd()).switch_root();
@@ -113,6 +127,22 @@ namespace schd {
         return util::nnullforce(next);
     }
 
+    Result<util::nonnull<TCB *>> Scheduler::prepare_next_task() {
+        while (true) {
+            auto next_res = pick_next_task();
+            propagate(next_res);
+            TCB *next = next_res.value();
+            switch_to(next);
+
+            if (task::wait::resume_deferred_syscall(next)) {
+                return util::nnullforce(next);
+            }
+
+            next->basic_entity
+                .template flags_set<SchedMeta::FLAGS_NEED_RESCHED>();
+        }
+    }
+
     void Scheduler::check_preempt_curr(TCB *new_tcb) {
         if (_curtcb == nullptr) {
             // 没有正在运行的线程, 不需要抢占
@@ -144,7 +174,7 @@ namespace schd {
         }
     }
 
-    void Scheduler::schedule() {
+    void Scheduler::schedule(bool switch_kernel_context) {
         // 首先获得当前正在运行的线程
         if (_curtcb == nullptr) {
             // 没有正在运行的线程, 调度器未启动, 直接返回
@@ -180,14 +210,24 @@ namespace schd {
         }
 
         // 选择下一个要运行的线程
-        auto next_res = pick_next_task();
+        TCB *prev = _curtcb;
+        auto next_res = prepare_next_task();
         if (!next_res.has_value()) {
             loggers::SUSTCORE::ERROR("没有可运行的线程! 错误码: %s",
                                      to_cstring(next_res.error()));
             panic("调度器崩溃!");
         }
         TCB *next = next_res.value();
-        switch_to(next);
+        if (switch_kernel_context && prev != next && prev != nullptr &&
+            prev->is_kernel)
+        {
+            if (next->is_kernel) {
+                riscv64_kernel_switch(prev->context(), next->context());
+            } else {
+                riscv64_kernel_switch_to_user(prev->context(),
+                                              next->kstack_top);
+            }
+        }
     }
 
     Result<void> Scheduler::enqueue(util::nonnull<TCB *> tcb) {
@@ -236,10 +276,6 @@ namespace schd {
         if (tcb == nullptr || tcb->basic_entity.state != ThreadState::WAITING) {
             return false;
         }
-        if (tcb->coroutines.syscall_pending &&
-            !tcb->coroutines.syscall_done) {
-            return false;
-        }
         tcb->basic_entity.state = ThreadState::EMPTY;
         return wakeup(tcb);
     }
@@ -285,9 +321,9 @@ namespace schd {
     }
 
     void Scheduler::init() {
-        // Scheduler构造时已经将内核初始init线程设为当前线程.
+        // Scheduler构造时已经将内核idle线程设为当前线程, INIT线程为ready.
         if (_curtcb == nullptr || _curpcb == nullptr) {
-            loggers::SUSTCORE::ERROR("INIT线程无效");
+            loggers::SUSTCORE::ERROR("IDLE线程无效");
             panic("调度器崩溃!");
         }
     }
@@ -299,7 +335,11 @@ namespace schd {
             panic("调度器崩溃!");
         }
 
+        schedule(false);
         switch_to(_curtcb);
+        if (_curtcb->is_kernel) {
+            isr_restore_kernel(_curtcb->kstack_top);
+        }
         isr_restore_user(_curtcb->kstack_top);
     }
 }  // namespace schd

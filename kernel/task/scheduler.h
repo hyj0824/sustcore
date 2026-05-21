@@ -13,6 +13,7 @@
 
 #include <schd/idle.h>
 #include <schd/init.h>
+#include <schd/rt.h>
 #include <schd/schdbase.h>
 #include <sus/nonnull.h>
 #include <sustcore/errcode.h>
@@ -28,24 +29,35 @@ namespace schd {
     private:
         RQ _rq;
 
+        rt::RT<TCB> _rt_schd;
         rr::RR<TCB> _rr_schd;
         fcfs::FCFS<TCB> _fcfs_schd;
         idle::IDLE<TCB> _idle_schd;
         init::INIT<TCB> _init_schd;
 
     public:
-        static void init(util::nonnull<TCB *> init_tcb);
+        static void init(util::nonnull<TCB *> idle_tcb,
+                         util::nonnull<TCB *> init_tcb);
         static bool initialized();
         static Scheduler &inst();
 
-        constexpr Scheduler(util::nonnull<TCB *> init_tcb)
-            : _curtcb(init_tcb.get()), _curpcb(init_tcb->task) {
-            init_tcb->basic_entity.state = ThreadState::RUNNING;
-            _init_schd.cursched = &init_tcb->basic_entity;
+        constexpr Scheduler(util::nonnull<TCB *> idle_tcb,
+                            util::nonnull<TCB *> init_tcb)
+            : _curtcb(idle_tcb.get()), _curpcb(idle_tcb->task) {
+            idle_tcb->basic_entity.state = ThreadState::RUNNING;
+            _idle_schd.cursched          = &idle_tcb->basic_entity;
+            init_tcb->basic_entity.state = ThreadState::READY;
+            _init_schd.ready             = &init_tcb->basic_entity;
+            idle_tcb->basic_entity
+                .template flags_set<SchedMeta::FLAGS_NEED_RESCHED>();
         }
 
         constexpr util::nonnull<RQ *> rq() {
             return _rq;
+        }
+
+        constexpr util::nonnull<rt::RT<TCB> *> rt_schd() {
+            return _rt_schd;
         }
 
         constexpr util::nonnull<rr::RR<TCB> *> rr_schd() {
@@ -73,6 +85,7 @@ namespace schd {
 
         constexpr Result<BaseSchedPtr> schd(ClassType type) {
             switch (type) {
+                case ClassType::RT:   return {rt_schd()};
                 case ClassType::INIT: return {init_schd()};
                 case ClassType::RR:   return {rr_schd()};
                 case ClassType::FCFS: return {fcfs_schd()};
@@ -99,6 +112,9 @@ namespace schd {
          */
         template <typename Func>
         void foreach_schdclass(Func f, ClassType bot = ClassType::BOT) {
+            if (ClassType::RT >= bot) {
+                f(rt_schd());
+            }
             if (ClassType::INIT >= bot) {
                 f(init_schd());
             }
@@ -114,6 +130,7 @@ namespace schd {
         }
 
         Result<util::nonnull<TCB *>> pick_next_task();
+        Result<util::nonnull<TCB *>> prepare_next_task();
         void check_preempt_curr(TCB *new_tcb);
 
         void switch_to(TCB *tcb);
@@ -139,7 +156,7 @@ namespace schd {
          * 这样调度器就会在没有其他可运行线程时调度到这个 IDLE 线程上
          *
          */
-        void schedule();
+        void schedule(bool switch_kernel_context = true);
 
         // 任务入队/唤醒
         Result<void> enqueue(util::nonnull<TCB *> tcb);

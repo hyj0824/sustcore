@@ -128,11 +128,34 @@ namespace task::wait {
         queue->threads.pop_front();
         tcb->wait_reason                = 0;
         tcb->wait_predicate             = {};
-        tcb->coroutines.ipc_handle      = nullptr;
-        tcb->coroutines.syscall_pending = false;
-        tcb->coroutines.syscall_done    = true;
+        tcb->coroutines.handle      = nullptr;
+        tcb->coroutines.pending = false;
+        tcb->coroutines.done    = true;
         tcb->wait_head.clear();
         return tcb;
+    }
+
+    Result<void> WaitReasonManager::remove(TCB *tcb) {
+        if (tcb == nullptr) {
+            unexpect_return(ErrCode::NULLPTR);
+        }
+        if (tcb->wait_reason == 0) {
+            void_return();
+        }
+
+        auto qres = queue_if_exists(tcb->wait_reason);
+        propagate(qres);
+        WaitQueue *queue = qres.value();
+        if (queue != nullptr) {
+            queue->threads.remove(*tcb);
+        }
+        tcb->wait_reason            = 0;
+        tcb->wait_predicate         = {};
+        tcb->coroutines.handle      = nullptr;
+        tcb->coroutines.pending     = false;
+        tcb->coroutines.done        = true;
+        tcb->wait_head.clear();
+        void_return();
     }
 
     static bool run_wait_predicate(TCB *tcb) {
@@ -169,23 +192,16 @@ namespace task::wait {
     }
 
     static bool has_syscall_waiter(TCB *tcb) {
-        return tcb != nullptr && tcb->coroutines.ipc_handle;
-    }
-
-    static bool syscall_done_for_wakeup(TCB *tcb) {
-        if (tcb == nullptr) {
-            return false;
-        }
-        return !tcb->coroutines.syscall_pending || tcb->coroutines.syscall_done;
+        return tcb != nullptr && tcb->coroutines.handle;
     }
 
     static void clear_wait_metadata(TCB *tcb) {
         assert(tcb != nullptr);
         tcb->wait_reason                = 0;
         tcb->wait_predicate             = {};
-        tcb->coroutines.ipc_handle      = nullptr;
-        tcb->coroutines.syscall_pending = false;
-        tcb->coroutines.syscall_done    = true;
+        tcb->coroutines.handle      = nullptr;
+        tcb->coroutines.pending = false;
+        tcb->coroutines.done    = true;
         tcb->wait_head.clear();
     }
 
@@ -215,7 +231,7 @@ namespace task::wait {
 
         TCB *previous_active_syscall_tcb = active_syscall_tcb;
         active_syscall_tcb              = tcb;
-        tcb->coroutines.ipc_handle.resume();
+        tcb->coroutines.handle.resume();
         active_syscall_tcb = previous_active_syscall_tcb;
 
         if (target_tmm != nullptr && target_tmm->pgd().nonnull() &&
@@ -227,6 +243,20 @@ namespace task::wait {
         }
     }
 
+    bool resume_deferred_syscall(TCB *tcb) {
+        if (!has_syscall_waiter(tcb)) {
+            return true;
+        }
+
+        resume_syscall_waiter(tcb);
+        if (tcb->coroutines.done) {
+            clear_wait_metadata(tcb);
+            return true;
+        }
+
+        return tcb->basic_entity.state != ThreadState::WAITING;
+    }
+
     static size_t wake_waiter(TCB *tcb) {
         if (tcb == nullptr) {
             return 0;
@@ -234,12 +264,7 @@ namespace task::wait {
 
         if (has_syscall_waiter(tcb)) {
             clear_queue_metadata(tcb);
-            resume_syscall_waiter(tcb);
-            if (tcb->coroutines.syscall_done) {
-                clear_wait_metadata(tcb);
-                return schd::Scheduler::inst().wakeup_waiting(tcb) ? 1 : 0;
-            }
-            return 0;
+            return schd::Scheduler::inst().wakeup_waiting(tcb) ? 1 : 0;
         }
 
         clear_wait_metadata(tcb);
@@ -265,9 +290,7 @@ namespace task::wait {
                 return size_t(0);
             }
 
-            if (run_wait_predicate(tcb) &&
-                (has_syscall_waiter(tcb) || syscall_done_for_wakeup(tcb)))
-            {
+            if (run_wait_predicate(tcb)) {
                 return wake_waiter(tcb);
             }
 
@@ -295,9 +318,7 @@ namespace task::wait {
             TCB *tcb = &queue->threads.front();
             queue->threads.pop_front();
 
-            if (!run_wait_predicate(tcb) ||
-                (!has_syscall_waiter(tcb) && !syscall_done_for_wakeup(tcb)))
-            {
+            if (!run_wait_predicate(tcb)) {
                 queue->threads.push_back(*tcb);
                 continue;
             }
@@ -356,19 +377,19 @@ namespace task::wait {
                     return false;
                 }
 
-                tcb->coroutines.ipc_handle = handle;
+                tcb->coroutines.handle = handle;
 
                 InterruptGuard guard;
                 guard.enter();
                 if (_ready_predicate && _ready_predicate()) {
-                    tcb->coroutines.ipc_handle = nullptr;
+                    tcb->coroutines.handle = nullptr;
                     return false;
                 }
 
                 _result = WaitReasonManager::inst().enqueue(
                     _reason, tcb, std::move(_predicate));
                 if (!_result.has_value()) {
-                    tcb->coroutines.ipc_handle = nullptr;
+                    tcb->coroutines.handle = nullptr;
                     return false;
                 }
                 tcb->basic_entity

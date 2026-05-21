@@ -295,3 +295,10 @@ concept InterruptTrait = requires() {
 // Write-Protection Fault Infomation Trait
 template <typename T>
 concept WPFaultTrait = requires() { true; };
+
+template <typename T>
+concept IdleTrait = requires() {
+    {
+        T::idle()
+    } -> std::same_as<void>;
+};

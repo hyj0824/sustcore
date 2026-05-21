@@ -74,7 +74,7 @@ namespace syscall {
                                   RetPack ret) {
         ctx->write_ret(ret);
         ctx->sepc                    += 4;
-        tcb->coroutines.syscall_done  = true;
+        tcb->coroutines.done  = true;
         return ret;
     }
 

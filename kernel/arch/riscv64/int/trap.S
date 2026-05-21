@@ -173,3 +173,12 @@ isr_restore_user:
     /* 从指定线程的内核栈恢复上下文, 用于第一次进入用户态 */
     mv sp, a0
     j isr_ustkr
+
+.globl isr_restore_kernel
+.type isr_restore_kernel, @function
+isr_restore_kernel:
+    /* 从指定线程的内核栈恢复S-Mode上下文, 运行时sscratch必须为0 */
+    csrw sscratch, zero
+    mv sp, a0
+    addi sp, sp, -STACK_SIZE
+    j isr_rcsrs

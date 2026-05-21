@@ -32,11 +32,12 @@ using WaitReasonId = size_t;
 namespace task {
     struct TCB;
     struct PCB;
+    using KThreadEntry = void (*)(void *);
 
     namespace wait {
-        using WaitPredicate = std::function<bool(TCB *tcb)>;
+        using WaitPredicate      = std::function<bool(TCB *tcb)>;
         using WaitReadyPredicate = std::function<bool()>;
-    }
+    }  // namespace wait
 
     // Make sure that TCB is has standard layout,
     // so that we can use offsetof to get the TCB pointer from the SU pointer.
@@ -45,6 +46,9 @@ namespace task {
         // thread info
         tid_t tid;
         PCB *task;
+        bool is_kernel;
+        KThreadEntry kentry;
+        void *karg;
         util::ListHead<TCB> list_head;
 
         // running information
@@ -65,12 +69,13 @@ namespace task {
         schd::rr::Entity rr_entity;
 
         struct SystemCoroutines {
-            // Endpoint IPC recv 协程句柄, 只由 endpoint recv/send 路径使用. 
-            std::coroutine_handle<> ipc_handle = nullptr;
-            // syscall 协程状态. pending 表示线程正在等待一个尚未返回用户态的
-            // syscall; done 表示返回值已经写入上下文并且可以重新进入用户态. 
-            bool syscall_pending               = false;
-            bool syscall_done                  = true;
+            // 协程句柄, 用于在协程中保存和恢复执行状态
+            std::coroutine_handle<> handle = nullptr;
+            // 协程状态.
+            // pending 表示线程正在等待一个尚未返回用户态的syscall;
+            // done 表示返回值已经写入上下文并且可以重新进入用户态.
+            bool pending           = false;
+            bool done              = true;
         };
 
         // wait data
@@ -89,6 +94,7 @@ namespace task {
     struct PCB : public util::tree_base::TreeBase<PCB> {
         // process info
         pid_t pid;
+        bool is_kernel;
         int exit_code;
         bool exiting;
         // 是否已被加入回收队列

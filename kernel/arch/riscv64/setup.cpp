@@ -50,6 +50,11 @@ void Riscv64Initialization::pre_init(void) {
     loggers::DEVICE::DEBUG("时钟频率为 %d Hz", hz.to_hz());
 }
 
+void Riscv64Idle::idle()
+{
+    asm volatile("wfi");
+}
+
 void Riscv64Initialization::post_init(void) {
     // 我们希望50ms触发1次时钟中断(调试用)
     units::frequency freq = get_clock_freq();

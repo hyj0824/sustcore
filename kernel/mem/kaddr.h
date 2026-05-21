@@ -60,46 +60,4 @@ namespace ker_paddr {
         map_seg(man, misc, PageMan::rwx(true, false, false), false, true);
         map_seg(man, kphy_space, PageMan::rwx(true, true, false), false, true);
     }
-
-    inline void sum_open() {
-        csr_sstatus_t sstatus = csr_get_sstatus();
-        sstatus.sum           = 1;  // 允许S-MODE访问U-MODE内存
-        csr_set_sstatus(sstatus);
-    }
-
-    inline void sum_close() {
-        csr_sstatus_t sstatus = csr_get_sstatus();
-        sstatus.sum           = 0;  // 禁止S-MODE访问U-MODE内存
-        csr_set_sstatus(sstatus);
-    }
-
-    struct SumGuard {
-    private:
-        bool opened = false;
-    public:
-        SumGuard() = default;
-        ~SumGuard() {
-            close();
-        }
-        void open() {
-            if (!opened) {
-                opened = true;
-                sum_open();
-            }
-        }
-        void close() {
-            if (opened) {
-                opened = false;
-                sum_close();
-            }
-        }
-        // 禁止复制和移动
-        SumGuard(const SumGuard &) = delete;
-        SumGuard &operator=(const SumGuard &) = delete;
-        SumGuard(SumGuard &&) = delete;
-        SumGuard &operator=(SumGuard &&) = delete;
-        // 禁止new和delete
-        void *operator new(size_t) = delete;
-        void operator delete(void *) = delete;
-    };
 }  // namespace ker_paddr

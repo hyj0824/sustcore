@@ -43,10 +43,18 @@ namespace schd {
     // BOT is the lowest priority, served as the minimum of the class type
     // however, there is no actual BOT class, it's just a placeholder for the
     // end of the class type range
-    enum class ClassType { BOT = 0, IDLE = 1, FCFS = 2, RR = 3, INIT = 4 };
+    enum class ClassType {
+        BOT  = 0,
+        IDLE = 1,
+        FCFS = 2,
+        RR   = 3,
+        INIT = 4,
+        RT   = 5
+    };
 
     constexpr const char *to_cstring(ClassType type) {
         switch (type) {
+            case ClassType::RT:   return "RT";
             case ClassType::INIT: return "INIT";
             case ClassType::RR:   return "RR";
             case ClassType::FCFS: return "FCFS";
@@ -98,10 +106,9 @@ namespace schd {
     };
 
     struct RQ {
-        util::IntrusiveList<SchedMeta, &SchedMeta::rq_head> init_list;
+        util::IntrusiveList<SchedMeta, &SchedMeta::rq_head> rt_list;
         util::IntrusiveList<SchedMeta, &SchedMeta::rq_head> fcfs_list;
         util::IntrusiveList<SchedMeta, &SchedMeta::rq_head> rr_list;
-        util::IntrusiveList<SchedMeta, &SchedMeta::rq_head> idle_list;
     };
 
     template <typename SU>

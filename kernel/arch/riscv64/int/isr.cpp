@@ -484,15 +484,15 @@ namespace Handlers {
                 loggers::INTERRUPT::DEBUG(
                     "系统调用参数: arg3=0x%lx, arg4=0x%lx, sepc=0x%lx",
                     args.args[3], args.args[4], sepc);
-                current_tcb->coroutines.syscall_pending = false;
-                current_tcb->coroutines.syscall_done    = false;
+                current_tcb->coroutines.pending = false;
+                current_tcb->coroutines.done    = false;
                 auto task = syscall::entrance(*ctx, *current_tcb);
                 // 如果系统调用处理完成, 返回值已由 entrance 写入;
                 // 否则说明需要等待, 则暂不返回, 等待任务完成后再返回
                 if (task.done()) {
                     syscall::RetPack ret = task.result();
-                    assert(current_tcb->coroutines.syscall_done);
-                    current_tcb->coroutines.syscall_pending = false;
+                    assert(current_tcb->coroutines.done);
+                    current_tcb->coroutines.pending = false;
                     processed                               = ret.processed;
                     loggers::INTERRUPT::DEBUG(
                         "系统调用完成: name=%s, processed=%d, ret0=0x%lx, "
@@ -503,7 +503,7 @@ namespace Handlers {
                     assert(current_tcb->basic_entity.state ==
                            ThreadState::WAITING);
                     processed                               = true;
-                    current_tcb->coroutines.syscall_pending = true;
+                    current_tcb->coroutines.pending = true;
                     loggers::INTERRUPT::DEBUG(
                         "系统调用挂起: name=%s",
                         syscall::name_of(args.syscall_number));

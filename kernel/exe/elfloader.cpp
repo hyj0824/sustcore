@@ -17,6 +17,7 @@
 #include <exe/elfloader.h>
 #include <logger.h>
 #include <mem/kaddr.h>
+#include <mem/userspace.h>
 #include <mem/vma.h>
 #include <object/vfile.h>
 #include <sustcore/addr.h>
@@ -238,7 +239,7 @@ namespace loader::elf {
 
         // 开始加载段. 这里在 S-Mode 直接写用户虚拟地址, 需要打开 SUM. 
         {
-            ker_paddr::SumGuard sum_guard;
+            uspace::SumGuard sum_guard;
             loggers::SUSTCORE::DEBUG("打开SUM, 开始加载ELF段");
             sum_guard.open();
             auto load_res = loadsegs(fop, ehdr);
@@ -267,7 +268,7 @@ namespace loader::elf {
             }
 
             // 打开SUM以访问用户空间地址
-            ker_paddr::SumGuard sum_guard;
+            uspace::SumGuard sum_guard;
             sum_guard.open();
 
             loggers::SUSTCORE::DEBUG("  VMA类型: %s, 起始地址: %p",

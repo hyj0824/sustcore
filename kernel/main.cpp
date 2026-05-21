@@ -39,6 +39,7 @@
 #include <task/task.h>
 #include <task/wait.h>
 #include <test/framework.h>
+#include <test/kthread.h>
 #include <vfs/ops.h>
 #include <vfs/tarfs.h>
 #include <vfs/vfs.h>
@@ -143,6 +144,20 @@ Result<void> init_vfs() {
 }
 
 Result<void> init_scheduler() {
+    auto kernel_res = task::TaskManager::inst().create_kernel_task();
+    if (!kernel_res.has_value()) {
+        loggers::SUSTCORE::ERROR("创建KERNEL进程失败! 错误码: %s",
+                                 to_cstring(kernel_res.error()));
+        propagate_return(kernel_res);
+    }
+
+    auto idle_res = task::TaskManager::inst().create_idle_thread();
+    if (!idle_res.has_value()) {
+        loggers::SUSTCORE::ERROR("创建idle内核线程失败! 错误码: %s",
+                                 to_cstring(idle_res.error()));
+        propagate_return(idle_res);
+    }
+
     auto load_res = task::TaskManager::inst().load_init(INITMOD_PATH);
     if (!load_res.has_value()) {
         loggers::SUSTCORE::ERROR("加载初始进程失败! 错误码: %s",
@@ -152,8 +167,12 @@ Result<void> init_scheduler() {
 
     auto task = load_res.value();
     assert(task->threads.size() == 1);
-    schd::Scheduler::init(task->threads.front());
+    schd::Scheduler::init(idle_res.value(), task->threads.front());
     schd::Scheduler::inst().init();
+#ifdef __CONF_KERNEL_TESTS
+    auto kthread_test_res = test::kthread::start_logger_yield_test();
+    propagate(kthread_test_res);
+#endif
     void_return();
 }
 

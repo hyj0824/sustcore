@@ -19,6 +19,8 @@
 #include <task/scheduler.h>
 #include <task/task.h>
 
+extern "C" [[noreturn]] void isr_restore_kernel(void *kstack_top);
+
 extern "C" void handle_trap(csr_scause_t scause, umb_t sepc, umb_t stval,
                             Riscv64Context *ctx) {
     bool from_umode = !ctx->sstatus.spp;
@@ -36,6 +38,9 @@ extern "C" void handle_trap(csr_scause_t scause, umb_t sepc, umb_t stval,
         scheduler.schedule();
         auto *tcb = scheduler.current_tcb();
         if (tcb != nullptr) {
+            if (tcb->is_kernel) {
+                isr_restore_kernel(tcb->kstack_top);
+            }
             csr_set_sscratch(
                 reinterpret_cast<csr_sscratch_t>(tcb->kstack_top));
         }

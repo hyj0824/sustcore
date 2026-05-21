@@ -52,6 +52,7 @@ namespace task::wait {
         Result<TCB *> peek_one(WaitReasonId id);
         // 从等待队列中弹出一个线程
         Result<TCB *> pop_one(WaitReasonId id);
+        Result<void> remove(TCB *tcb);
         // 从等待队列中唤醒一个线程, 返回被唤醒线程的数量(0或1)
         Result<size_t> wake_one(WaitReasonId id);
         // 从等待队列中唤醒所有线程, 返回被唤醒线程的数量
@@ -82,4 +83,5 @@ namespace task::wait {
     Result<size_t> wake_one(WaitReasonId id);
     Result<size_t> wake_all(WaitReasonId id);
     bool has_waiting(WaitReasonId id);
+    bool resume_deferred_syscall(TCB *tcb);
 }  // namespace task::wait

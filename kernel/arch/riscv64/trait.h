@@ -149,4 +149,9 @@ struct Riscv64WPFault {
 };
 static_assert(WPFaultTrait<Riscv64WPFault>);
 
+struct Riscv64Idle {
+    static void idle();
+};
+static_assert(IdleTrait<Riscv64Idle>);
+
 #include <arch/riscv64/mem/sv39.h>

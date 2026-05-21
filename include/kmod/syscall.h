@@ -23,6 +23,7 @@ enum KmodSchedClass : size_t {
     SCHED_CLASS_IDLE = 1,
     SCHED_CLASS_FCFS = 2,
     SCHED_CLASS_RR   = 3,
+    SCHED_CLASS_RT   = 5,
 };
 
 struct MemQueryRet {

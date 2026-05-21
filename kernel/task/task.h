@@ -42,6 +42,7 @@ namespace task {
 
         std::unordered_map<pid_t, PCB *> _pid_map;
         util::LinkedList<PCB *> _recycle_pcbs;
+        PCB *_kernel_pcb = nullptr;
 
         /**
          * @brief 分配并返回一个新的 TCB 对象的非空指针.
@@ -54,6 +55,9 @@ namespace task {
             TCB *tcb                   = new TCB();
             tcb->tid                   = 0;
             tcb->task                  = nullptr;
+            tcb->is_kernel             = false;
+            tcb->kentry                = nullptr;
+            tcb->karg                  = nullptr;
             tcb->list_head             = {};
             tcb->kstack_top            = nullptr;
             tcb->kstack_phy            = PhyAddr::null;
@@ -62,7 +66,7 @@ namespace task {
             tcb->rr_entity             = {};
             tcb->wait_reason           = 0;
             tcb->wait_predicate        = {};
-            tcb->coroutines.ipc_handle = nullptr;
+            tcb->coroutines.handle = nullptr;
             tcb->wait_head             = {};
             return util::nnullforce(tcb);
         }
@@ -100,18 +104,15 @@ namespace task {
          * @note entrypoint 与 stack_top 必须满足架构对对齐和可访问性的要求.
          */
         Result<void> init_ctx(util::nonnull<TCB *> tcb, void *entrypoint,
-                              void *stack_top);
+                              void *stack_top, bool smode = false);
         /**
-         * @brief 初始化 PCB 对象, 根据给定的 TaskSpec 分配或配置资源.
+         * @brief 初始化一个空 PCB, 只填入生命周期与进程基础状态.
          *
          * @param pcb 要初始化的 PCB, 必须为非空指针.
-         * @param spec 任务规格, 包含可执行路径、权限、资源限制等信息.
          * @return Result<void> 成功返回 SUCCESS, 失败返回相应错误码.
-         * @note 本函数可能分配内存与能力(capability),
-         * 如果失败调用者应清理部分已分配的资源.
+         * @note 资源字段由后续的填充函数写入.
          */
-        Result<void> init_pcb(util::nonnull<PCB *> pcb,
-                              TaskSpec spec /* ... args*/);
+        Result<void> init_pcb(util::nonnull<PCB *> pcb);
 
         /**
          * @brief 在指定的 PCB 上创建一个线程, 并初始化其 TCB 与上下文.
@@ -127,7 +128,7 @@ namespace task {
          */
         Result<util::nonnull<TCB *>> construct_thread(
             util::nonnull<PCB *> pcb, void *entrypoint, void *stack_top,
-            schd::ClassType schd_class);
+            schd::ClassType schd_class, bool kernel_thread = false);
         /**
          * @brief 为 PCB 构造主线程, 并根据 StartupInfo 执行额外的启动配置.
          *
@@ -143,18 +144,37 @@ namespace task {
             task::StartupInfo startup_info);
 
         /**
-         * @brief 根据 TaskSpec 使用传入的PCB构造一个完整的任务.
+         * @brief 根据 TaskSpec 填充 PCB 并构造主线程.
          *
          * @param pcb 目标 PCB, 必须为非空指针, 用于承载新任务的状态与资源.
-         * @param spec 任务规格, 包含可执行路径、权限、资源限制等信息.
+         * @param spec 任务规格, 包含加载后的地址空间、能力空间和入口点.
          * @param schd_class 调度器类别, 用于选择调度策略.
          * @param reuse_main_tcb 可选的 TCB 指针, 如果非空则重用该 TCB
          * 作为主线程, 否则新分配一个 TCB.
-         * @return Result<util::nonnull<TCB *>>
+         * @return 成功返回主线程 TCB, 失败返回相应错误码.
          */
         Result<util::nonnull<TCB *>> populate_task(
             util::nonnull<PCB *> pcb, TaskSpec spec, schd::ClassType schd_class,
             TCB *reuse_main_tcb = nullptr);
+
+        /**
+         * @brief 使用 fork 语义填充已初始化的子 PCB.
+         *
+         * @param child_pcb 空子 PCB.
+         * @param parent_pcb 父 PCB.
+         * @param parent_tcb 当前父线程.
+         * @param parent_ctx fork 入口处保存的父线程用户上下文.
+         * @param ret_slot 父子进程中存放子 PCB capability 的槽位.
+         * @return 成功返回子进程主线程 TCB, 失败返回错误码.
+         */
+        Result<util::nonnull<TCB *>> populate_forked_task(
+            util::nonnull<PCB *> child_pcb, PCB *parent_pcb, TCB *parent_tcb,
+            Context *parent_ctx, CapIdx ret_slot);
+
+        /**
+         * @brief 获取唯一 KERNEL 进程 PCB.
+         */
+        Result<util::nonnull<PCB *>> kernel_pcb();
 
         /**
          * @brief 终止并清理指定的 TCB, 包括释放与其相关的内核资源.
@@ -235,6 +255,24 @@ namespace task {
          */
         Result<util::nonnull<PCB *>> create_task(
             TaskSpec spec, schd::ClassType schd_class /* ... args*/);
+
+        /**
+         * @brief 创建唯一 KERNEL 进程.
+         */
+        Result<util::nonnull<PCB *>> create_kernel_task();
+
+        /**
+         * @brief 在 KERNEL 进程中创建内核线程.
+         */
+        Result<util::nonnull<TCB *>> create_kernel_thread(
+            void (*entry)(), schd::ClassType schd_class);
+        Result<util::nonnull<TCB *>> create_kernel_thread(
+            KThreadEntry entry, void *arg, schd::ClassType schd_class);
+
+        /**
+         * @brief 创建第一个内核 idle 线程.
+         */
+        Result<util::nonnull<TCB *>> create_idle_thread();
 
         /**
          * @brief 查找指定 pid 的 holder id, 用于能力索引或权限校验.

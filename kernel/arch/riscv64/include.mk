@@ -1,1 +1,1 @@
-sources += entry.S setup.cpp
+sources += entry.S context.S setup.cpp
