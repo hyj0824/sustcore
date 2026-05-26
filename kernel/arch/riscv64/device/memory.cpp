@@ -153,14 +153,16 @@ Result<void> Riscv64MemoryLayout::detect() {
     num_reserved++;
 
     // 把保留区域与内存区域按起始地址排序
-    std::sort(regions_buf, regions_buf + num_regions,
-              [](const FDTHelper::RegVal &a, const FDTHelper::RegVal &b) {
-                  return a.ptr < b.ptr;
-              });
-    std::sort(reserved_buf, reserved_buf + num_reserved,
-              [](const FDTHelper::RegVal &a, const FDTHelper::RegVal &b) {
-                  return a.ptr < b.ptr;
-              });
+    std::ranges::sort(
+        regions_buf, regions_buf + num_regions,
+        [](const FDTHelper::RegVal &a, const FDTHelper::RegVal &b) {
+            return a.ptr < b.ptr;
+        });
+    std::ranges::sort(
+        reserved_buf, reserved_buf + num_reserved,
+        [](const FDTHelper::RegVal &a, const FDTHelper::RegVal &b) {
+            return a.ptr < b.ptr;
+        });
 
     constexpr size_t MAX_REGIONS = env::MemInfo::MAX_REGIONS;
     MemRegion* regions = env::inst().meminfo(key::memory()).regions;

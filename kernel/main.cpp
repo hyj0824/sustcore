@@ -204,6 +204,7 @@ extern void *dtb_ptr;
 void init_device_model() {
     loggers::SUSTCORE::INFO("构建设备模型");
 
+    device::IntCtrlManager::init();
     device::DeviceModel::init();
 
     auto &model = device::DeviceModel::inst();
@@ -221,6 +222,15 @@ void init_device_model() {
                                 region.area.end.addr(),
                                 static_cast<int>(region.status));
     }
+
+    const auto &cpus = model.cpus();
+    loggers::SUSTCORE::INFO("CPU 数量: %u, 频率: %llu Hz",
+                            static_cast<unsigned>(cpus.cpus.size()),
+                            static_cast<unsigned long long>(cpus.freq.to_hz()));
+    cpus.topology.print();
+
+    loggers::SUSTCORE::INFO("设备树详细信息:");
+    FDTHelper::print_device_tree_detailed();
 }
 
 extern "C" void post_init(void) {

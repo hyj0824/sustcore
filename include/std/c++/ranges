@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <concepts>
 #include <cstddef>
 #include <functional>
@@ -100,8 +101,8 @@ namespace std::ranges {
             template <class R>
                 requires requires(R&& r) { std::forward<R>(r).empty(); }
             [[nodiscard]]
-            constexpr bool operator()(R&& r) const
-                noexcept(noexcept(static_cast<bool>(std::forward<R>(r).empty()))) {
+            constexpr bool operator()(R&& r) const noexcept(
+                noexcept(static_cast<bool>(std::forward<R>(r).empty()))) {
                 return static_cast<bool>(std::forward<R>(r).empty());
             }
 
@@ -112,8 +113,8 @@ namespace std::ranges {
             }
 
             template <class R>
-                requires (!requires(R&& r) { std::forward<R>(r).empty(); }) &&
-                         requires(R&& r) { ranges::begin(r) == ranges::end(r); }
+                requires(!requires(R&& r) { std::forward<R>(r).empty(); }) &&
+                        requires(R&& r) { ranges::begin(r) == ranges::end(r); }
             [[nodiscard]]
             constexpr bool operator()(R&& r) const
                 noexcept(noexcept(ranges::begin(r) == ranges::end(r))) {
@@ -137,8 +138,8 @@ namespace std::ranges {
             }
 
             template <class R>
-                requires (!requires(R&& r) { std::forward<R>(r).size(); }) &&
-                         requires(R&& r) { ranges::end(r) - ranges::begin(r); }
+                requires(!requires(R&& r) { std::forward<R>(r).size(); }) &&
+                        requires(R&& r) { ranges::end(r) - ranges::begin(r); }
             [[nodiscard]]
             constexpr auto operator()(R&& r) const
                 noexcept(noexcept(ranges::end(r) - ranges::begin(r))) {
@@ -162,8 +163,8 @@ namespace std::ranges {
             }
 
             template <class R>
-                requires (!requires(R&& r) { std::forward<R>(r).data(); }) &&
-                         requires(R&& r) { &*ranges::begin(r); }
+                requires(!requires(R&& r) { std::forward<R>(r).data(); }) &&
+                        requires(R&& r) { &*ranges::begin(r); }
             [[nodiscard]]
             constexpr auto operator()(R&& r) const
                 noexcept(noexcept(&*ranges::begin(r))) {
@@ -187,9 +188,39 @@ namespace std::ranges {
             }
         };
 
+        struct __less {
+            template <class L, class R>
+            [[nodiscard]]
+            constexpr bool operator()(L&& lhs, R&& rhs) const {
+                return std::forward<L>(lhs) < std::forward<R>(rhs);
+            }
+        };
+
+        struct __equal_to {
+            template <class L, class R>
+            [[nodiscard]]
+            constexpr bool operator()(L&& lhs, R&& rhs) const {
+                return std::forward<L>(lhs) == std::forward<R>(rhs);
+            }
+        };
+
+        struct __sort {
+            template <class I, class S, class Comp = __less>
+                requires(!range<I>)
+            constexpr I operator()(I first, S last, Comp comp = {}) const {
+                std::sort(first, last, comp);
+                return first;
+            }
+
+            template <input_range R, class Comp = __less>
+            constexpr iterator_t<R> operator()(R&& r, Comp comp = {}) const {
+                return (*this)(ranges::begin(r), ranges::end(r), comp);
+            }
+        };
+
         struct __find {
             template <class I, class S, class T, class Proj = __identity>
-                requires (!range<I>)
+                requires(!range<I>)
             [[nodiscard]]
             constexpr I operator()(I first, S last, const T& value,
                                    Proj proj = {}) const {
@@ -209,9 +240,165 @@ namespace std::ranges {
                 return (*this)(ranges::begin(r), ranges::end(r), value, proj);
             }
         };
+
+        struct __find_if {
+            template <class I, class S, class Pred, class Proj = __identity>
+                requires(!range<I>)
+            [[nodiscard]]
+            constexpr I operator()(I first, S last, Pred pred,
+                                   Proj proj = {}) const {
+                while (first != last) {
+                    if (std::invoke(pred, std::invoke(proj, *first))) {
+                        return first;
+                    }
+                    ++first;
+                }
+                return first;
+            }
+
+            template <input_range R, class Pred, class Proj = __identity>
+            [[nodiscard]]
+            constexpr iterator_t<R> operator()(R&& r, Pred pred,
+                                               Proj proj = {}) const {
+                return (*this)(ranges::begin(r), ranges::end(r), pred, proj);
+            }
+        };
+
+        struct __remove_if {
+            template <class I, class S, class Pred, class Proj = __identity>
+                requires(!range<I>)
+            constexpr I operator()(I first, S last, Pred pred,
+                                   Proj proj = {}) const {
+                I write = first;
+                while (first != last) {
+                    if (!std::invoke(pred, std::invoke(proj, *first))) {
+                        *write = std::move(*first);
+                        ++write;
+                    }
+                    ++first;
+                }
+                return write;
+            }
+
+            template <input_range R, class Pred, class Proj = __identity>
+            constexpr iterator_t<R> operator()(R&& r, Pred pred,
+                                               Proj proj = {}) const {
+                return (*this)(ranges::begin(r), ranges::end(r), pred, proj);
+            }
+        };
+
+        struct __remove {
+            template <class I, class S, class T, class Proj = __identity>
+                requires(!range<I>)
+            constexpr I operator()(I first, S last, const T& value,
+                                   Proj proj = {}) const {
+                return __remove_if{}(
+                    first, last,
+                    [&value](const auto& elem) { return elem == value; }, proj);
+            }
+
+            template <input_range R, class T, class Proj = __identity>
+            constexpr iterator_t<R> operator()(R&& r, const T& value,
+                                               Proj proj = {}) const {
+                return (*this)(ranges::begin(r), ranges::end(r), value, proj);
+            }
+        };
+
+        struct __unique {
+            template <class I, class S, class Pred = __equal_to,
+                      class Proj = __identity>
+                requires(!range<I>)
+            constexpr I operator()(I first, S last, Pred pred = {},
+                                   Proj proj = {}) const {
+                if (first == last) {
+                    return first;
+                }
+
+                I result = first;
+                while (++first != last) {
+                    if (!std::invoke(pred, std::invoke(proj, *result),
+                                     std::invoke(proj, *first)))
+                    {
+                        ++result;
+                        *result = std::move(*first);
+                    }
+                }
+                ++result;
+                return result;
+            }
+
+            template <input_range R, class Pred = __equal_to,
+                      class Proj = __identity>
+            constexpr iterator_t<R> operator()(R&& r, Pred pred = {},
+                                               Proj proj = {}) const {
+                return (*this)(ranges::begin(r), ranges::end(r), pred, proj);
+            }
+        };
+
+        struct __min {
+            template <class T, class Comp = __less, class Proj = __identity>
+            [[nodiscard]]
+            constexpr const T& operator()(const T& a, const T& b,
+                                          Comp comp = {},
+                                          Proj proj = {}) const {
+                return std::invoke(comp, std::invoke(proj, a),
+                                   std::invoke(proj, b))
+                           ? a
+                           : b;
+            }
+        };
+
+        struct __max {
+            template <class T, class Comp = __less, class Proj = __identity>
+            [[nodiscard]]
+            constexpr const T& operator()(const T& a, const T& b,
+                                          Comp comp = {},
+                                          Proj proj = {}) const {
+                return std::invoke(comp, std::invoke(proj, b),
+                                   std::invoke(proj, a))
+                           ? a
+                           : b;
+            }
+        };
+
+        struct __abs {
+            template <class T>
+            [[nodiscard]]
+            constexpr T operator()(const T& value) const {
+                return (value < 0) ? -value : value;
+            }
+        };
+
+        struct __clamp {
+            template <class T, class Comp = __less, class Proj = __identity>
+            [[nodiscard]]
+            constexpr T operator()(const T& value, const T& low, const T& high,
+                                   Comp comp = {}, Proj proj = {}) const {
+                if (std::invoke(comp, std::invoke(proj, value),
+                                std::invoke(proj, low)))
+                {
+                    return low;
+                }
+                if (std::invoke(comp, std::invoke(proj, high),
+                                std::invoke(proj, value)))
+                {
+                    return high;
+                }
+                return value;
+            }
+        };
     }  // namespace __algo
 
+    inline constexpr __algo::__sort sort{};
     inline constexpr __algo::__find find{};
+    inline constexpr __algo::__find_if find_if{};
+    inline constexpr __algo::__remove_if remove_if{};
+    inline constexpr __algo::__remove remove{};
+    inline constexpr __algo::__unique unique{};
+    inline constexpr __algo::__min min{};
+    inline constexpr __algo::__max max{};
+    inline constexpr __algo::__abs abs{};
+    inline constexpr __algo::__clamp clamp{};
 
     template <range R>
     using range_size_t = decltype(ranges::size(std::declval<R&>()));
@@ -408,10 +595,10 @@ namespace std::ranges {
 namespace std::views {
     namespace __detail {
         template <class T>
-        struct __is_lvalue_reference : false_type {};
+        struct __is_lvalue_reference : false_type{};
 
         template <class T>
-        struct __is_lvalue_reference<T&> : true_type {};
+        struct __is_lvalue_reference<T&> : true_type{};
 
         template <class T>
         inline constexpr bool __is_lvalue_reference_v =
@@ -425,16 +612,16 @@ namespace std::views {
             }
 
             template <std::ranges::range R>
-                requires ((!std::ranges::view<remove_cvref_t<R>>) &&
-                          __is_lvalue_reference_v<R>)
+                requires((!std::ranges::view<remove_cvref_t<R>>) &&
+                         __is_lvalue_reference_v<R>)
             [[nodiscard]]
             constexpr auto operator()(R&& r) const {
                 return std::ranges::ref_view<remove_reference_t<R>>(r);
             }
 
             template <std::ranges::range R>
-                requires ((!std::ranges::view<remove_cvref_t<R>>) &&
-                          (!__is_lvalue_reference_v<R>))
+                requires((!std::ranges::view<remove_cvref_t<R>>) &&
+                         (!__is_lvalue_reference_v<R>))
             [[nodiscard]]
             constexpr auto operator()(R&& r) const {
                 return std::ranges::owning_view<remove_cvref_t<R>>(

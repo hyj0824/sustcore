@@ -30,6 +30,7 @@ enum class ErrCode : int {
     OUT_OF_MEMORY            = GENERIC_ERROR | 0x0005,
     NULLPTR                  = GENERIC_ERROR | 0x0006,
     ALLOCATION_FAILED        = GENERIC_ERROR | 0x0007,
+    KEY_DUPLICATED           = GENERIC_ERROR | 0x0008,
     // capability errors
     CAP_ERROR                = 0x01'0000,
     INVALID_CAPABILITY       = CAP_ERROR | 0x0001,

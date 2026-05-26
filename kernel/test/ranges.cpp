@@ -37,8 +37,9 @@ namespace test::ranges {
                                   int*>));
             ttest((std::is_same_v<std::ranges::range_value_t<decltype(values)>,
                                   int>));
-            ttest((std::is_same_v<
-                   std::ranges::range_reference_t<decltype(values)>, int&>));
+            ttest((
+                std::is_same_v<std::ranges::range_reference_t<decltype(values)>,
+                               int&>));
         }
     };
 
@@ -78,11 +79,11 @@ namespace test::ranges {
 
             ttest((std::ranges::range<decltype(init)>));
             ttest((std::ranges::input_range<decltype(init)>));
-            ttest((std::is_same_v<
-                   std::ranges::range_value_t<decltype(init)>, int>));
-            ttest((std::is_same_v<
-                   std::ranges::range_reference_t<decltype(init)>,
-                   const int&>));
+            ttest((std::is_same_v<std::ranges::range_value_t<decltype(init)>,
+                                  int>));
+            ttest(
+                (std::is_same_v<std::ranges::range_reference_t<decltype(init)>,
+                                const int&>));
         }
     };
 
@@ -128,6 +129,48 @@ namespace test::ranges {
         }
     };
 
+    class CaseAlgorithms : public TestCase {
+    public:
+        CaseAlgorithms() : TestCase("algorithms") {}
+        void _run(void* env [[maybe_unused]]) const noexcept override {
+            std::vector<int> values = {4, 1, 3, 1, 2};
+
+            std::ranges::sort(values);
+            ttest(values[0] == 1);
+            ttest(values[4] == 4);
+
+            auto first_gt_two = std::ranges::find_if(
+                values, [](int value) { return value > 2; });
+            ttest(first_gt_two == values.begin() + 3);
+
+            auto unique_end = std::ranges::unique(values);
+            values.erase(unique_end, values.end());
+            ttest(values.size() == 4);
+            ttest(values[0] == 1 && values[1] == 2 && values[2] == 3 &&
+                  values[3] == 4);
+
+            std::vector<int> removed = {1, 2, 3, 2, 4};
+            auto removed_end         = std::ranges::remove(removed, 2);
+            removed.erase(removed_end, removed.end());
+            ttest(removed.size() == 3);
+            ttest(removed[0] == 1 && removed[1] == 3 && removed[2] == 4);
+
+            std::vector<int> removed_if = {1, 2, 3, 4, 5};
+            auto removed_if_end         = std::ranges::remove_if(
+                removed_if, [](int value) { return value % 2 == 0; });
+            removed_if.erase(removed_if_end, removed_if.end());
+            ttest(removed_if.size() == 3);
+            ttest(removed_if[0] == 1 && removed_if[1] == 3 &&
+                  removed_if[2] == 5);
+
+            ttest(std::ranges::min(3, 7) == 3);
+            ttest(std::ranges::max(3, 7) == 7);
+            ttest(std::ranges::abs(-5) == 5);
+            ttest(std::ranges::clamp(9, 1, 5) == 5);
+            ttest(std::ranges::clamp(-1, 1, 5) == 1);
+        }
+    };
+
     void collect_tests(TestFramework& framework) {
         auto cases = util::ArrayList<TestCase*>();
         cases.push_back(new CaseAccessArrays());
@@ -135,6 +178,7 @@ namespace test::ranges {
         cases.push_back(new CaseConcepts());
         cases.push_back(new CaseViews());
         cases.push_back(new CaseFind());
+        cases.push_back(new CaseAlgorithms());
 
         framework.add_category(new TestCategory("ranges", std::move(cases)));
     }

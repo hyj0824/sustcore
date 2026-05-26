@@ -11,9 +11,10 @@
 
 #pragma once
 
+#include <device/cpu.h>
+#include <device/int.h>
 #include <logger.h>
 #include <sus/owner.h>
-#include <sus/units.h>
 #include <sustcore/addr.h>
 #include <sustcore/errcode.h>
 
@@ -42,10 +43,6 @@ namespace device {
         MemoryStatus status;
     };
 
-    struct CPUS {
-        units::frequency freq;
-    };
-
     class DeviceProvider {
     public:
         virtual ~DeviceProvider() = default;
@@ -59,7 +56,7 @@ namespace device {
         virtual void collect_memory_regions(
             std::vector<MemRegion> &regions) const = 0;
 
-        virtual void update_cpus(CPUS &cpus) const = 0;
+        virtual void update_cpus(CpuGroupInfo &cpus) const = 0;
 
         [[nodiscard]]
         virtual const char *name() const = 0;
@@ -73,7 +70,7 @@ namespace device {
         }
 
         [[nodiscard]]
-        const CPUS &cpus() const {
+        const CpuGroupInfo &cpus() const {
             return _cpus;
         }
 
@@ -130,16 +127,14 @@ namespace device {
         constexpr DeviceModel() = default;
         std::vector<util::owner<DeviceProvider *>> _providers;
         std::vector<MemRegion> _regions;
-        CPUS _cpus;
+        CpuGroupInfo _cpus;
     };
 
     class KernelProvider : public DeviceProvider {
     public:
         void collect_memory_regions(
             std::vector<MemRegion> &regions) const override;
-        void update_cpus(CPUS &) const override
-        {
-        }
+        void update_cpus(CpuGroupInfo &) const override {}
         [[nodiscard]]
         const char *name() const override {
             return "kernel";

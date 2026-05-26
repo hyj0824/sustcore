@@ -14,6 +14,7 @@
 #include <symbols.h>
 
 #include <algorithm>
+#include <ranges>
 
 namespace {
     [[nodiscard]]
@@ -40,7 +41,7 @@ namespace {
     [[nodiscard]]
     std::vector<device::MemRegion> merge_same_status_regions(
         std::vector<device::MemRegion> regions) {
-        std::sort(regions.begin(), regions.end(), region_less);
+        std::ranges::sort(regions, region_less);
 
         std::vector<device::MemRegion> merged;
         merged.reserve(regions.size());
@@ -72,8 +73,8 @@ namespace {
             boundaries.push_back(region.area.end.arith());
         }
 
-        std::sort(boundaries.begin(), boundaries.end(),
-                  [](addr_t lhs, addr_t rhs) { return lhs < rhs; });
+        std::ranges::sort(boundaries,
+                          [](addr_t lhs, addr_t rhs) { return lhs < rhs; });
 
         std::vector<addr_t> unique;
         unique.reserve(boundaries.size());
@@ -205,7 +206,7 @@ namespace device {
         }
 
         // Step 5: sort by start address and do a final same-status merge.
-        std::sort(normalized.begin(), normalized.end(), region_less);
+        std::ranges::sort(normalized, region_less);
         return merge_same_status_regions(std::move(normalized));
     }
 
