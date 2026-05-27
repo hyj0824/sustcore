@@ -38,6 +38,27 @@
 #include <cassert>
 
 namespace task {
+    void TCB::SyscallInfo::reset() noexcept {
+        syscall_args   = {};
+        syscall_number = 0;
+        syscall_result = {};
+        syscall_state  = State::NONE;
+        handle         = nullptr;
+        context        = {};
+    }
+
+    void TCB::SyscallInfo::begin(const syscall::ArgPack &args) noexcept {
+        reset();
+        syscall_args   = args;
+        syscall_number = args.syscall_number;
+        syscall_state  = State::EXECUTING;
+    }
+
+    void TCB::SyscallInfo::complete(const syscall::RetPack &ret) noexcept {
+        syscall_result = ret;
+        syscall_state  = State::COMPLETED;
+    }
+
     namespace {
         // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
         TaskManager inst_task_manager;
@@ -58,7 +79,7 @@ namespace task {
             if (payload == nullptr) {
                 unexpect_return(ErrCode::OUT_OF_MEMORY);
             }
-            auto insert_res = pcb->cholder->internal_insert_to_free(payload);
+            auto insert_res = pcb->cholder->insert_to_free(payload);
             if (!insert_res.has_value()) {
                 delete payload;
                 propagate_return(insert_res);
@@ -100,11 +121,11 @@ namespace task {
             if (holder == nullptr) {
                 unexpect_return(ErrCode::NULLPTR);
             }
-            auto pcb_cap_res = holder->internal_lookup(pcb_cap);
+            auto pcb_cap_res = holder->lookup(pcb_cap);
             propagate(pcb_cap_res);
             for (size_t i = 0; i < reserved_count; ++i) {
                 CapIdx idx   = reserved_caps[i];
-                auto cap_res = holder->internal_lookup(idx);
+                auto cap_res = holder->lookup(idx);
                 propagate(cap_res);
             }
             void_return();
@@ -138,7 +159,7 @@ namespace task {
                 {
                     return;
                 }
-                auto remove_res = holder->internal_remove(idx);
+                auto remove_res = holder->remove(idx);
                 if (!remove_res.has_value()) {
                     err = remove_res.error();
                 }
@@ -267,7 +288,7 @@ namespace task {
         tcb->wait_reason    = 0;
         tcb->wait_predicate = {};
         tcb->wait_head      = {};
-        tcb->coroutines     = {};
+        tcb->syscall_info.reset();
 
         // ask for a kstack for this thread
         Result<PhyAddr> gfp_res = GFP::get_free_page(TCB::KSTACK_PAGES);
@@ -290,7 +311,7 @@ namespace task {
         tcb->context()->sp() = reinterpret_cast<umb_t>(stack_top);
         tcb->basic_entity    = {};
         tcb->rr_entity       = {};
-        tcb->coroutines      = {};
+        tcb->syscall_info.reset();
 
         void_return();
     }
@@ -347,7 +368,7 @@ namespace task {
         // 此处无需通过GFP分配物理页, 由缺页中断自动处理即可
         auto *stack_mem = new cap::MemoryPayload(MAX_INITIAL_STACK_SIZE, false,
                                                  false, VMA::Growth::GROW_DOWN);
-        auto stack_cap_res = pcb->cholder->internal_insert_to_free(stack_mem);
+        auto stack_cap_res = pcb->cholder->insert_to_free(stack_mem);
         if (!stack_cap_res.has_value()) {
             delete stack_mem;
             propagate_return(stack_cap_res);
@@ -364,8 +385,7 @@ namespace task {
         util::nonnull<TCB *> tcb = con_res.value();
         auto tcb_guard = util::Guard([this, tcb]() { (void)recycle_tcb(tcb); });
 
-        auto tcb_cap_res =
-            pcb->cholder->internal_create<cap::TCBPayload>(tcb.get());
+        auto tcb_cap_res = pcb->cholder->create<cap::TCBPayload>(tcb.get());
         propagate(tcb_cap_res);
 
         pcb->main_tcb_cap          = tcb_cap_res.value();
@@ -397,7 +417,7 @@ namespace task {
             propagate(pcb_cap_res);
             pcb->pcb_cap = pcb_cap_res.value();
         } else {
-            auto pcb_cap_res = pcb->cholder->internal_lookup(pcb->pcb_cap);
+            auto pcb_cap_res = pcb->cholder->lookup(pcb->pcb_cap);
             propagate(pcb_cap_res);
         }
 
@@ -417,7 +437,7 @@ namespace task {
 
         auto *stack_mem = new cap::MemoryPayload(MAX_INITIAL_STACK_SIZE, false,
                                                  false, VMA::Growth::GROW_DOWN);
-        auto stack_cap_res = pcb->cholder->internal_insert_to_free(stack_mem);
+        auto stack_cap_res = pcb->cholder->insert_to_free(stack_mem);
         if (!stack_cap_res.has_value()) {
             delete stack_mem;
             propagate_return(stack_cap_res);
@@ -436,8 +456,7 @@ namespace task {
         tcb->is_kernel  = false;
         tcb->schd_class = schd_class;
 
-        auto tcb_cap_res =
-            pcb->cholder->internal_create<cap::TCBPayload>(tcb.get());
+        auto tcb_cap_res = pcb->cholder->create<cap::TCBPayload>(tcb.get());
         propagate(tcb_cap_res);
 
         pcb->main_tcb_cap          = tcb_cap_res.value();
@@ -539,6 +558,7 @@ namespace task {
             if (pcb == nullptr) {
                 continue;
             }
+            loggers::TASK::INFO("回收退出进程: pid=%lu", pcb->pid);
             terminate_pcb(util::nnullforce(pcb));
         }
     }
@@ -712,7 +732,7 @@ namespace task {
         VFile *file = open_res.value();
 
         // 加载到CHolder中
-        auto insert_res = holder->internal_insert_to_free(file);
+        auto insert_res = holder->insert_to_free(file);
         if (!insert_res.has_value()) {
             file->destruct();
             propagate_return(insert_res);
@@ -866,7 +886,7 @@ namespace task {
                 }
             }
             auto insert_res =
-                child_holder->internal_insert(idx, payload, parent_cap->perm());
+                child_holder->insert(idx, payload, parent_cap->perm());
             if (!insert_res.has_value()) {
                 clone_caps_err = insert_res.error();
             }
@@ -906,16 +926,16 @@ namespace task {
         if (pcb_payload == nullptr) {
             unexpect_return(ErrCode::OUT_OF_MEMORY);
         }
-        auto insert_parent_res = parent_pcb->cholder->internal_insert(
+        auto insert_parent_res = parent_pcb->cholder->insert(
             ret_slot, pcb_payload, perm::allperm());
         if (!insert_parent_res.has_value()) {
             delete pcb_payload;
             propagate_return(insert_parent_res);
         }
-        auto insert_child_res = child_holder->internal_insert(
+        auto insert_child_res = child_holder->insert(
             ret_slot, pcb_payload, perm::allperm());
         if (!insert_child_res.has_value()) {
-            auto remove_res = parent_pcb->cholder->internal_remove(ret_slot);
+            auto remove_res = parent_pcb->cholder->remove(ret_slot);
             assert(remove_res.has_value());
             propagate_return(insert_child_res);
         }
@@ -997,8 +1017,7 @@ namespace task {
         util::nonnull<TCB *> tcb = con_res.value();
         auto tcb_guard = util::Guard([this, tcb]() { (void)recycle_tcb(tcb); });
 
-        auto cap_res =
-            pcb->cholder->internal_create<cap::TCBPayload>(tcb.get());
+        auto cap_res = pcb->cholder->create<cap::TCBPayload>(tcb.get());
         propagate(cap_res);
         auto cap_guard = remove_guard(pcb->cholder, cap_res.value());
 

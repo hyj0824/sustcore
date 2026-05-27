@@ -17,17 +17,32 @@
 #include <mem/vma.h>
 #include <object/memory.h>
 #include <syscall/memory.h>
-#include <syscall/uaccess.h>
-
 #include <cstring>
 
 namespace {
     /**
+     * @brief 获取当前线程的 capability holder.
+     */
+    [[nodiscard]]
+    Result<cap::CHolder *> current_holder() noexcept {
+        auto tcb_res = syscall::current_tcb();
+        propagate(tcb_res);
+        if (tcb_res.value()->task->cholder == nullptr)
+        {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+        return tcb_res.value()->task->cholder;
+    }
+
+    /**
      * @brief 查找当前进程 capability 空间中的 Memory payload. 
      */
+    [[nodiscard]]
     Result<cap::MemoryPayload *> lookup_memory(
         CapIdx idx, cap::Capability **out_cap = nullptr) {
-        auto cap_res = cap::CHolder::lookup(idx);
+        auto holder_res = current_holder();
+        propagate(holder_res);
+        auto cap_res = holder_res.value()->lookup(idx);
         propagate(cap_res);
         if (out_cap != nullptr) {
             *out_cap = cap_res.value();
@@ -49,10 +64,9 @@ namespace syscall {
         }
         auto payload =
             new cap::MemoryPayload(memsz, shared, continuity, growth);
-        auto insert_res =
-            cap::CHolder::current().and_then([&](cap::CHolder *holder) {
-                return holder->internal_insert_to_free(payload);
-            });
+        auto holder_res = current_holder();
+        propagate(holder_res);
+        auto insert_res = holder_res.value()->insert_to_free(payload);
         if (!insert_res.has_value()) {
             delete payload;
             propagate_return(insert_res);
@@ -64,7 +78,9 @@ namespace syscall {
         cap::Capability *cap = nullptr;
         auto memory_res      = lookup_memory(idx, &cap);
         propagate(memory_res);
-        auto *tmm = env::inst().tmm();
+        auto pcb_res = syscall::current_pcb();
+        propagate(pcb_res);
+        auto *tmm = pcb_res.value()->tmm.get();
         if (tmm == nullptr) {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
@@ -79,16 +95,15 @@ namespace syscall {
         auto memory_res      = lookup_memory(idx, &cap);
         propagate(memory_res);
         cap::MemoryObject obj(util::nnullforce(cap));
-        auto *tmm       = env::inst().tmm();
+        auto pcb_res    = syscall::current_pcb();
+        propagate(pcb_res);
+        auto *tmm       = pcb_res.value()->tmm.get();
         auto resize_res = obj.resize_in(tmm, newsz);
         propagate(resize_res);
         return true;
     }
 
-    Result<void> mem_query(CapIdx idx, VirAddr out_uaddr) {
-        if (!out_uaddr.nonnull()) {
-            unexpect_return(ErrCode::NULLPTR);
-        }
+    Result<void> mem_query(CapIdx idx, UBuffer &&out_buf) {
         cap::Capability *cap = nullptr;
         auto memory_res      = lookup_memory(idx, &cap);
         propagate(memory_res);
@@ -97,9 +112,9 @@ namespace syscall {
         propagate(query_res);
 
         MemQueryRet ret{query_res.value().memsz, query_res.value().allocated};
-        UBuffer out_buf(out_uaddr, sizeof(ret));
         memcpy(out_buf.kbuf(), &ret, sizeof(ret));
-        out_buf.sync_to_user();
+        auto commit_res = out_buf.commit_to_user();
+        propagate(commit_res);
         void_return();
     }
 }  // namespace syscall

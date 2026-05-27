@@ -27,8 +27,6 @@ namespace schd {
 
     class Scheduler {
     private:
-        RQ _rq;
-
         rt::RT<TCB> _rt_schd;
         rr::RR<TCB> _rr_schd;
         fcfs::FCFS<TCB> _fcfs_schd;
@@ -42,8 +40,7 @@ namespace schd {
         static Scheduler &inst();
 
         constexpr Scheduler(util::nonnull<TCB *> idle_tcb,
-                            util::nonnull<TCB *> init_tcb)
-            : _curtcb(idle_tcb.get()), _curpcb(idle_tcb->task) {
+                            util::nonnull<TCB *> init_tcb) {
             idle_tcb->basic_entity.state = ThreadState::RUNNING;
             _idle_schd.cursched          = &idle_tcb->basic_entity;
             init_tcb->basic_entity.state = ThreadState::READY;
@@ -52,9 +49,7 @@ namespace schd {
                 .template flags_set<SchedMeta::FLAGS_NEED_RESCHED>();
         }
 
-        constexpr util::nonnull<RQ *> rq() {
-            return _rq;
-        }
+        util::nonnull<RQ *> rq();
 
         constexpr util::nonnull<rt::RT<TCB> *> rt_schd() {
             return _rt_schd;
@@ -77,9 +72,15 @@ namespace schd {
         }
 
         [[nodiscard]]
-        constexpr TCB *current_tcb() const {
-            return _curtcb;
-        }
+        TCB *current_tcb() const;
+
+        /**
+         * @brief 获取当前 hart 正在运行的进程.
+         *
+         * @return PCB* 当前进程
+         */
+        [[nodiscard]]
+        PCB *current_pcb() const;
 
         using BaseSchedPtr = util::nonnull<BaseSched<TCB> *>;
 
@@ -93,10 +94,6 @@ namespace schd {
                 default:              unexpect_return(ErrCode::INVALID_PARAM);
             }
         }
-
-    private:
-        TCB *_curtcb;
-        PCB *_curpcb;
 
         /**
          * @brief 按优先级遍历调度器类
@@ -131,6 +128,9 @@ namespace schd {
 
         Result<util::nonnull<TCB *>> pick_next_task();
         Result<util::nonnull<TCB *>> prepare_next_task();
+        Result<void> commit_completed_syscall(TCB *tcb) noexcept;
+        [[nodiscard]]
+        bool can_schedule_tcb(TCB *tcb) noexcept;
         void check_preempt_curr(TCB *new_tcb);
 
         void switch_to(TCB *tcb);

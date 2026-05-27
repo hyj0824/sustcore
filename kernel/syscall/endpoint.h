@@ -5,9 +5,10 @@
 
 #pragma once
 
-#include <sustcore/addr.h>
 #include <sustcore/capability.h>
+#include <sustcore/msg.h>
 #include <syscall/syscall.h>
+#include <syscall/uaccess.h>
 
 #include <cstddef>
 
@@ -27,8 +28,9 @@ namespace syscall {
      * @param packet 用户态MsgPacket地址.
      * @return Result<void> 成功表示消息发送完成.
      */
+    [[nodiscard]]
     util::cotask<Result<void>> endpoint_send_sync(CapIdx endpoint,
-                                                  VirAddr packet);
+                                                  const MsgPacket &packet);
     /**
      * @brief 异步向指定endpoint发送消息
      * 
@@ -37,7 +39,8 @@ namespace syscall {
      * @return true 消息发送成功
      * @return false 消息发送失败
      */
-    Result<bool> endpoint_send_async(CapIdx endpoint, VirAddr packet);
+    [[nodiscard]]
+    Result<bool> endpoint_send_async(CapIdx endpoint, const MsgPacket &packet);
     /**
      * @brief 从端点处接收信息
      *
@@ -45,8 +48,10 @@ namespace syscall {
      * @param packet 用户态MsgPacket地址, 用于写回接收到的消息.
      * @return Result<void> 成功表示消息已接收并写回用户缓冲区.
      */
+    [[nodiscard]]
     util::cotask<Result<void>> endpoint_recv_sync(CapIdx endpoint,
-                                                  VirAddr packet);
+                                                  const MsgPacket &packet,
+                                                  UBuffer &&packet_buf);
     /**
      * @brief 从端点处接收信息 (异步版本)
      * 
@@ -55,7 +60,9 @@ namespace syscall {
      * @return true 消息接收成功
      * @return false 消息接收失败
      */
-    Result<bool> endpoint_recv_async(CapIdx endpoint, VirAddr packet);
+    [[nodiscard]]
+    Result<bool> endpoint_recv_async(CapIdx endpoint, const MsgPacket &packet,
+                                     UBuffer &&packet_buf);
 
     /**
      * @brief 发起一次同步endpoint调用.
@@ -63,10 +70,14 @@ namespace syscall {
      * 内核会创建ReplyObject, 向sendmsg追加REPLIER|MIGRATE_ONCE权限的reply cap,
      * 发送后阻塞等待CALLER端收到回复, 最后清理调用方reply cap.
      */
-    util::cotask<Result<void>> endpoint_call(CapIdx endpoint, VirAddr sendmsg,
-                                             VirAddr replymsg);
+    [[nodiscard]]
+    util::cotask<Result<void>> endpoint_call(CapIdx endpoint,
+                                             const MsgPacket &send_packet,
+                                             const MsgPacket &reply_packet,
+                                             UBuffer &&reply_buf);
     /**
      * @brief 向ReplyObject写入回复并移除当前CSpace中的reply cap.
      */
-    Result<void> endpoint_reply(CapIdx reply_cap, VirAddr replymsg);
+    [[nodiscard]]
+    Result<void> endpoint_reply(CapIdx reply_cap, const MsgPacket &reply_packet);
 }  // namespace syscall

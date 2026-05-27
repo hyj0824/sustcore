@@ -16,33 +16,51 @@
 #include <sustcore/addr.h>
 #include <sustcore/capability.h>
 #include <syscall/cap.h>
-#include <syscall/uaccess.h>
-
 namespace syscall {
+    /**
+     * @brief 获取当前线程的 capability holder.
+     */
+    [[nodiscard]]
+    static Result<cap::CHolder *> current_holder() noexcept {
+        auto tcb_res = current_tcb();
+        propagate(tcb_res);
+        if (tcb_res.value()->task->cholder == nullptr)
+        {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+        return tcb_res.value()->task->cholder;
+    }
+
     Result<CapIdx> cap_clone(CapIdx src) {
-        auto clone_res = cap::CHolder::clone(src);
+        auto holder_res = current_holder();
+        propagate(holder_res);
+        auto clone_res = holder_res.value()->clone(src);
         propagate(clone_res);
         return clone_res.value();
     }
 
     Result<bool> cap_downgrade(CapIdx idx, b64 new_perm) {
-        auto downgrade_res = cap::CHolder::downgrade(idx, new_perm);
+        auto holder_res = current_holder();
+        propagate(holder_res);
+        auto downgrade_res = holder_res.value()->downgrade(idx, new_perm);
         propagate(downgrade_res);
         return true;
     }
 
     Result<CapIdx> cap_derive(CapIdx src, b64 new_perm) {
-        auto derive_res = cap::CHolder::derive(src, new_perm);
+        auto holder_res = current_holder();
+        propagate(holder_res);
+        auto derive_res = holder_res.value()->derive(src, new_perm);
         propagate(derive_res);
         return derive_res.value();
     }
 
-    Result<bool> sys_cap_lookup(CapIdx idx, VirAddr info_uaddr) {
-        if (!info_uaddr.nonnull()) {
-            unexpect_return(ErrCode::NULLPTR);
-        }
-
-        auto cap_res = cap::CHolder::lookup(idx);
+    Result<bool> sys_cap_lookup(CapIdx idx, UBuffer &&info_buf) {
+        auto current_tcb_res = current_tcb();
+        propagate(current_tcb_res);
+        auto *current = current_tcb_res.value();
+        auto *holder = current->task->cholder;
+        auto cap_res = holder->lookup(idx);
         if (!cap_res.has_value()) {
             if (cap_res.error() == ErrCode::OUT_OF_BOUNDARY) {
                 return false;
@@ -55,14 +73,17 @@ namespace syscall {
             .type        = cap_res.value()->payload()->type_id(),
             .permissions = cap_res.value()->perm(),
         };
-        UBuffer info_buf(info_uaddr, sizeof(info));
         memcpy(info_buf.kbuf(), &info, sizeof(info));
-        info_buf.sync_to_user();
+        auto commit_res = info_buf.commit_to_user();
+        propagate(commit_res);
         return true;
     }
 
     Result<bool> cap_remove(CapIdx idx) {
-        auto cap_res = cap::CHolder::lookup(idx);
+        auto holder_res = current_holder();
+        propagate(holder_res);
+
+        auto cap_res = holder_res.value()->lookup(idx);
         propagate(cap_res);
         auto *memory = cap_res.value()->payload_as<cap::MemoryPayload>();
         auto *tmm    = env::inst().tmm();
@@ -71,7 +92,7 @@ namespace syscall {
         {
             unexpect_return(ErrCode::BUSY);
         }
-        auto remove_res = cap::CHolder::remove(idx);
+        auto remove_res = holder_res.value()->remove(idx);
         propagate(remove_res);
         return true;
     }

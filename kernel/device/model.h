@@ -65,13 +65,18 @@ namespace device {
     class DeviceModel {
     public:
         [[nodiscard]]
-        std::vector<MemRegion> memory_regions() const {
+        std::vector<MemRegion> memory_regions() {
             return _regions;
         }
 
         [[nodiscard]]
-        const CpuGroupInfo &cpus() const {
+        CpuGroupInfo &cpus() {
             return _cpus;
+        }
+
+        [[nodiscard]]
+        IntCtrlManager &interrupt() {
+            return _interrupt;
         }
 
         void register_provider(util::owner<DeviceProvider *> provider) {
@@ -124,10 +129,11 @@ namespace device {
     private:
         static DeviceModel _INSTANCE;
         static bool _initialized;
-        constexpr DeviceModel() = default;
+        DeviceModel() = default;
         std::vector<util::owner<DeviceProvider *>> _providers;
         std::vector<MemRegion> _regions;
         CpuGroupInfo _cpus;
+        IntCtrlManager _interrupt;
     };
 
     class KernelProvider : public DeviceProvider {

@@ -19,9 +19,10 @@
 #include <sus/logger.h>
 #include <sus/units.h>
 
+#include <cstddef>
 #include <cstring>
 
-int hart_id;
+size_t hart_id;
 void *dtb_ptr;
 
 namespace

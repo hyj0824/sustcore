@@ -16,11 +16,26 @@
 #include <sustcore/capability.h>
 #include <sustcore/errcode.h>
 #include <syscall/notif.h>
-
 namespace syscall {
+    /**
+     * @brief 获取当前线程的 capability holder.
+     */
+    static Result<cap::CHolder *> current_holder() {
+        auto current_tcb_res = current_tcb();
+        propagate(current_tcb_res);
+        auto *current_tcb = current_tcb_res.value();
+        if (current_tcb->task == nullptr || current_tcb->task->cholder == nullptr)
+        {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+        return current_tcb->task->cholder;
+    }
+
     static Result<cap::NotificationObject> notif_object(CapIdx capidx) {
         // 统一能力查找与类型校验, 减少各 handler 的重复逻辑
-        auto cap_res = cap::CHolder::lookup(capidx);
+        auto holder_res = current_holder();
+        propagate(holder_res);
+        auto cap_res = holder_res.value()->lookup(capidx);
         propagate(cap_res);
         auto *cap = cap_res.value();
         if (cap->payload()->type_id() != PayloadType::NOTIF) {
@@ -53,7 +68,9 @@ namespace syscall {
     }
 
     Result<CapIdx> notification_create() {
-        auto create_res = cap::CHolder::create<cap::NotificationPayload>();
+        auto holder_res = current_holder();
+        propagate(holder_res);
+        auto create_res = holder_res.value()->create<cap::NotificationPayload>();
         propagate(create_res);
         return create_res.value();
     }

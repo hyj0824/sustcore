@@ -12,7 +12,9 @@
 #pragma once
 
 #include <arch/description.h>
+#include <device/clock.h>
 #include <logger.h>
+#include <sus/units.h>
 #include <sustcore/errcode.h>
 
 #include <string>
@@ -60,6 +62,8 @@ namespace device {
     using virq_t     = b64;
     using hwirq_t    = b32;
     using ictrl_t    = b32;
+    using cpuid_t                             = b32;
+    inline constexpr ictrl_t INVALID_ICTRL_ID = static_cast<ictrl_t>(-1);
 
     /**
      * @brief 中断控制器抽象接口.
@@ -82,13 +86,10 @@ namespace device {
     };
 
     /**
-     * @brief 中断控制器注册与查询中心.
+     * @brief 中断控制器注册与查询
      */
     class IntCtrlManager {
     private:
-        static IntCtrlManager _INSTANCE;
-        static bool _initialized;
-        IntCtrlManager() = default;
         std::unordered_map<ictrl_t, util::owner<IntCtrl *>> _controllers;
 
         [[nodiscard]]
@@ -108,27 +109,7 @@ namespace device {
         }
 
     public:
-        /**
-         * @brief 获取全局实例.
-         */
-        static IntCtrlManager &inst() {
-            return _INSTANCE;
-        }
-        /**
-         * @brief 初始化全局实例.
-         */
-        static void init() {
-            if (!_initialized) {
-                new (&_INSTANCE) IntCtrlManager();
-                _initialized = true;
-            }
-        }
-        /**
-         * @brief 查询是否已初始化.
-         */
-        static bool initialized() {
-            return _initialized;
-        }
+        IntCtrlManager() = default;
 
         /**
          * @brief 注册中断控制器.
@@ -248,8 +229,57 @@ namespace device {
         }
     };
 
+    class ClintTimer : public ClockEvent {
+    public:
+        /**
+         * @brief 构造绑定到指定时钟源的 CLINT 定时事件设备.
+         *
+         * @param clksrc 供定时器换算 tick 的时钟源
+         */
+        explicit ClintTimer(ClockSource *clksrc) noexcept
+            : ClockEvent(clksrc) {
+            _last_recorded_time = _clksrc->to_ns(_clksrc->now());
+        }
+
+        /**
+         * @brief 安排下一次定时事件.
+         *
+         * @param delta 相对当前时刻的触发延迟
+         */
+        void setNextEvent(units::time delta) noexcept override;
+
+        /**
+         * @brief 获取该定时器支持的最大触发延迟.
+         *
+         * @return units::time 最大延迟
+         */
+        [[nodiscard]]
+        units::time maxDelta() const noexcept override {
+            return UINT64_MAX / _clksrc->frequency();
+        }
+
+        /**
+         * @brief 设置定时事件到期处理函数.
+         *
+         * @param handler 到期时调用的回调函数
+         */
+        void setHandler(Handler &&handler) noexcept override
+        {
+            _handler = std::move(handler);
+        }
+
+        /**
+         * @brief 在定时器中断到来时触发事件回调.
+         */
+        void onTimerIrq() noexcept;
+
+    private:
+        Handler _handler;
+        units::time _last_recorded_time;
+    };
+
     /**
-     * @brief 最小可用的 RISC-V CLINT 控制器实现.
+     * @brief RISC-V CLINT 控制器实现.
      */
     class Clint : public IntCtrl {
     public:
@@ -260,21 +290,19 @@ namespace device {
         std::string _name;
         ictrl_t _identifier;
         std::vector<PhyArea> _mmio_regions;
-        std::vector<b32> _target_harts;
-        cpu_mask_t _hart_mask;
-
+        cpuid_t _hart_id;
     public:
         /**
-         * @brief 构造一个最小可用的 RISC-V CLINT 控制器.
+         * @brief RISC-V CLINT 控制器.
          *
+         * @param clksrc 定时器使用的时钟源.
          * @param name 控制器名称.
          * @param identifier 控制器 ID.
          * @param mmio_regions MMIO 区域列表.
-         * @param target_harts 受控 hart 列表.
+         * @param hart_id 该CLINT所属的hart.
          */
         Clint(std::string name, ictrl_t identifier,
-              std::vector<PhyArea> mmio_regions,
-              std::vector<b32> target_harts) noexcept;
+              std::vector<PhyArea> mmio_regions, cpuid_t hart_id) noexcept;
 
         /**
          * @brief 销毁控制器对象.
@@ -321,11 +349,11 @@ namespace device {
         }
 
         /**
-         * @brief 获取目标 hart 列表.
+         * @brief 该Clint所属的hart ID.
          */
         [[nodiscard]]
-        const std::vector<b32> &target_harts() const noexcept {
-            return _target_harts;
+        cpuid_t hart_id() const noexcept {
+            return _hart_id;
         }
     };
 }  // namespace device

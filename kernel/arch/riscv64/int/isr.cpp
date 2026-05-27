@@ -484,31 +484,54 @@ namespace Handlers {
                 loggers::INTERRUPT::DEBUG(
                     "系统调用参数: arg3=0x%lx, arg4=0x%lx, sepc=0x%lx",
                     args.args[3], args.args[4], sepc);
-                current_tcb->coroutines.pending = false;
-                current_tcb->coroutines.done    = false;
-                auto task = syscall::entrance(*ctx, *current_tcb);
-                // 如果系统调用处理完成, 返回值已由 entrance 写入;
-                // 否则说明需要等待, 则暂不返回, 等待任务完成后再返回
-                if (task.done()) {
-                    syscall::RetPack ret = task.result();
-                    assert(current_tcb->coroutines.done);
-                    current_tcb->coroutines.pending = false;
-                    processed                               = ret.processed;
+                current_tcb->syscall_info.begin(args);
+                current_tcb->syscall_info.context = task::SyscallContext{
+                    .tcb          = current_tcb,
+                    .pcb          = current_tcb->task,
+                    .tmm          = current_tcb->task != nullptr
+                                        ? current_tcb->task->tmm.get()
+                                        : nullptr,
+                    .trap_context = ctx,
+                };
+                ctx->sepc += 4;
+                if (!syscall::is_suspendable_syscall(args.syscall_number)) {
+                    auto ret = syscall::dispatch_sync(*current_tcb);
+                    current_tcb->syscall_info.complete(ret);
                     loggers::INTERRUPT::DEBUG(
-                        "系统调用完成: name=%s, processed=%d, ret0=0x%lx, "
-                        "err=0x%lx",
-                        syscall::name_of(args.syscall_number), ret.processed,
-                        ret.ret0, ret.ret1);
+                        "同步 syscall 立即完成: pid=%lu tid=%lu sysno=0x%lx",
+                        current_tcb->task != nullptr ? current_tcb->task->pid : 0,
+                        current_tcb->tid, args.syscall_number);
                 } else {
-                    assert(current_tcb->basic_entity.state ==
-                           ThreadState::WAITING);
-                    processed                               = true;
-                    current_tcb->coroutines.pending = true;
-                    loggers::INTERRUPT::DEBUG(
-                        "系统调用挂起: name=%s",
-                        syscall::name_of(args.syscall_number));
-                    task.detach();
+                    auto task = syscall::dispatch_async(*current_tcb);
+                    if (current_tcb->syscall_info.completed()) {
+                        loggers::INTERRUPT::DEBUG(
+                            "异步 syscall 立即完成, 不进入协程队列: pid=%lu tid=%lu",
+                            current_tcb->task != nullptr ? current_tcb->task->pid : 0,
+                            current_tcb->tid);
+                    } else if (current_tcb->basic_entity.state ==
+                           ThreadState::WAITING)
+                    {
+                        loggers::INTERRUPT::DEBUG(
+                            "syscall 已进入等待, 由等待系统负责恢复: pid=%lu tid=%lu sysno=0x%lx",
+                            current_tcb->task != nullptr ? current_tcb->task->pid : 0,
+                            current_tcb->tid,
+                            current_tcb->syscall_info.syscall_number);
+                        task.detach();
+                    } else {
+                        if (current_tcb->syscall_info.handle == nullptr) {
+                            current_tcb->syscall_info.handle = task.handle();
+                        }
+                        current_tcb->basic_entity
+                            .template flags_set<schd::SchedMeta::FLAGS_NEED_RESCHED>();
+                        loggers::INTERRUPT::INFO(
+                            "syscall 协程延后到调度前继续执行: pid=%lu tid=%lu sysno=0x%lx",
+                            current_tcb->task != nullptr ? current_tcb->task->pid : 0,
+                            current_tcb->tid,
+                            current_tcb->syscall_info.syscall_number);
+                        task.detach();
+                    }
                 }
+                processed = true;
                 env::inst().trap_context(env::key::trap_context()) = nullptr;
                 break;
             }
@@ -546,7 +569,7 @@ namespace Handlers {
     void timer(csr_scause_t scause, umb_t sepc, umb_t stval,
                Riscv64Context *ctx) {
         // 计算时间差
-        units::tick current_ticks = units::tick::from_ticks(csr_get_time());
+        units::tick current_ticks = csr_get_time();
         units::tick gap_ticks     = current_ticks - timer_info.last_ticks;
 
         TimerTickEvent e = {.last_tick = timer_info.last_ticks,
@@ -557,6 +580,6 @@ namespace Handlers {
         schd::Scheduler::inst().do_tick(e);
 
         // 重新设置下一次时钟中断
-        sbi_legacy_set_timer((current_ticks + timer_info.increment).to_ticks());
+        sbi_legacy_set_timer(current_ticks + timer_info.increment);
     }
 }  // namespace Handlers

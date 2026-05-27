@@ -11,6 +11,7 @@
 
 #include <arch/riscv64/device/fdt_helper.h>
 #include <device/fdt.h>
+#include <device/model.h>
 #include <libfdt.h>
 #include <logger.h>
 
@@ -799,6 +800,7 @@ namespace fdt {
 
     void FDTProvider::update_cpus(device::CpuGroupInfo &cpus) const {
         // 清理旧的 CPU 组信息.
+        loggers::DEVICE::DEBUG("开始更新 CPU 组信息");
         cpus.cleanup();
         cpus.topology.cleanup();
 
@@ -815,13 +817,24 @@ namespace fdt {
             return;
         }
 
-        auto freq_prop_it = cpus_node->properties.find(TIMEBASE_FREQ_PROP);
+        auto freq_prop_it            = cpus_node->properties.find(TIMEBASE_FREQ_PROP);
+        bool clint_registered        = false;
+        device::ictrl_t clint_ictrl  = device::INVALID_ICTRL_ID;
         if (freq_prop_it == cpus_node->properties.end()) {
             loggers::DEVICE::WARN(
                 "节点 /cpus 缺少 timebase-frequency 属性, CPU 频率保留为 0");
         } else {
-            cpus.freq =
-                units::frequency::from_hz(freq_prop_it->second->as_integral());
+            auto timebase_freq = freq_prop_it->second->as_integral();
+            if (timebase_freq == 0) {
+                loggers::DEVICE::ERROR(
+                    "节点 /cpus 的 timebase-frequency 为 0, 无法创建 ClockSource");
+            } else {
+                cpus.freq = units::frequency::from_hz(timebase_freq);
+                cpus._clock_source = new device::CSRTimeClockSource(cpus.freq);
+                loggers::DEVICE::INFO("已创建 CSRTimeClockSource, freq=%lluHz",
+                                      static_cast<unsigned long long>(
+                                          cpus.freq.to_hz()));
+            }
         }
 
         std::vector<ParsedCpu> parsed_cpus;
@@ -876,23 +889,35 @@ namespace fdt {
         find_clint_recursive(*_config.root, local_intc_map, clint_desc);
 
         if (clint_desc.found) {
-            auto register_res =
-                device::IntCtrlManager::inst().register_controller(
-                    util::owner<device::IntCtrl *>(new device::Clint(
-                        clint_desc.name.empty() ? "clint" : clint_desc.name,
-                        clint_desc.identifier, clint_desc.mmio_regions,
-                        std::vector<b32>(clint_desc.target_harts.begin(),
-                                         clint_desc.target_harts.end()))),
-                    clint_desc.identifier);
-            if (!register_res.has_value()) {
-                loggers::DEVICE::ERROR("注册 CLINT 失败: %s",
-                                       to_cstring(register_res.error()));
-                return;
+            if (cpus._clock_source == nullptr) {
+                loggers::DEVICE::ERROR(
+                    "检测到 CLINT 节点 %s, 但缺少全局 ClockSource, 跳过 CLINT 注册",
+                    clint_desc.name.c_str());
+            } else if (clint_desc.target_harts.empty()) {
+                loggers::DEVICE::ERROR(
+                    "CLINT 节点 %s 未解析到任何目标 hart, 跳过 CLINT 注册",
+                    clint_desc.name.c_str());
+            } else {
+                auto register_res =
+                    device::DeviceModel::inst().interrupt().register_controller(
+                        util::owner<device::IntCtrl *>(new device::Clint(
+                            clint_desc.name.empty() ? "clint" : clint_desc.name,
+                            clint_desc.identifier, clint_desc.mmio_regions,
+                            clint_desc.target_harts.front())
+                        ),
+                        clint_desc.identifier);
+                if (!register_res.has_value()) {
+                    loggers::DEVICE::ERROR("注册 CLINT 失败: %s",
+                                           to_cstring(register_res.error()));
+                    return;
+                }
+                clint_registered = true;
+                clint_ictrl      = clint_desc.identifier;
+                loggers::DEVICE::INFO(
+                    "已注册 CLINT 控制器: %s (id=%u, harts=%u)",
+                    clint_desc.name.c_str(), clint_desc.identifier,
+                    static_cast<unsigned>(clint_desc.target_harts.size()));
             }
-            loggers::DEVICE::INFO(
-                "已注册 CLINT 控制器: %s (id=%u, harts=%u)",
-                clint_desc.name.c_str(), clint_desc.identifier,
-                static_cast<unsigned>(clint_desc.target_harts.size()));
         } else {
             loggers::DEVICE::WARN(
                 "设备树中未找到 riscv,clint0, CPU 本地中断控制器将标记为无效");
@@ -903,8 +928,8 @@ namespace fdt {
         cpu_ids.reserve(parsed_cpus.size());
         for (const auto &parsed : parsed_cpus) {
             // 关联本地中断控制器 ID
-            device::ictrl_t local_ctrl = clint_desc.found
-                                             ? clint_desc.identifier
+            device::ictrl_t local_ctrl = clint_registered
+                                             ? clint_ictrl
                                              : device::INVALID_ICTRL_ID;
 
             // 构建 CPU 对象

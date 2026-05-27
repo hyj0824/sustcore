@@ -66,7 +66,7 @@ namespace task {
             tcb->rr_entity             = {};
             tcb->wait_reason           = 0;
             tcb->wait_predicate        = {};
-            tcb->coroutines.handle = nullptr;
+            tcb->syscall_info.reset();
             tcb->wait_head             = {};
             return util::nnullforce(tcb);
         }

@@ -6,11 +6,31 @@
 #include <logger.h>
 #include <object/perm.h>
 #include <object/task.h>
+#include <syscall/syscall.h>
 #include <task/scheduler.h>
 #include <task/task.h>
 #include <task/task_struct.h>
 
 namespace cap {
+    namespace {
+        /**
+         * @brief 获取当前正在驱动对象操作的线程.
+         *
+         * syscall 轻量协程路径优先使用显式 syscall 上下文;
+         * 其他路径退化为调度器当前线程.
+         *
+         * @return task::TCB* 当前线程指针.
+         */
+        [[nodiscard]]
+        task::TCB *current_object_tcb() noexcept {
+            auto *sysctx = syscall::active_context();
+            if (sysctx != nullptr && sysctx->tcb != nullptr) {
+                return sysctx->tcb;
+            }
+            return schd::Scheduler::inst().current_tcb();
+        }
+    }  // namespace
+
     // 无人引用的 PCB 对象会被放入 TaskManager 的回收队列中等待销毁
     void PCBPayload::destruct() {
         loggers::TASK::DEBUG("PCBPayload destruct: pid=%d", pcb->pid);
@@ -37,17 +57,20 @@ namespace cap {
         }
 
         task::PCB *pcb    = _obj->pcb;
-        auto *current_tcb = schd::Scheduler::inst().current_tcb();
+        auto *current_tcb = current_object_tcb();
+        auto *runtime_tcb = schd::Scheduler::inst().current_tcb();
         bool killing_current =
             current_tcb != nullptr && current_tcb->task == pcb;
 
+        loggers::TASK::INFO("开始终止进程: pid=%lu exit_code=%d",
+                            pcb->pid, exit_code);
         pcb->exit_code = exit_code;
         if (pcb->exiting) {
             void_return();
         }
         pcb->exiting = true;
         if (pcb->cholder != nullptr) {
-            pcb->cholder->internal_clear();
+            pcb->cholder->clear();
         }
         for (auto &tcb : pcb->threads) {
             if (&tcb != current_tcb &&
@@ -66,7 +89,9 @@ namespace cap {
             current_tcb->basic_entity.state = ThreadState::WAITING;
             current_tcb->basic_entity
                 .template flags_set<schd::SchedMeta::FLAGS_NEED_RESCHED>();
-            schd::Scheduler::inst().schedule();
+            if (runtime_tcb == current_tcb) {
+                schd::Scheduler::inst().schedule();
+            }
         }
         void_return();
     }

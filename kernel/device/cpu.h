@@ -20,9 +20,6 @@
 #include <vector>
 
 namespace device {
-    using cpuid_t                             = b32;
-    inline constexpr ictrl_t INVALID_ICTRL_ID = static_cast<ictrl_t>(-1);
-
     /**
      * @brief CPU 电源状态.
      */
@@ -406,35 +403,65 @@ namespace device {
         std::vector<util::owner<Cpu *>> cpus;
         units::frequency freq;
         CpuTopology topology{};
+        ClockSource *_clock_source = nullptr;
 
         CpuGroupInfo()                                = default;
         CpuGroupInfo(const CpuGroupInfo &)            = delete;
         CpuGroupInfo &operator=(const CpuGroupInfo &) = delete;
+
+        /**
+         * @brief 移动构造 CPU 组信息.
+         *
+         * @param other 被移动的源对象
+         */
         CpuGroupInfo(CpuGroupInfo &&other) noexcept
             : cpus(std::move(other.cpus)),
               freq(other.freq),
-              topology(std::move(other.topology)) {}
+              topology(std::move(other.topology)),
+              _clock_source(other._clock_source) {
+            other._clock_source = nullptr;
+            other.freq          = units::frequency();
+        }
+
+        /**
+         * @brief 移动赋值 CPU 组信息.
+         *
+         * @param other 被移动的源对象
+         * @return CpuGroupInfo& 当前对象引用
+         */
         CpuGroupInfo &operator=(CpuGroupInfo &&other) noexcept {
             if (this != &other) {
                 cleanup();
-                cpus     = std::move(other.cpus);
-                freq     = other.freq;
-                topology = std::move(other.topology);
+                cpus          = std::move(other.cpus);
+                freq          = other.freq;
+                topology      = std::move(other.topology);
+                _clock_source = other._clock_source;
+                other._clock_source = nullptr;
+                other.freq          = units::frequency();
             }
             return *this;
         }
-        ~CpuGroupInfo() {
+
+        /**
+         * @brief 析构 CPU 组信息.
+         */
+        ~CpuGroupInfo() noexcept {
             cleanup();
         }
 
         /**
-         * @brief 释放 CPU 对象列表.
+         * @brief 释放 CPU 对象与所属时钟源.
          */
         void cleanup() noexcept {
             for (auto &cpu : cpus) {
                 delete cpu.get();
             }
             cpus.clear();
+            if (_clock_source != nullptr) {
+                delete _clock_source;
+                _clock_source = nullptr;
+            }
+            freq = units::frequency();
         }
     };
 }  // namespace device

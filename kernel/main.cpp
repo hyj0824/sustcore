@@ -53,6 +53,8 @@
 #include <cstring>
 #include <unordered_map>
 
+env::PaddedHartContext __hart_context[MAX_HARTS] = {};
+
 namespace env {
     static Environment _env;
     static bool _env_initialized = false;
@@ -72,6 +74,36 @@ namespace env {
         // call the constructor here
         new (&_env) Environment();
         _env_initialized = true;
+    }
+
+    /**
+     * @brief 初始化当前 hart 的运行时状态与定时器.
+     */
+    void init_hart() {
+        loggers::SUSTCORE::INFO("初始化 hart %u", static_cast<unsigned>(hart_ctx->hart_id()));
+        auto *ctx = hart_ctx;
+        if (ctx == nullptr) {
+            panic("当前 hart 上下文无效");
+        }
+        ctx->reset_runtime();
+
+        if (!device::DeviceModel::initialized()) {
+            loggers::SUSTCORE::WARN(
+                "DeviceModel 尚未初始化, 跳过当前 hart 定时器构造");
+            return;
+        }
+
+        loggers::SUSTCORE::INFO("初始化 hart Clint Timer%u", static_cast<unsigned>(hart_ctx->hart_id()));
+        auto *clock_source = device::DeviceModel::inst().cpus()._clock_source;
+        if (clock_source == nullptr) {
+            loggers::SUSTCORE::WARN(
+                "全局 ClockSource 不可用, 当前 hart 不构造 ClintTimer");
+            return;
+        }
+
+        ctx->timer() = new device::ClintTimer(clock_source);
+        loggers::SUSTCORE::INFO("hart %u 已初始化 ClintTimer",
+                              static_cast<unsigned>(ctx->hart_id()));
     }
 }  // namespace env
 
@@ -169,6 +201,8 @@ Result<void> init_scheduler() {
 
     auto task = load_res.value();
     assert(task->threads.size() == 1);
+    env::hart_ctx->current_tcb() = idle_res.value();
+    env::hart_ctx->current_pcb() = idle_res.value()->task;
     schd::Scheduler::init(idle_res.value(), task->threads.front());
     schd::Scheduler::inst().init();
 #ifdef __CONF_KERNEL_TESTS
@@ -184,13 +218,15 @@ void after_init() {
 
     // Kernel tests
 #ifdef __CONF_KERNEL_TESTS
+    loggers::SUSTCORE::INFO("开始运行内核测试");
     TestFramework framework;
     collect_tests(framework);
     framework.run_all();
-    loggers::SUSTCORE::INFO("Test complete.");
+    loggers::SUSTCORE::INFO("内核测试完成");
 #endif
 
 #ifdef __CONF_KERNEL_RUN_MODULES
+    loggers::SUSTCORE::INFO("开始运行内核模块");
     // Run kernel modules
     schd::Scheduler::inst().run_current();
 #endif
@@ -204,7 +240,6 @@ extern void *dtb_ptr;
 void init_device_model() {
     loggers::SUSTCORE::INFO("构建设备模型");
 
-    device::IntCtrlManager::init();
     device::DeviceModel::init();
 
     auto &model = device::DeviceModel::inst();
@@ -227,10 +262,10 @@ void init_device_model() {
     loggers::SUSTCORE::INFO("CPU 数量: %u, 频率: %llu Hz",
                             static_cast<unsigned>(cpus.cpus.size()),
                             static_cast<unsigned long long>(cpus.freq.to_hz()));
-    cpus.topology.print();
+    // cpus.topology.print();
 
-    loggers::SUSTCORE::INFO("设备树详细信息:");
-    FDTHelper::print_device_tree_detailed();
+    // loggers::SUSTCORE::INFO("设备树详细信息:");
+    // FDTHelper::print_device_tree_detailed();
 }
 
 extern "C" void post_init(void) {
@@ -240,6 +275,10 @@ extern "C" void post_init(void) {
     // 将 pre-init 阶段中初始化的子系统再次初始化, 以适应内核虚拟地址空间
     GFP::post_init();
     PageMan::init();
+
+    // 将 tp 寄存器中的指针更新为内核虚拟地址空间中的环境实例
+    PhyAddr old_tp = convert_pointer(env::hart_ctx);
+    env::hart_ctx = convert<KvaAddr>(old_tp).as<env::HartContext>();
 
     Allocator::init();
 
@@ -257,6 +296,7 @@ extern "C" void post_init(void) {
 
     loggers::SUSTCORE::INFO("初始化设备树配置");
     init_device_model();
+    env::init_hart();
 
     Initialization::post_init();
 
@@ -278,6 +318,9 @@ extern "C" void post_init(void) {
     loggers::SUSTCORE::INFO("初始化任务管理器");
     task::TaskManager::init();
 
+    loggers::SUSTCORE::INFO("初始化等待系统");
+    task::wait::WaitReasonManager::init();
+
     loggers::SUSTCORE::INFO("初始化调度器");
     init_res = init_scheduler();
     if (!init_res.has_value()) {
@@ -285,8 +328,6 @@ extern "C" void post_init(void) {
                                  to_cstring(init_res.error()));
         while (true);
     }
-
-    task::wait::WaitReasonManager::init();
 
     loggers::SUSTCORE::INFO("测试输出ErrCode::BUSY", to_cstring(ErrCode::BUSY));
 

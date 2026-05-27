@@ -50,11 +50,11 @@ namespace test::cap {
             tassert(holder_res.has_value(), "创建 CHolder");
             auto *holder = holder_res.value();
 
-            auto create_res = holder->internal_create<kcap::IntPayload>(12345);
+            auto create_res = holder->create<kcap::IntPayload>(12345);
             tassert(create_res.has_value(), "创建 IntPayload 能力");
             CapIdx idx = create_res.value();
 
-            auto cap_res = holder->internal_lookup(idx);
+            auto cap_res = holder->lookup(idx);
             tassert(cap_res.has_value(), "取回能力");
             kcap::IntObj op(util::nnullforce(cap_res.value()));
 
@@ -80,18 +80,18 @@ namespace test::cap {
             tassert(holder_res.has_value(), "创建 CHolder");
             auto *holder = holder_res.value();
 
-            auto create_res = holder->internal_create<kcap::IntPayload>(7);
+            auto create_res = holder->create<kcap::IntPayload>(7);
             tassert(create_res.has_value(), "创建源能力");
             CapIdx src = create_res.value();
 
-            auto clone_res = holder->internal_clone(src);
+            auto clone_res = holder->clone(src);
             tassert(clone_res.has_value(), "clone 成功");
             CapIdx dst = clone_res.value();
 
             kcap::IntObj src_op(
-                util::nnullforce(holder->internal_lookup(src).value()));
+                util::nnullforce(holder->lookup(src).value()));
             kcap::IntObj dst_op(
-                util::nnullforce(holder->internal_lookup(dst).value()));
+                util::nnullforce(holder->lookup(dst).value()));
 
             auto write_res = src_op.write(9);
             tassert(write_res.has_value(), "源能力写入成功");
@@ -110,17 +110,17 @@ namespace test::cap {
             tassert(holder_res.has_value(), "创建 CHolder");
             auto *holder = holder_res.value();
 
-            auto create_res = holder->internal_create<kcap::IntPayload>(100);
+            auto create_res = holder->create<kcap::IntPayload>(100);
             tassert(create_res.has_value(), "创建源能力");
             CapIdx src = create_res.value();
 
             b64 read_only   = perm::intobj::READ;
-            auto derive_res = holder->internal_derive(src, read_only);
+            auto derive_res = holder->derive(src, read_only);
             tassert(derive_res.has_value(), "derive READ-only 成功");
             CapIdx dst = derive_res.value();
 
             kcap::IntObj derived(
-                util::nnullforce(holder->internal_lookup(dst).value()));
+                util::nnullforce(holder->lookup(dst).value()));
             auto read_res = derived.read();
             tassert(read_res.has_value() && read_res.value() == 100,
                     "派生能力可读");
@@ -143,19 +143,19 @@ namespace test::cap {
             tassert(holder_res.has_value(), "创建 CHolder");
             auto *holder = holder_res.value();
 
-            auto create_res = holder->internal_create<CountingPayload>(1);
+            auto create_res = holder->create<CountingPayload>(1);
             tassert(create_res.has_value(), "创建计数 payload");
             CapIdx src = create_res.value();
 
-            auto clone_res = holder->internal_clone(src);
+            auto clone_res = holder->clone(src);
             tassert(clone_res.has_value(), "clone 成功");
             CapIdx dst = clone_res.value();
 
-            auto remove_src = holder->internal_remove(src);
+            auto remove_src = holder->remove(src);
             tassert(remove_src.has_value(), "删除源能力");
             ttest(CountingPayload::destruct_count == 0);
 
-            auto remove_dst = holder->internal_remove(dst);
+            auto remove_dst = holder->remove(dst);
             tassert(remove_dst.has_value(), "删除最后一个能力");
             ttest(CountingPayload::destruct_count == 1);
         }
@@ -174,19 +174,19 @@ namespace test::cap {
             auto *source = source_res.value();
             auto *dest   = dest_res.value();
 
-            auto once_res = source->internal_insert_to_free(
+            auto once_res = source->insert_to_free(
                 new kcap::IntPayload(42),
                 perm::basic::MIGRATE_ONCE | perm::intobj::READ);
             tassert(once_res.has_value(), "创建 MIGRATE_ONCE 源能力");
 
             auto transfer_res =
-                source->internal_transfer_to(*dest, once_res.value());
+                source->transfer_to(*dest, once_res.value());
             tassert(transfer_res.has_value(), "MIGRATE_ONCE允许跨holder传递");
 
-            auto old_lookup = source->internal_lookup(once_res.value());
+            auto old_lookup = source->lookup(once_res.value());
             tassert(!old_lookup.has_value(), "MIGRATE_ONCE传递后源slot被消费");
 
-            auto moved_cap_res = dest->internal_lookup(transfer_res.value());
+            auto moved_cap_res = dest->lookup(transfer_res.value());
             tassert(moved_cap_res.has_value(), "目标holder收到cap");
             tassert(!moved_cap_res.value()->imply(perm::basic::MIGRATE_ONCE),
                     "目标cap清除MIGRATE_ONCE");
@@ -196,11 +196,11 @@ namespace test::cap {
             tassert(read_res.has_value() && read_res.value() == 42,
                     "接收方cap保留对象权限");
 
-            auto plain_res = source->internal_insert_to_free(
+            auto plain_res = source->insert_to_free(
                 new kcap::IntPayload(7), perm::intobj::READ);
             tassert(plain_res.has_value(), "创建无传递权限能力");
             auto denied_res =
-                source->internal_transfer_to(*dest, plain_res.value());
+                source->transfer_to(*dest, plain_res.value());
             tassert(!denied_res.has_value() &&
                         denied_res.error() == ErrCode::INSUFFICIENT_PERMISSIONS,
                     "无CLONE/MIGRATE权限时拒绝传递");

@@ -9,7 +9,6 @@
  *
  */
 
-#include <env.h>
 #include <logger.h>
 #include <sustcore/addr.h>
 #include <sustcore/syscall.h>
@@ -20,16 +19,164 @@
 #include <syscall/syscall.h>
 #include <syscall/task.h>
 #include <syscall/uaccess.h>
+#include <task/scheduler.h>
 #include <task/task_struct.h>
 
 #include <cassert>
 
 namespace syscall {
-    void write_serial(const UString &str, size_t len) {
-        sys_write_serial(str.kbuf(), len);
-    }
+    namespace {
+        // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+        task::SyscallContext *inst_active_context = nullptr;
+
+        /**
+         * @brief 生成布尔型 syscall 返回包.
+         *
+         * @param ok 操作结果.
+         * @return RetPack 返回包.
+         */
+        [[nodiscard]]
+        RetPack bool_ret(bool ok) noexcept {
+            return RetPack{.processed = true,
+                           .ret0      = static_cast<b64>(ok),
+                           .ret1      = static_cast<b64>(ErrCode::SUCCESS)};
+        }
+
+        /**
+         * @brief 将 Result<void> 转成 syscall 返回包.
+         *
+         * @param op 日志操作名.
+         * @param res 调用结果.
+         * @return RetPack 返回包.
+         */
+        [[nodiscard]]
+        RetPack result_void_ret(const char *op,
+                                const Result<void> &res) noexcept {
+            if (!res.has_value()) {
+                loggers::SYSCALL::ERROR("%s失败: err=%s", op,
+                                        to_cstring(res.error()));
+                return RetPack{.processed = true,
+                               .ret0      = false,
+                               .ret1      = static_cast<b64>(res.error())};
+            }
+            return bool_ret(true);
+        }
+
+        /**
+         * @brief 将 Result<size_t> 转成 syscall 返回包.
+         *
+         * @param op 日志操作名.
+         * @param res 调用结果.
+         * @return RetPack 返回包.
+         */
+        [[nodiscard]]
+        RetPack result_value_ret(const char *op,
+                                 const Result<size_t> &res) noexcept {
+            if (!res.has_value()) {
+                loggers::SYSCALL::ERROR("%s失败: err=%s", op,
+                                        to_cstring(res.error()));
+                return RetPack{.processed = true,
+                               .ret0      = 0,
+                               .ret1      = static_cast<b64>(res.error())};
+            }
+            return RetPack{.processed = true,
+                           .ret0      = res.value(),
+                           .ret1      = static_cast<b64>(ErrCode::SUCCESS)};
+        }
+
+        /**
+         * @brief 将 Result<bool> 转成 syscall 返回包.
+         *
+         * @param op 日志操作名.
+         * @param res 调用结果.
+         * @return RetPack 返回包.
+         */
+        [[nodiscard]]
+        RetPack result_bool_ret(const char *op,
+                                const Result<bool> &res) noexcept {
+            if (!res.has_value()) {
+                loggers::SYSCALL::ERROR("%s失败: err=%s", op,
+                                        to_cstring(res.error()));
+                return RetPack{.processed = true,
+                               .ret0      = 0,
+                               .ret1      = static_cast<b64>(res.error())};
+            }
+            return RetPack{.processed = true,
+                           .ret0      = static_cast<b64>(res.value()),
+                           .ret1      = static_cast<b64>(ErrCode::SUCCESS)};
+        }
+
+        /**
+         * @brief 在当前 syscall 所属线程上完成 syscall.
+         *
+         * @param ret syscall 返回值.
+         */
+        void complete_syscall(task::TCB *tcb, const RetPack &ret) noexcept {
+            if (tcb == nullptr) {
+                loggers::SYSCALL::FATAL("无法完成 syscall: 当前线程无效");
+                panic("无法完成 syscall");
+            }
+            tcb->syscall_info.complete(ret);
+
+            loggers::SYSCALL::DEBUG(
+                "syscall 返回值: pid=%lu tid=%lu sysno=0x%lx ret0=0x%lx "
+                "ret1=0x%lx",
+                tcb->task != nullptr ? tcb->task->pid : 0, tcb->tid,
+                tcb->syscall_info.syscall_number, ret.ret0, ret.ret1);
+            if (tcb->task != nullptr && tcb->task->exiting) {
+                loggers::SYSCALL::DEBUG(
+                    "syscall 所属线程正在退出, 不重新入队: pid=%lu tid=%lu",
+                    tcb->task->pid, tcb->tid);
+                return;
+            }
+            if (tcb->basic_entity.state == ThreadState::WAITING) {
+                tcb->basic_entity.state = ThreadState::EMPTY;
+                bool wake_ok            = schd::Scheduler::inst().wakeup(tcb);
+                if (!wake_ok) {
+                    loggers::SYSCALL::FATAL("唤醒已完成 syscall 线程失败");
+                    panic("无法唤醒已完成 syscall 线程");
+                }
+            }
+        }
+
+        /**
+         * @brief 向串口写字符串.
+         *
+         * @param str 字符串代理.
+         * @param len 输出长度.
+         */
+        void write_serial(const UString &str, size_t len) noexcept {
+            sys_write_serial(str.kbuf(), len);
+        }
+    }  // namespace
 
     constexpr size_t MAX_SYSCALL_PATH = 256;
+
+    task::SyscallContext *active_context() noexcept {
+        return inst_active_context;
+    }
+
+    void set_active_context(task::SyscallContext *context) noexcept {
+        inst_active_context = context;
+    }
+
+    Result<task::TCB *> current_tcb() noexcept {
+        if (inst_active_context == nullptr ||
+            inst_active_context->tcb == nullptr)
+        {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+        return inst_active_context->tcb;
+    }
+
+    Result<task::PCB *> current_pcb() noexcept {
+        if (inst_active_context == nullptr ||
+            inst_active_context->pcb == nullptr)
+        {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+        return inst_active_context->pcb;
+    }
 
     const char *name_of(b64 sysno) {
         switch (sysno) {
@@ -69,70 +216,39 @@ namespace syscall {
         }
     }
 
-    static RetPack finish_syscall(util::nonnull<Riscv64Context *> ctx,
-                                  util::nonnull<task::TCB *> tcb,
-                                  RetPack ret) {
-        ctx->write_ret(ret);
-        ctx->sepc                    += 4;
-        tcb->coroutines.done  = true;
-        return ret;
-    }
-
-    static RetPack bool_ret(bool ok) {
-        return RetPack{.processed = true,
-                       .ret0      = static_cast<b64>(ok),
-                       .ret1      = static_cast<b64>(ErrCode::SUCCESS)};
-    }
-
-    static RetPack result_void_ret(const char *op, const Result<void> &res) {
-        if (!res.has_value()) {
-            loggers::SYSCALL::ERROR("%s失败: err=%s", op,
-                                    to_cstring(res.error()));
-            return RetPack{.processed = true,
-                           .ret0      = false,
-                           .ret1      = static_cast<b64>(res.error())};
+    bool is_suspendable_syscall(b64 sysno) noexcept {
+        switch (sysno) {
+            case SYS_ENDPOINT_SEND:
+            case SYS_ENDPOINT_RECV:
+            case SYS_ENDPOINT_CALL: return true;
+            default:                return false;
         }
-        return bool_ret(true);
     }
 
-    static RetPack result_value_ret(const char *op, const Result<size_t> &res) {
-        if (!res.has_value()) {
-            loggers::SYSCALL::ERROR("%s失败: err=%s", op,
-                                    to_cstring(res.error()));
-            return RetPack{.processed = true,
-                           .ret0      = 0,
-                           .ret1      = static_cast<b64>(res.error())};
+    RetPack dispatch_sync(util::nonnull<task::TCB *> tcb) {
+        if (tcb->task == nullptr) {
+            return RetPack{
+                .processed = false,
+                .ret0      = 0,
+                .ret1      = static_cast<b64>(ErrCode::INVALID_PARAM),
+            };
         }
-        return RetPack{.processed = true,
-                       .ret0      = res.value(),
-                       .ret1      = static_cast<b64>(ErrCode::SUCCESS)};
-    }
+        task::SyscallContext context{
+            .tcb          = tcb,
+            .pcb          = tcb->task,
+            .tmm          = tcb->task->tmm.get(),
+            .trap_context = tcb->syscall_info.context.trap_context,
+        };
+        set_active_context(&context);
+        tcb->syscall_info.context = context;
 
-    static RetPack result_bool_ret(const char *op, const Result<bool> &res) {
-        if (!res.has_value()) {
-            loggers::SYSCALL::ERROR("%s失败: err=%s", op,
-                                    to_cstring(res.error()));
-            return RetPack{.processed = true,
-                           .ret0      = 0,
-                           .ret1      = static_cast<b64>(res.error())};
-        }
-        return RetPack{.processed = true,
-                       .ret0      = static_cast<b64>(res.value()),
-                       .ret1      = static_cast<b64>(ErrCode::SUCCESS)};
-    }
-
-    util::cotask<RetPack> entrance(util::nonnull<Riscv64Context *> ctx,
-                                   util::nonnull<task::TCB *> tcb) {
-        ArgPack args = ctx->read_args();
-
-        // 参数解包
-        b64 arg0 = args.args[0];
-        b64 arg1 = args.args[1];
-        b64 arg2 = args.args[2];
-        b64 arg3 = args.args[3];
-
-        b64 sysno  = args.syscall_number;
-        b64 capidx = args.capidx;
+        ArgPack args = tcb->syscall_info.syscall_args;
+        b64 arg0     = args.args[0];
+        b64 arg1     = args.args[1];
+        b64 arg2     = args.args[2];
+        b64 arg3     = args.args[3];
+        b64 sysno    = args.syscall_number;
+        b64 capidx   = args.capidx;
 
         RetPack ret{
             .processed = true,
@@ -140,49 +256,42 @@ namespace syscall {
             .ret1      = static_cast<b64>(ErrCode::SUCCESS),
         };
 
-        // capidx (a0) is the primary capability slot; args[] carry
-        // operation-specific values starting at a1.
         switch (sysno) {
-            // Basic process / memory syscalls.
             case SYS_WRITE_SERIAL: {
-                write_serial(UString((VirAddr)arg0, arg1), arg1);
+                UString str((VirAddr)arg0, arg1);
+                write_serial(str, arg1);
                 break;
             }
             case SYS_CREATE_PROCESS: {
+                UString path((VirAddr)arg0, MAX_SYSCALL_PATH);
+                UBuffer caps_buf((VirAddr)arg1, arg2 * sizeof(CapIdx));
+                caps_buf.sync_from_user();
                 ret = result_value_ret(
-                    "创建进程",
-                    pcb_create_process(
-                        capidx, UString((VirAddr)arg0, MAX_SYSCALL_PATH),
-                        VirAddr(arg1), arg2, arg3));
+                    "创建进程", pcb_create_process(capidx, path,
+                                                   std::move(caps_buf), arg2,
+                                                   arg3));
                 break;
             }
             case SYS_CREATE_THREAD: {
-                ret = result_value_ret(
-                    "创建线程",
-                    pcb_create_thread(capidx, VirAddr(arg0), VirAddr(arg1),
-                                      arg2));
+                ret = result_value_ret("创建线程",
+                                       pcb_create_thread(capidx, VirAddr(arg0),
+                                                         VirAddr(arg1), arg2));
                 break;
             }
             case SYS_FORK: {
-                ret = result_value_ret("fork", pcb_fork(capidx, VirAddr(arg0)));
+                UBuffer child_cap_buf((VirAddr)arg0, sizeof(CapIdx));
+                child_cap_buf.sync_from_user();
+                auto fork_res = pcb_fork(capidx, std::move(child_cap_buf));
+                ret = result_value_ret("fork", fork_res);
                 break;
             }
             case SYS_EXECVE: {
-                bool current_target = pcb_is_current(capidx);
-                auto exec_res        = pcb_execve(
-                    capidx, UString((VirAddr)arg0, MAX_SYSCALL_PATH),
-                    VirAddr(arg1), arg2);
-                if (exec_res.has_value() && exec_res.value()) {
-                    if (current_target) {
-                        ret.ret0  = ctx->regs[Context::A0_BASE];
-                        ret.ret1  = ctx->regs[Context::A0_BASE + 1];
-                        ctx->sepc -= 4;
-                    } else {
-                        ret = bool_ret(true);
-                    }
-                } else {
-                    ret = result_bool_ret("execve", exec_res);
-                }
+                UString path((VirAddr)arg0, MAX_SYSCALL_PATH);
+                UBuffer reserved_buf((VirAddr)arg1, arg2 * sizeof(CapIdx));
+                reserved_buf.sync_from_user();
+                ret = result_bool_ret(
+                    "execve", pcb_execve(capidx, path, std::move(reserved_buf),
+                                         arg2));
                 break;
             }
             case SYS_PCB_KILL: {
@@ -194,8 +303,6 @@ namespace syscall {
                 ret = result_value_ret("get_pid", get_pid(capidx));
                 break;
             }
-
-            // Notification object operations.
             case SYS_NOTIF_WAIT: {
                 ret = result_bool_ret("等待notification",
                                       wait_notification(capidx, arg0));
@@ -217,11 +324,10 @@ namespace syscall {
                 break;
             }
             case SYS_NOTIF_CREATE: {
-                ret = result_value_ret("创建notification", notification_create());
+                ret =
+                    result_value_ret("创建notification", notification_create());
                 break;
             }
-
-            // Generic capability operations.
             case SYS_CAP_CLONE: {
                 ret = result_value_ret("clone capability", cap_clone(capidx));
                 break;
@@ -237,8 +343,9 @@ namespace syscall {
                 break;
             }
             case SYS_CAP_LOOKUP: {
-                ret = result_bool_ret("lookup capability",
-                                      sys_cap_lookup(capidx, VirAddr(arg0)));
+                UBuffer info_buf((VirAddr)arg0, sizeof(CapInfo));
+                auto lookup_res = sys_cap_lookup(capidx, std::move(info_buf));
+                ret = result_bool_ret("lookup capability", lookup_res);
                 break;
             }
             case SYS_CAP_REMOVE: {
@@ -249,28 +356,22 @@ namespace syscall {
                 ret = result_value_ret("创建endpoint", endpoint_create());
                 break;
             }
-            case SYS_ENDPOINT_SEND: {
-                auto send_task = endpoint_send_sync(capidx, VirAddr(arg0));
-                Result<void> send_res = co_await send_task;
-                ret = result_void_ret("同步发送endpoint消息", send_res);
-                break;
-            }
-            case SYS_ENDPOINT_RECV: {
-                auto recv_task = endpoint_recv_sync(capidx, VirAddr(arg0));
-                Result<void> recv_res = co_await recv_task;
-                ret = result_void_ret("接收endpoint消息", recv_res);
-                break;
-            }
             case SYS_ENDPOINT_SEND_ASYNC: {
-                ret = result_bool_ret("异步发送endpoint消息",
-                                      endpoint_send_async(capidx,
-                                                          VirAddr(arg0)));
+                UBuffer packet_buf((VirAddr)arg0, sizeof(MsgPacket));
+                packet_buf.sync_from_user();
+                auto packet = *reinterpret_cast<MsgPacket *>(packet_buf.kbuf());
+                ret =
+                    result_bool_ret("异步发送endpoint消息",
+                                    endpoint_send_async(capidx, packet));
                 break;
             }
             case SYS_ENDPOINT_RECV_ASYNC: {
-                ret = result_bool_ret("异步接收endpoint消息",
-                                      endpoint_recv_async(capidx,
-                                                          VirAddr(arg0)));
+                UBuffer packet_buf((VirAddr)arg0, sizeof(MsgPacket));
+                packet_buf.sync_from_user();
+                auto packet = *reinterpret_cast<MsgPacket *>(packet_buf.kbuf());
+                auto recv_res = endpoint_recv_async(capidx, packet,
+                                                    std::move(packet_buf));
+                ret = result_bool_ret("异步接收endpoint消息", recv_res);
                 break;
             }
             case SYS_MEM_CREATE: {
@@ -298,32 +399,113 @@ namespace syscall {
                 break;
             }
             case SYS_MEM_QUERY: {
-                ret = result_void_ret("mem_query",
-                                      mem_query(capidx, VirAddr(arg0)));
-                break;
-            }
-            case SYS_ENDPOINT_CALL: {
-                auto call_task =
-                    endpoint_call(capidx, VirAddr(arg0), VirAddr(arg1));
-                Result<void> call_res = co_await call_task;
-                ret = result_void_ret("endpoint_call", call_res);
+                UBuffer out_buf((VirAddr)arg0, sizeof(MemQueryRet));
+                auto query_res = mem_query(capidx, std::move(out_buf));
+                ret = result_void_ret("mem_query", query_res);
                 break;
             }
             case SYS_ENDPOINT_REPLY: {
+                UBuffer reply_buf((VirAddr)arg0, sizeof(MsgPacket));
+                reply_buf.sync_from_user();
+                auto reply_packet =
+                    *reinterpret_cast<MsgPacket *>(reply_buf.kbuf());
                 ret = result_void_ret("endpoint_reply",
-                                      endpoint_reply(capidx, VirAddr(arg0)));
+                                      endpoint_reply(capidx, reply_packet));
                 break;
             }
             default: {
                 ret.processed = false;
+                ret.ret0      = 0;
+                ret.ret1      = static_cast<b64>(ErrCode::NOT_SUPPORTED);
                 loggers::SYSCALL::ERROR("未知的系统调用号: %d", sysno);
-                ret.ret0 = 0;
-                ret.ret1 = static_cast<b64>(ErrCode::NOT_SUPPORTED);
+                break;
+            }
+        }
+        set_active_context(nullptr);
+        return ret;
+    }
+
+    util::cotask<void> dispatch_async(util::nonnull<task::TCB *> tcb) {
+        if (tcb->task == nullptr) {
+            complete_syscall(
+                tcb, RetPack{
+                         .processed = false,
+                         .ret0      = 0,
+                         .ret1      = static_cast<b64>(ErrCode::INVALID_PARAM),
+                     });
+            co_return;
+        }
+
+        task::SyscallContext context{
+            .tcb          = tcb,
+            .pcb          = tcb->task,
+            .tmm          = tcb->task->tmm.get(),
+            .trap_context = tcb->syscall_info.context.trap_context,
+        };
+        set_active_context(&context);
+        tcb->syscall_info.context = context;
+
+        ArgPack args = tcb->syscall_info.syscall_args;
+        b64 arg0     = args.args[0];
+        b64 arg1     = args.args[1];
+        b64 sysno    = args.syscall_number;
+        b64 capidx   = args.capidx;
+
+        RetPack ret{
+            .processed = true,
+            .ret0      = 0,
+            .ret1      = static_cast<b64>(ErrCode::SUCCESS),
+        };
+
+        switch (sysno) {
+            case SYS_ENDPOINT_SEND: {
+                UBuffer packet_buf((VirAddr)arg0, sizeof(MsgPacket));
+                packet_buf.sync_from_user();
+                auto packet =
+                    *reinterpret_cast<MsgPacket *>(packet_buf.kbuf());
+                auto send_task = endpoint_send_sync(capidx, packet);
+                Result<void> send_res = co_await send_task;
+                ret = result_void_ret("同步发送endpoint消息", send_res);
+                break;
+            }
+            case SYS_ENDPOINT_RECV: {
+                UBuffer packet_buf((VirAddr)arg0, sizeof(MsgPacket));
+                packet_buf.sync_from_user();
+                auto packet =
+                    *reinterpret_cast<MsgPacket *>(packet_buf.kbuf());
+                auto recv_task =
+                    endpoint_recv_sync(capidx, packet, std::move(packet_buf));
+                Result<void> recv_res = co_await recv_task;
+                ret = result_void_ret("接收endpoint消息", recv_res);
+                break;
+            }
+            case SYS_ENDPOINT_CALL: {
+                UBuffer send_buf((VirAddr)arg0, sizeof(MsgPacket));
+                send_buf.sync_from_user();
+                auto send_packet =
+                    *reinterpret_cast<MsgPacket *>(send_buf.kbuf());
+                UBuffer reply_buf((VirAddr)arg1, sizeof(MsgPacket));
+                reply_buf.sync_from_user();
+                auto reply_packet =
+                    *reinterpret_cast<MsgPacket *>(reply_buf.kbuf());
+                auto call_task =
+                    endpoint_call(capidx, send_packet, reply_packet,
+                                  std::move(reply_buf));
+                Result<void> call_res = co_await call_task;
+                ret = result_void_ret("endpoint_call", call_res);
+                break;
+            }
+            default: {
+                ret.processed = false;
+                ret.ret0      = 0;
+                ret.ret1      = static_cast<b64>(ErrCode::NOT_SUPPORTED);
+                loggers::SYSCALL::ERROR("异步分发遇到未知 syscall: %d", sysno);
                 break;
             }
         }
 
-        co_return finish_syscall(ctx, tcb, ret);
-    };
-
+        complete_syscall(tcb, ret);
+        set_active_context(nullptr);
+        co_return;
+    }
 }  // namespace syscall

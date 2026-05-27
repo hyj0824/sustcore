@@ -16,6 +16,7 @@
 #include <test/array.h>
 #include <test/buddy.h>
 #include <test/cap.h>
+#include <test/coroutine.h>
 #include <test/expected.h>
 #include <test/framework.h>
 #include <test/fs.h>
@@ -40,6 +41,7 @@ void collect_tests(TestFramework& framework) {
     test::array::collect_tests(framework);
     test::buddy::collect_tests(framework);
     test::cap::collect_tests(framework);
+    test::coroutine::collect_tests(framework);
     test::expected::collect_tests(framework);
     test::fs::collect_tests(framework);
     test::functional::collect_tests(framework);

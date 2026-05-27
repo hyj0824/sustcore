@@ -23,7 +23,6 @@
 #include <sustcore/capability.h>
 #include <syscall/task.h>
 #include <syscall/uaccess.h>
-#include <task/scheduler.h>
 #include <task/task.h>
 
 #include <cassert>
@@ -31,11 +30,28 @@
 
 namespace syscall {
     /**
+     * @brief 获取当前线程.
+     */
+    /**
+     * @brief 获取当前线程所属的 capability holder.
+     */
+    static Result<cap::CHolder *> current_holder() {
+        auto tcb_res = current_tcb();
+        propagate(tcb_res);
+        if (tcb_res.value()->task->cholder == nullptr) {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+        return tcb_res.value()->task->cholder;
+    }
+
+    /**
      * @brief 查找当前进程 capability 空间中的 PCB payload.
      */
     static Result<cap::PCBPayload *> lookup_pcb(CapIdx idx,
                                                 cap::Capability **out_cap) {
-        auto cap_res = cap::CHolder::lookup(idx);
+        auto holder_res = current_holder();
+        propagate(holder_res);
+        auto cap_res = holder_res.value()->lookup(idx);
         propagate(cap_res);
         if (out_cap != nullptr) {
             *out_cap = cap_res.value();
@@ -52,7 +68,9 @@ namespace syscall {
      */
     static Result<cap::MemoryPayload *> lookup_memory(
         CapIdx idx, cap::Capability **out_cap) {
-        auto cap_res = cap::CHolder::lookup(idx);
+        auto holder_res = current_holder();
+        propagate(holder_res);
+        auto cap_res = holder_res.value()->lookup(idx);
         propagate(cap_res);
         if (out_cap != nullptr) {
             *out_cap = cap_res.value();
@@ -73,7 +91,7 @@ namespace syscall {
     static Result<void> copy_initial_caps_in_place(cap::CHolder *src_holder,
                                                    TaskMemoryManager *src_tmm,
                                                    cap::CHolder *dst_holder,
-                                                   VirAddr caps_uaddr,
+                                                   UBuffer *caps_buf,
                                                    size_t caps_sz) {
         if (src_holder == nullptr || dst_holder == nullptr) {
             unexpect_return(ErrCode::NULLPTR);
@@ -82,12 +100,13 @@ namespace syscall {
             void_return();
         }
 
-        UBuffer caps_buf(caps_uaddr, caps_sz * sizeof(CapIdx));
-        caps_buf.sync_from_user();
-        auto *caps = reinterpret_cast<CapIdx *>(caps_buf.kbuf());
+        if (caps_buf == nullptr) {
+            unexpect_return(ErrCode::NULLPTR);
+        }
+        auto *caps = reinterpret_cast<CapIdx *>(caps_buf->kbuf());
         for (size_t i = 0; i < caps_sz; ++i) {
             CapIdx idx   = caps[i];
-            auto src_res = src_holder->internal_lookup(idx);
+            auto src_res = src_holder->lookup(idx);
             propagate(src_res);
             cap::Capability *src_cap = src_res.value();
             if (!src_cap->imply(perm::basic::CLONE)) {
@@ -96,8 +115,7 @@ namespace syscall {
 
             cap::Payload *src_payload = src_cap->payload();
             cap::Payload *payload     = src_payload->clone_payload();
-            auto insert_res =
-                dst_holder->internal_insert(idx, payload, src_cap->perm());
+            auto insert_res = dst_holder->insert(idx, payload, src_cap->perm());
             if (!insert_res.has_value()) {
                 if (payload != src_payload) {
                     payload->destruct();
@@ -109,7 +127,7 @@ namespace syscall {
             if (memory != nullptr && !memory->shared && src_tmm != nullptr) {
                 auto cow_res = src_tmm->protect_memory_cow(memory);
                 if (!cow_res.has_value()) {
-                    auto remove_res = dst_holder->internal_remove(idx);
+                    auto remove_res = dst_holder->remove(idx);
                     assert(remove_res.has_value());
                     propagate_return(cow_res);
                 }
@@ -133,12 +151,12 @@ namespace syscall {
     }
 
     Result<CapIdx> pcb_create_process(CapIdx pcb_cap, const UString &path,
-                                      VirAddr caps_uaddr, size_t caps_sz,
+                                      UBuffer &&caps_buf, size_t caps_sz,
                                       size_t sched_class) {
         loggers::SYSCALL::DEBUG(
             "创建进程: pcb=%p path=%s, caps_uaddr=%p, caps_sz=%u, "
             "sched_class=%u",
-            pcb_cap, path.kbuf(), caps_uaddr.addr(), caps_sz, sched_class);
+            pcb_cap, path.kbuf(), caps_buf.uaddr().addr(), caps_sz, sched_class);
 
         cap::Capability *pcb_cap_obj = nullptr;
         auto pcb_res                 = lookup_pcb(pcb_cap, &pcb_cap_obj);
@@ -155,7 +173,7 @@ namespace syscall {
         propagate(sched_res);
 
         // 1) 获取当前 CSpace 作为能力来源
-        auto current_holder_res = cap::CHolder::current();
+        auto current_holder_res = current_holder();
         propagate(current_holder_res);
         cap::CHolder *current_holder = current_holder_res.value();
 
@@ -170,7 +188,7 @@ namespace syscall {
 
         auto copy_res = copy_initial_caps_in_place(
             parent_pcb->cholder, parent_pcb->tmm.get(), child_holder,
-            caps_uaddr, caps_sz);
+            caps_sz == 0 ? nullptr : &caps_buf, caps_sz);
         propagate(copy_res);
 
         // 2) 使用已预配置的 CHolder 加载子进程 ELF
@@ -188,11 +206,11 @@ namespace syscall {
         });
 
         auto pcb               = load_res.value();
-        auto child_pcb_cap_res = pcb->cholder->internal_lookup(pcb->pcb_cap);
+        auto child_pcb_cap_res = pcb->cholder->lookup(pcb->pcb_cap);
         propagate(child_pcb_cap_res);
 
         // 4) 返回子进程 PCB 能力给调用方
-        auto ret_insert_res = current_holder->internal_insert_to_free(
+        auto ret_insert_res = current_holder->insert_to_free(
             child_pcb_cap_res.value()->payload(),
             child_pcb_cap_res.value()->perm());
         propagate(ret_insert_res);
@@ -211,8 +229,10 @@ namespace syscall {
         cap::PCBObject obj(util::nnullforce(cap));
         auto target_res = obj.require_new_thread();
         propagate(target_res);
-        auto *current_tcb = schd::Scheduler::inst().current_tcb();
-        if (current_tcb == nullptr || current_tcb->task != target_res.value()) {
+        auto current_tcb_res = current_tcb();
+        propagate(current_tcb_res);
+        auto *current = current_tcb_res.value();
+        if (current->task != target_res.value()) {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
         auto thread_res = task::TaskManager::inst().create_thread_current(
@@ -221,42 +241,41 @@ namespace syscall {
         return thread_res.value();
     }
 
-    Result<size_t> pcb_fork(CapIdx pcb_cap, VirAddr child_pcb_cap_uaddr) {
-        if (!child_pcb_cap_uaddr.nonnull()) {
-            unexpect_return(ErrCode::NULLPTR);
-        }
-
+    Result<size_t> pcb_fork(CapIdx pcb_cap, UBuffer &&child_cap_buf) {
         cap::Capability *cap = nullptr;
         auto pcb_res         = lookup_pcb(pcb_cap, &cap);
         propagate(pcb_res);
         cap::PCBObject obj(util::nnullforce(cap));
         auto target_res = obj.require_new_process();
         propagate(target_res);
-        auto *current_tcb = schd::Scheduler::inst().current_tcb();
-        if (current_tcb == nullptr || current_tcb->task != target_res.value()) {
+        auto current_tcb_res = current_tcb();
+        propagate(current_tcb_res);
+        auto *current = current_tcb_res.value();
+        if (current->task != target_res.value()) {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
-        auto ret_slot_res = cap::CHolder::get_free_slot();
+        auto holder_res = current_holder();
+        propagate(holder_res);
+        auto ret_slot_res = holder_res.value()->lookup_freeslot();
         propagate(ret_slot_res);
         CapIdx child_pcb_cap = ret_slot_res.value();
-
-        UBuffer child_cap_buf(child_pcb_cap_uaddr, sizeof(CapIdx));
-        child_cap_buf.sync_from_user();
-        CapIdx old_child_pcb_cap = cap::null;
-        memcpy(&old_child_pcb_cap, child_cap_buf.kbuf(),
-               sizeof(old_child_pcb_cap));
-        memcpy(child_cap_buf.kbuf(), &child_pcb_cap, sizeof(child_pcb_cap));
-        child_cap_buf.sync_to_user();
+        auto *child_pcb_cap_out =
+            reinterpret_cast<CapIdx *>(child_cap_buf.kbuf());
+        CapIdx old_child_pcb_cap = *child_pcb_cap_out;
+        *child_pcb_cap_out       = child_pcb_cap;
         auto restore_out_guard = util::Guard([&]() {
             memcpy(child_cap_buf.kbuf(), &old_child_pcb_cap,
                    sizeof(old_child_pcb_cap));
-            child_cap_buf.sync_to_user();
+            auto commit_res = child_cap_buf.commit_to_user();
+            assert(commit_res.has_value());
         });
 
         auto fork_res = task::TaskManager::inst().fork_current(child_pcb_cap);
         propagate(fork_res);
 
         restore_out_guard.release();
+        auto commit_res = child_cap_buf.commit_to_user();
+        propagate(commit_res);
         return fork_res.value().child_pid;
     }
 
@@ -287,18 +306,19 @@ namespace syscall {
     }
 
     Result<bool> pcb_execve(CapIdx pcb_cap, const UString &path,
-                            VirAddr reserved_uaddr, size_t reserved_sz) {
+                            UBuffer &&reserved_buf, size_t reserved_sz) {
         cap::Capability *cap = nullptr;
         auto pcb_res         = lookup_pcb(pcb_cap, &cap);
         propagate(pcb_res);
         cap::PCBObject obj(util::nnullforce(cap));
         auto target_res = obj.require_execute();
         propagate(target_res);
-        UBuffer reserved_buf(reserved_uaddr, reserved_sz * sizeof(CapIdx));
         CapIdx *reserved = nullptr;
         if (reserved_sz != 0) {
-            reserved_buf.sync_from_user();
             reserved = reinterpret_cast<CapIdx *>(reserved_buf.kbuf());
+        }
+        if (reserved_sz != 0 && reserved == nullptr) {
+            unexpect_return(ErrCode::NULLPTR);
         }
 
         auto exec_res = task::TaskManager::inst().exec_pcb(
@@ -309,17 +329,21 @@ namespace syscall {
     }
 
     bool pcb_is_current(CapIdx pcb_cap) {
+        auto current_tcb_res = current_tcb();
+        if (!current_tcb_res.has_value()) {
+            return false;
+        }
         auto pcb_res = lookup_pcb(pcb_cap, nullptr);
         if (!pcb_res.has_value()) {
             return false;
         }
-        auto *current_tcb = schd::Scheduler::inst().current_tcb();
-        return current_tcb != nullptr &&
-               current_tcb->task == pcb_res.value()->pcb;
+        return current_tcb_res.value()->task == pcb_res.value()->pcb;
     }
 
     Result<size_t> get_pid(CapIdx pcb_cap) {
-        auto cap_res = cap::CHolder::lookup(pcb_cap);
+        auto holder_res = current_holder();
+        propagate(holder_res);
+        auto cap_res = holder_res.value()->lookup(pcb_cap);
         propagate(cap_res);
         if (cap_res.value()->payload()->type_id() != PayloadType::PCB) {
             unexpect_return(ErrCode::TYPE_NOT_MATCHED);

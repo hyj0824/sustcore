@@ -14,26 +14,37 @@
 #include <sbi/sbi.h>
 
 namespace device {
-    IntCtrlManager IntCtrlManager::_INSTANCE;
-    bool IntCtrlManager::_initialized = false;
+    /**
+     * @brief 编程下一次 CLINT 定时器事件.
+     */
+    void ClintTimer::setNextEvent(units::time delta) noexcept {
+        // 获取当前 mtime，计算绝对计数值，调用 SBI
+        units::tick now  = _clksrc->now();
+        units::tick gaps = delta * _clksrc->frequency();
+        sbi_legacy_set_timer(now + gaps);
+    }
+
+    /**
+     * @brief 处理一次 CLINT 定时器中断并触发回调.
+     */
+    void ClintTimer::onTimerIrq() noexcept
+    {
+        units::time now = _clksrc->to_ns(_clksrc->now());
+        if (_handler) {
+            _handler({ .last = _last_recorded_time, .now = now });
+        }
+        _last_recorded_time = now;
+    }
 
     /**
      * @brief 构造一个 CLINT 控制器对象.
      */
     Clint::Clint(std::string name, ictrl_t identifier,
-                 std::vector<PhyArea> mmio_regions,
-                 std::vector<b32> target_harts) noexcept
+                 std::vector<PhyArea> mmio_regions, cpuid_t hart_id) noexcept
         : _name(std::move(name)),
           _identifier(identifier),
           _mmio_regions(std::move(mmio_regions)),
-          _target_harts(std::move(target_harts)),
-          _hart_mask(0) {
-        for (b32 hart : _target_harts) {
-            if (hart < sizeof(cpu_mask_t) * 8U) {
-                _hart_mask |= static_cast<cpu_mask_t>(1ULL << hart);
-            }
-        }
-    }
+          _hart_id(hart_id) {}
 
     /**
      * @brief 获取控制器名称.

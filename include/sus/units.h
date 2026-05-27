@@ -79,44 +79,92 @@ namespace units {
         }
     };
 
-    // 实际上, 这个结构体只是一个uint64_t
-    struct tick {
+    using tick = uint64_t;
+
+    constexpr uint64_t NANOSECONDS_PER_MILLIHERTZ = 1'000'000'000'000ULL;
+
+    struct time {
     protected:
-        uint64_t ticks;
-        explicit constexpr tick(uint64_t t) : ticks(t) {}
+        uint64_t nanoseconds;
+        explicit constexpr time(uint64_t ns) : nanoseconds(ns) {}
 
     public:
-        explicit constexpr tick() : ticks(0) {}
+        explicit constexpr time() : nanoseconds(0) {}
         constexpr operator uint64_t() const {
-            return ticks;
+            return to_nanoseconds();
         }
 
-        constexpr uint64_t to_ticks() const {
-            return ticks;
+        [[nodiscard]]
+        constexpr uint64_t to_nanoseconds() const {
+            return nanoseconds;
         }
-        static constexpr tick from_ticks(uint64_t t) {
-            return tick(t);
+        [[nodiscard]]
+        constexpr uint64_t to_microseconds() const {
+            return nanoseconds / 1'000;
         }
-
-        constexpr tick operator+(const tick &other) const {
-            return tick(ticks + other.ticks);
+        [[nodiscard]]
+        constexpr uint64_t to_milliseconds() const {
+            return nanoseconds / 1'000'000;
         }
-
-        constexpr tick operator-(const tick &other) const {
-            return tick(ticks - other.ticks);
-        }
-
-        constexpr tick operator*(uint64_t multiplier) const {
-            return tick(ticks * multiplier);
+        [[nodiscard]]
+        constexpr uint64_t to_seconds() const {
+            return to_milliseconds() / 1'000;
         }
 
-        constexpr tick operator/(uint64_t divisor) const {
-            return tick(ticks / divisor);
+        static constexpr time from_nanoseconds(uint64_t ns) {
+            return time(ns);
+        }
+        static constexpr time from_microseconds(uint64_t us) {
+            return from_nanoseconds(us * 1'000);
+        }
+        static constexpr time from_milliseconds(uint64_t ms) {
+            return from_microseconds(ms * 1'000);
+        }
+        static constexpr time from_seconds(uint64_t s) {
+            return from_milliseconds(s * 1'000);
         }
 
-        constexpr uint64_t operator/(const tick &other) const {
-            return ticks / other.ticks;
+        constexpr time operator+(const time &other) const {
+            return time(nanoseconds + other.nanoseconds);
         }
+
+        constexpr time operator-(const time &other) const {
+            return time(nanoseconds - other.nanoseconds);
+        }
+
+        constexpr time operator*(uint64_t multiplier) const {
+            return time(nanoseconds * multiplier);
+        }
+
+        constexpr time operator/(uint64_t divisor) const {
+            return time(nanoseconds / divisor);
+        }
+
+        constexpr uint64_t operator/(const time &other) const {
+            return nanoseconds / other.nanoseconds;
+        }
+
+        constexpr uint64_t operator*(const frequency &f) const {
+            // time * frequency = (ns) * (mili Hz) = (ns) * (1000/s) = 10^(-12)
+            // s
+            return (nanoseconds * f.to_milihz()) / NANOSECONDS_PER_MILLIHERTZ;
+        }
+    };  // namespace units
+
+    // calculate the frequenct
+    constexpr frequency operator/(uint64_t count, const time &t) {
+        // 1 / ns = 1 / (1e-9 s) = 1e9 Hz
+        // count / (t ns) = (count / t) * 1e9 Hz = count * (1e9 / t) Hz
+        return frequency::from_milihz(
+            count * (NANOSECONDS_PER_MILLIHERTZ / t.to_nanoseconds()));
+    };
+
+    // calculate the time
+    constexpr time operator/(uint64_t count, const frequency &f) {
+        // 1 / Hz = 1 / (1/s) = s
+        // count / (f Hz) = count * (1 / f) s = count * (1e9 / f) ns
+        return time::from_nanoseconds(
+            count * (NANOSECONDS_PER_MILLIHERTZ / f.to_milihz()));
     };
 }  // namespace units
 
@@ -140,6 +188,6 @@ constexpr units::frequency operator""_GHz(unsigned long long gh) {
     return units::frequency::from_ghz(gh);
 }
 
-constexpr units::tick operator""_ticks(unsigned long long t) {
-    return units::tick::from_ticks(t);
+constexpr units::time operator""_ns(unsigned long long ns) {
+    return units::time::from_nanoseconds(ns);
 }

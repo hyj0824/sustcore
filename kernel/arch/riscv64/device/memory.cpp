@@ -18,7 +18,8 @@
 #include <sustcore/addr.h>
 #include <sustcore/errcode.h>
 #include <symbols.h>
-#include <algorithm>
+
+#include <ranges>
 
 constexpr int MEM_REGION_BUF      = 8;
 constexpr int RESERVED_REGION_BUF = 32;
@@ -30,14 +31,12 @@ constexpr char REG_PROPERTY_NAME[]         = "reg";
 constexpr char RESERVED_MEMORY_NODE_NAME[] = "reserved-memory";
 constexpr char MMODE_RESERVED_BASE[]       = "mmode_resv";
 
-namespace key
-{
-    struct memory : public env::key::meminfo
-    {
+namespace key {
+    struct memory : public env::key::meminfo {
     public:
         memory() = default;
     };
-}
+}  // namespace key
 
 static bool read_regions(FDTHelper::RegVal regions[MEM_REGION_BUF],
                          FDTHelper::RegVal reserved[RESERVED_REGION_BUF],
@@ -141,9 +140,8 @@ Result<void> Riscv64MemoryLayout::detect() {
     // FDT 中的内存区域使用物理地址, linker symbols 是内核高半区虚拟地址.
     // 因此这里必须先转换成物理地址, 否则 kernel/initrd 会被误加入 FREE 区域.
 
-
-    PhyAddr kernel_start_pa       = convert_pointer(&skernel);
-    PhyAddr kernel_end_pa         = convert_pointer(&ekernel);
+    PhyAddr kernel_start_pa = convert_pointer(&skernel);
+    PhyAddr kernel_end_pa   = convert_pointer(&ekernel);
     PhyArea kernel_area(kernel_start_pa, kernel_end_pa);
 
     reserved_buf[num_reserved] = {
@@ -153,19 +151,15 @@ Result<void> Riscv64MemoryLayout::detect() {
     num_reserved++;
 
     // 把保留区域与内存区域按起始地址排序
-    std::ranges::sort(
-        regions_buf, regions_buf + num_regions,
-        [](const FDTHelper::RegVal &a, const FDTHelper::RegVal &b) {
-            return a.ptr < b.ptr;
-        });
-    std::ranges::sort(
-        reserved_buf, reserved_buf + num_reserved,
-        [](const FDTHelper::RegVal &a, const FDTHelper::RegVal &b) {
-            return a.ptr < b.ptr;
-        });
+    std::ranges::sort(regions_buf, regions_buf + num_regions,
+                      [](const FDTHelper::RegVal &a,
+                         const FDTHelper::RegVal &b) { return a.ptr < b.ptr; });
+    std::ranges::sort(reserved_buf, reserved_buf + num_reserved,
+                      [](const FDTHelper::RegVal &a,
+                         const FDTHelper::RegVal &b) { return a.ptr < b.ptr; });
 
     constexpr size_t MAX_REGIONS = env::MemInfo::MAX_REGIONS;
-    MemRegion* regions = env::inst().meminfo(key::memory()).regions;
+    MemRegion *regions           = env::inst().meminfo(key::memory()).regions;
 
     // 加入所有保留区域
     for (int i = 0; i < num_reserved; i++) {

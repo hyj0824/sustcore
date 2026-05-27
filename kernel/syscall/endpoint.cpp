@@ -17,7 +17,6 @@
 #include <syscall/endpoint.h>
 #include <syscall/syscall.h>
 #include <syscall/uaccess.h>
-#include <task/scheduler.h>
 #include <task/task.h>
 #include <task/wait.h>
 
@@ -29,43 +28,17 @@
 namespace syscall {
     namespace {
         /**
-         * @brief MsgPacket在内核中的地址视图.
-         *
-         * 用户态MsgPacket本身只在系统调用入口处复制一次; 接收路径会通过
-         * packet_addr 将实际接收长度写回原MsgPacket.
-         */
-        struct KMsgPacket {
-            /// 用户MsgPacket结构地址.
-            VirAddr packet_addr;
-            /// 用户消息缓冲区地址.
-            VirAddr msgbuf;
-            /// 发送时为消息大小, 接收时为用户消息缓冲容量.
-            size_t msgsz = 0;
-            /// 用户cap列表缓冲区地址.
-            VirAddr caplist;
-            /// 发送时为cap数量, 接收时为用户cap列表容量.
-            size_t capsz = 0;
-        };
-
-        /**
-         * @brief 已从用户态MsgPacket读取并校验过的待发送消息.
-         */
-        struct PreparedMsg {
-            /// 内核中的消息正文副本.
-            char msgbuf[MAX_MSG_SIZE]{};
-            /// 消息正文大小.
-            size_t msgsz = 0;
-            /// 用户传入的cap索引副本.
-            CapIdx capidxs[MAX_MSG_CAPS]{};
-            /// 附带cap数量.
-            size_t capsz = 0;
-        };
-
-        /**
          * @brief 查找并包装当前CSpace中的EndpointObject.
          */
-        Result<cap::EndpointObject> endpoint_object(CapIdx capidx) {
-            auto cap_res = cap::CHolder::lookup(capidx);
+        [[nodiscard]]
+        Result<cap::EndpointObject> endpoint_object(CapIdx capidx) noexcept {
+            auto tcb_res = current_tcb();
+            propagate(tcb_res);
+            auto *holder = tcb_res.value()->task->cholder;
+            if (holder == nullptr) {
+                unexpect_return(ErrCode::INVALID_PARAM);
+            }
+            auto cap_res = holder->lookup(capidx);
             propagate(cap_res);
             auto *cap = cap_res.value();
             if (cap->payload()->type_id() != PayloadType::ENDPOINT) {
@@ -77,8 +50,15 @@ namespace syscall {
         /**
          * @brief 查找并包装当前CSpace中的ReplyObject.
          */
-        Result<cap::ReplyObject> reply_object(CapIdx capidx) {
-            auto cap_res = cap::CHolder::lookup(capidx);
+        [[nodiscard]]
+        Result<cap::ReplyObject> reply_object(CapIdx capidx) noexcept {
+            auto tcb_res = current_tcb();
+            propagate(tcb_res);
+            auto *holder = tcb_res.value()->task->cholder;
+            if (holder == nullptr) {
+                unexpect_return(ErrCode::INVALID_PARAM);
+            }
+            auto cap_res = holder->lookup(capidx);
             propagate(cap_res);
             auto *cap = cap_res.value();
             if (cap->payload()->type_id() != PayloadType::REPLY) {
@@ -90,67 +70,10 @@ namespace syscall {
         /**
          * @brief 返回当前线程所属进程的pid.
          */
-        pid_t current_pid() {
-            auto *tcb = schd::Scheduler::inst().current_tcb();
-            if (tcb == nullptr || tcb->task == nullptr) {
-                return 0;
-            }
-            return tcb->task->pid;
-        }
-
-        /**
-         * @brief 从用户态读取MsgPacket描述符.
-         */
-        Result<KMsgPacket> read_packet(VirAddr packet) {
-            if (!packet.nonnull()) {
-                unexpect_return(ErrCode::NULLPTR);
-            }
-
-            UBuffer packet_buf(packet, sizeof(MsgPacket));
-            packet_buf.sync_from_user();
-            auto *upacket = reinterpret_cast<MsgPacket *>(packet_buf.kbuf());
-
-            KMsgPacket kpacket{
-                .packet_addr = packet,
-                .msgbuf      = packet + offsetof(MsgPacket, msgbuf),
-                .msgsz       = upacket->msgsz,
-                .caplist     = packet + offsetof(MsgPacket, caplist),
-                .capsz       = upacket->capsz,
-            };
-            return kpacket;
-        }
-
-        /**
-         * @brief 根据KMsgPacket读取消息正文和cap列表, 形成可发送消息.
-         */
-        Result<void> prepare_msg(const KMsgPacket &packet, PreparedMsg &out) {
-            out.msgsz = packet.msgsz;
-            out.capsz = packet.capsz;
-            if (out.msgsz > MAX_MSG_SIZE || out.capsz > MAX_MSG_CAPS) {
-                unexpect_return(ErrCode::OUT_OF_BOUNDARY);
-            }
-            if (out.msgsz != 0 && !packet.msgbuf.nonnull()) {
-                unexpect_return(ErrCode::NULLPTR);
-            }
-            if (out.capsz != 0 && !packet.caplist.nonnull()) {
-                unexpect_return(ErrCode::NULLPTR);
-            }
-
-            if (out.msgsz != 0) {
-                UBuffer msg_buf(packet.msgbuf, out.msgsz);
-                msg_buf.sync_from_user();
-                memcpy(out.msgbuf, msg_buf.kbuf(), out.msgsz);
-            }
-
-            if (out.capsz != 0) {
-                UBuffer caps_buf(packet.caplist, out.capsz * sizeof(CapIdx));
-                caps_buf.sync_from_user();
-                memcpy(out.capidxs, caps_buf.kbuf(),
-                       out.capsz * sizeof(CapIdx));
-
-            }
-
-            void_return();
+        [[nodiscard]]
+        pid_t current_pid() noexcept {
+            auto tcb_res = current_tcb();
+            return tcb_res.has_value() ? tcb_res.value()->task->pid : 0;
         }
 
         /**
@@ -158,6 +81,7 @@ namespace syscall {
          *
          * 若中途失败, 已插入的cap会被回滚移除.
          */
+        [[nodiscard]]
         Result<void> insert_received_caps(cap::CHolder *holder,
                                           cap::EndpointMessage *msg,
                                           CapIdx *out_caps) {
@@ -168,7 +92,7 @@ namespace syscall {
             size_t inserted_count = 0;
             util::Guard cleanup([&]() {
                 for (size_t i = 0; i < inserted_count; ++i) {
-                    auto remove_res = holder->internal_remove(inserted[i]);
+                    auto remove_res = holder->remove(inserted[i]);
                     assert(remove_res.has_value());
                 }
             });
@@ -184,8 +108,7 @@ namespace syscall {
 
             for (size_t i = 0; i < msg->capsz; ++i) {
                 auto slot_res =
-                    sender_holder->internal_transfer_to(*holder,
-                                                        msg->capidxs[i]);
+                    sender_holder->transfer_to(*holder, msg->capidxs[i]);
                 propagate(slot_res);
                 inserted[inserted_count++] = slot_res.value();
                 out_caps[i]                = slot_res.value();
@@ -198,48 +121,31 @@ namespace syscall {
         /**
          * @brief 将EndpointMessage写回用户态MsgPacket指定的缓冲区.
          */
+        [[nodiscard]]
         Result<void> write_received_msg(cap::CHolder *holder,
                                         cap::EndpointMessage *msg,
-                                        const KMsgPacket &packet) {
+                                        const MsgPacket &packet,
+                                        MsgPacket *packet_out) {
             if (holder == nullptr || msg == nullptr) {
+                unexpect_return(ErrCode::NULLPTR);
+            }
+            if (packet_out == nullptr) {
                 unexpect_return(ErrCode::NULLPTR);
             }
             if (msg->msgsz > packet.msgsz || msg->capsz > packet.capsz) {
                 unexpect_return(ErrCode::OUT_OF_BOUNDARY);
             }
-            if (msg->msgsz != 0 && !packet.msgbuf.nonnull()) {
-                unexpect_return(ErrCode::NULLPTR);
-            }
 
             CapIdx out_caps[MAX_MSG_CAPS]{};
             if (msg->capsz != 0) {
-                if (!packet.caplist.nonnull()) {
-                    unexpect_return(ErrCode::NULLPTR);
-                }
                 auto insert_res = insert_received_caps(holder, msg, out_caps);
                 propagate(insert_res);
             }
 
-            if (msg->msgsz != 0) {
-                UBuffer out_msg(packet.msgbuf, msg->msgsz);
-                memcpy(out_msg.kbuf(), msg->msgbuf, msg->msgsz);
-                out_msg.sync_to_user();
-            }
-
-            if (msg->capsz != 0) {
-                UBuffer out_caplist(packet.caplist,
-                                    msg->capsz * sizeof(CapIdx));
-                memcpy(out_caplist.kbuf(), out_caps,
-                       msg->capsz * sizeof(CapIdx));
-                out_caplist.sync_to_user();
-            }
-
-            UBuffer packet_buf(packet.packet_addr, sizeof(MsgPacket));
-            packet_buf.sync_from_user();
-            auto *upacket  = reinterpret_cast<MsgPacket *>(packet_buf.kbuf());
-            upacket->msgsz = msg->msgsz;
-            upacket->capsz = msg->capsz;
-            packet_buf.sync_to_user();
+            memcpy(packet_out->msgbuf, msg->msgbuf, msg->msgsz);
+            packet_out->msgsz = msg->msgsz;
+            memcpy(packet_out->caplist, out_caps, msg->capsz * sizeof(CapIdx));
+            packet_out->capsz = msg->capsz;
 
             void_return();
         }
@@ -247,91 +153,64 @@ namespace syscall {
         /**
          * @brief 获取当前任务的CHolder.
          */
-        Result<cap::CHolder *> current_holder() {
-            return cap::CHolder::current();
-        }
-
-        cap::EndpointMsgView msg_view(PreparedMsg &msg) {
-            return cap::EndpointMsgView{
-                .msgbuf = msg.msgbuf,
-                .msgsz  = msg.msgsz,
-                .capidxs = msg.capidxs,
-                .capsz  = msg.capsz,
-            };
+        [[nodiscard]]
+        Result<cap::CHolder *> current_holder(task::TCB *current) noexcept {
+            if (current == nullptr || current->task == nullptr ||
+                current->task->cholder == nullptr)
+            {
+                unexpect_return(ErrCode::INVALID_PARAM);
+            }
+            return current->task->cholder;
         }
 
         /**
-         * @brief 读取并校验endpoint_call请求消息.
+         * @brief 直接从扁平MsgPacket构造发送消息视图.
          */
-        Result<PreparedMsg> prepare_call_msg(VirAddr sendmsg) {
-            auto send_packet_res = read_packet(sendmsg);
-            propagate(send_packet_res);
-
-            PreparedMsg msg{};
-            auto prep_res = prepare_msg(send_packet_res.value(), msg);
-            propagate(prep_res);
-            if (msg.capsz >= MAX_MSG_CAPS) {
+        [[nodiscard]]
+        Result<cap::EndpointMsgView> msg_view(MsgPacket &msg) noexcept {
+            if (msg.msgsz > MAX_MSG_SIZE || msg.capsz > MAX_MSG_CAPS) {
                 unexpect_return(ErrCode::OUT_OF_BOUNDARY);
             }
-            return msg;
-        }
-
-        /**
-         * @brief 读取并校验endpoint_send消息.
-         */
-        Result<PreparedMsg> prepare_send_msg(VirAddr packet) {
-            auto packet_res = read_packet(packet);
-            propagate(packet_res);
-
-            PreparedMsg msg{};
-            auto prep_res = prepare_msg(packet_res.value(), msg);
-            propagate(prep_res);
-            return msg;
-        }
-
-        /**
-         * @brief 读取并准备endpoint_reply回复消息.
-         */
-        Result<PreparedMsg> prepare_reply_msg(VirAddr replymsg) {
-            auto packet_res = read_packet(replymsg);
-            propagate(packet_res);
-
-            PreparedMsg msg{};
-            auto prep_res = prepare_msg(packet_res.value(), msg);
-            propagate(prep_res);
-            return msg;
+            return cap::EndpointMsgView{
+                .msgbuf = reinterpret_cast<const char *>(msg.msgbuf),
+                .msgsz  = msg.msgsz,
+                .capidxs = msg.caplist,
+                .capsz  = msg.capsz,
+            };
         }
 
     }  // namespace
 
     Result<CapIdx> endpoint_create() {
-        auto create_res = cap::CHolder::create<cap::EndpointPayload>();
+        auto current_tcb_res = current_tcb();
+        propagate(current_tcb_res);
+        auto holder_res = current_holder(current_tcb_res.value());
+        propagate(holder_res);
+        auto create_res = holder_res.value()->create<cap::EndpointPayload>();
         propagate(create_res);
         return create_res.value();
     }
 
-    Result<bool> endpoint_send_async(CapIdx endpoint, VirAddr packet) {
-        // prepare send message
-        auto msg_res = prepare_send_msg(packet);
-        propagate(msg_res);
-        PreparedMsg msg = msg_res.value();
+    Result<bool> endpoint_send_async(CapIdx endpoint, const MsgPacket &packet) {
+        MsgPacket packet_copy = packet;
+        auto msg_view_res     = msg_view(packet_copy);
+        propagate(msg_view_res);
 
         auto endpoint_res = endpoint_object(endpoint);
         propagate(endpoint_res);
         cap::EndpointObject obj = endpoint_res.value();
 
         // to send asynchronously
-        auto send_res = obj.send_async(current_pid(), msg_view(msg));
+        auto send_res = obj.send_async(current_pid(), msg_view_res.value());
         propagate(send_res);
         return send_res.value();
     }
 
-    Result<bool> endpoint_recv_async(CapIdx endpoint, VirAddr packet) {
-        // prepare to receive
-        auto packet_res = read_packet(packet);
-        propagate(packet_res);
-
-        auto holder_res = current_holder();
+    Result<bool> endpoint_recv_async(CapIdx endpoint, const MsgPacket &packet,
+                                     UBuffer &&packet_buf) {
+        auto current_tcb_res = current_tcb();
+        propagate(current_tcb_res);
+        auto holder_res = current_holder(current_tcb_res.value());
         propagate(holder_res);
 
         auto endpoint_res = endpoint_object(endpoint);
@@ -348,19 +227,21 @@ namespace syscall {
         }
         auto msg_guard = delete_guard(util::owner(msg));
 
+        auto *packet_out = reinterpret_cast<MsgPacket *>(packet_buf.kbuf());
         auto write_res =
-            write_received_msg(holder_res.value(), msg, packet_res.value());
+            write_received_msg(holder_res.value(), msg, packet, packet_out);
         propagate(write_res);
+        auto commit_res = packet_buf.commit_to_user();
+        propagate(commit_res);
 
         return true;
     }
 
     util::cotask<Result<void>> endpoint_send_sync(CapIdx endpoint,
-                                                  VirAddr packet) {
-        // prepare send message
-        auto msg_res = prepare_send_msg(packet);
-        co_propagate(msg_res);
-        PreparedMsg msg = msg_res.value();
+                                                  const MsgPacket &packet) {
+        MsgPacket packet_copy = packet;
+        auto msg_view_res     = msg_view(packet_copy);
+        co_propagate(msg_view_res);
 
         auto endpoint_res = endpoint_object(endpoint);
         co_propagate(endpoint_res);
@@ -369,18 +250,18 @@ namespace syscall {
         // to send synchronously
         // so here we have to co_await the send method
         // until the message is actually sent
-        auto send_res = co_await obj.send_sync(current_pid(), msg_view(msg));
+        auto send_res =
+            co_await obj.send_sync(current_pid(), msg_view_res.value());
         co_propagate(send_res);
         co_return Result<void>{};
     }
 
     util::cotask<Result<void>> endpoint_recv_sync(CapIdx endpoint,
-                                                  VirAddr packet) {
-        // prepare to receive
-        auto packet_res = read_packet(packet);
-        co_propagate(packet_res);
-
-        auto holder_res = current_holder();
+                                                  const MsgPacket &packet,
+                                                  UBuffer &&packet_buf) {
+        auto current_tcb_res = current_tcb();
+        co_propagate(current_tcb_res);
+        auto holder_res = current_holder(current_tcb_res.value());
         co_propagate(holder_res);
 
         auto endpoint_res = endpoint_object(endpoint);
@@ -396,20 +277,26 @@ namespace syscall {
         cap::EndpointMessage *msg = recv_res.value();
         auto msg_guard            = delete_guard(util::owner(msg));
 
+        auto *packet_out = reinterpret_cast<MsgPacket *>(packet_buf.kbuf());
         auto write_res =
-            write_received_msg(holder_res.value(), msg, packet_res.value());
+            write_received_msg(holder_res.value(), msg, packet, packet_out);
         co_propagate(write_res);
+        auto commit_res = packet_buf.commit_to_user();
+        co_propagate(commit_res);
         co_return Result<void>{};
     }
 
-    util::cotask<Result<void>> endpoint_call(CapIdx endpoint, VirAddr sendmsg,
-                                             VirAddr replymsg) {
-        // prepare the calling message
-        auto msg_res = prepare_call_msg(sendmsg);
-        co_propagate(msg_res);
-        PreparedMsg msg = msg_res.value();
+    util::cotask<Result<void>> endpoint_call(CapIdx endpoint,
+                                             const MsgPacket &send_packet,
+                                             const MsgPacket &reply_packet,
+                                             UBuffer &&reply_buf) {
+        MsgPacket request_packet = send_packet;
+        auto msg_view_res        = msg_view(request_packet);
+        co_propagate(msg_view_res);
 
-        auto holder_res = current_holder();
+        auto current_tcb_res = current_tcb();
+        co_propagate(current_tcb_res);
+        auto holder_res = current_holder(current_tcb_res.value());
         co_propagate(holder_res);
         cap::CHolder *holder = holder_res.value();
 
@@ -417,12 +304,10 @@ namespace syscall {
         co_propagate(endpoint_res);
         cap::EndpointObject endpoint_obj = endpoint_res.value();
 
-        auto reply_packet_res = read_packet(replymsg);
-        co_propagate(reply_packet_res);
-
+        auto call_awaiter = endpoint_obj.call(
+            current_pid(), holder, msg_view_res.value());
         // do the call and co_await for the reply
-        auto call_res = co_await endpoint_obj.call(
-            current_pid(), holder, msg_view(msg));
+        auto call_res = co_await call_awaiter;
         co_propagate(call_res);
 
         // write the reply message back to user space
@@ -432,19 +317,23 @@ namespace syscall {
         auto reply_guard            = delete_guard(util::owner(reply));
 
         // write into the user space
+        auto *reply_out = reinterpret_cast<MsgPacket *>(reply_buf.kbuf());
         auto write_reply_res =
-            write_received_msg(holder, reply, reply_packet_res.value());
+            write_received_msg(holder, reply, reply_packet, reply_out);
         co_propagate(write_reply_res);
+        auto commit_res = reply_buf.commit_to_user();
+        co_propagate(commit_res);
         co_return Result<void>{};
     }
 
-    Result<void> endpoint_reply(CapIdx reply_cap, VirAddr replymsg) {
-        // prepare the reply message
-        auto msg_res = prepare_reply_msg(replymsg);
-        propagate(msg_res);
-        PreparedMsg msg = msg_res.value();
+    Result<void> endpoint_reply(CapIdx reply_cap, const MsgPacket &reply_packet) {
+        MsgPacket reply_packet_copy = reply_packet;
+        auto msg_view_res           = msg_view(reply_packet_copy);
+        propagate(msg_view_res);
 
-        auto holder_res = current_holder();
+        auto current_tcb_res = current_tcb();
+        propagate(current_tcb_res);
+        auto holder_res = current_holder(current_tcb_res.value());
         propagate(holder_res);
 
         auto reply_res = reply_object(reply_cap);
@@ -452,6 +341,6 @@ namespace syscall {
         auto reply_obj = reply_res.value();
 
         return reply_obj.reply(current_pid(), holder_res.value(), reply_cap,
-                               msg_view(msg));
+                               msg_view_res.value());
     }
 }  // namespace syscall

@@ -49,25 +49,51 @@ namespace cap {
 
         [[nodiscard]]
         Result<Capability *> access(CapIdx idx) {
-            return internal_lookup(idx);
+            return lookup(idx);
         }
 
+        /**
+         * @brief 获取当前 CHolder 中的第一个空闲 capability 槽位.
+         *
+         * @return Result<CapIdx> 成功返回空闲槽位索引, 失败返回错误码.
+         */
         [[nodiscard]]
-        Result<CapIdx> internal_lookup_freeslot() {
+        Result<CapIdx> lookup_freeslot() {
             return _space.lookup_freeslot();
         }
 
+        /**
+         * @brief 在当前 CHolder 中查找指定 capability.
+         *
+         * @param idx capability 槽位索引.
+         * @return Result<Capability *> 成功返回 capability 指针.
+         */
         [[nodiscard]]
-        Result<Capability *> internal_lookup(CapIdx idx);
+        Result<Capability *> lookup(CapIdx idx);
 
+        /**
+         * @brief 将 payload 插入指定槽位并授予全部权限.
+         *
+         * @param idx 目标槽位索引.
+         * @param payload 要插入的 payload.
+         * @return Result<void> 成功返回空结果.
+         */
         [[nodiscard]]
-        Result<void> internal_insert(CapIdx idx, Payload *payload) {
+        Result<void> insert(CapIdx idx, Payload *payload) {
             assert(payload != nullptr);
-            return internal_insert(idx, payload, perm::allperm());
+            return insert(idx, payload, perm::allperm());
         }
 
+        /**
+         * @brief 将 payload 以指定权限插入到指定槽位.
+         *
+         * @param idx 目标槽位索引.
+         * @param payload 要插入的 payload.
+         * @param perm 新 capability 的权限位.
+         * @return Result<void> 成功返回空结果.
+         */
         [[nodiscard]]
-        Result<void> internal_insert(CapIdx idx, Payload *payload, b64 perm);
+        Result<void> insert(CapIdx idx, Payload *payload, b64 perm);
 
         /**
          * @brief 将payload插入当前CHolder中的第一个空闲槽位.
@@ -75,8 +101,8 @@ namespace cap {
          * @return 插入成功时返回新cap所在槽位.
          */
         [[nodiscard]]
-        Result<CapIdx> internal_insert_to_free(Payload *payload) {
-            return internal_insert_to_free(payload, perm::allperm());
+        Result<CapIdx> insert_to_free(Payload *payload) {
+            return insert_to_free(payload, perm::allperm());
         }
 
         /**
@@ -85,16 +111,16 @@ namespace cap {
          * @return 插入成功时返回新cap所在槽位.
          */
         [[nodiscard]]
-        Result<CapIdx> internal_insert_to_free(Payload *payload, b64 perm);
+        Result<CapIdx> insert_to_free(Payload *payload, b64 perm);
 
         template <typename PayloadType, typename... Args>
         [[nodiscard]]
-        Result<CapIdx> internal_create(Args &&...args) {
+        Result<CapIdx> create(Args &&...args) {
             auto *payload = new PayloadType(std::forward<Args>(args)...);
             if (payload == nullptr) {
                 unexpect_return(ErrCode::OUT_OF_MEMORY);
             }
-            auto insert_res = internal_insert_to_free(payload);
+            auto insert_res = insert_to_free(payload);
             if (!insert_res.has_value()) {
                 delete payload;
                 propagate_return(insert_res);
@@ -103,18 +129,21 @@ namespace cap {
         }
 
         [[nodiscard]]
-        Result<void> internal_remove(CapIdx idx);
+        Result<void> remove(CapIdx idx);
 
-        void internal_clear();
-
-        [[nodiscard]]
-        Result<CapIdx> internal_clone(CapIdx src_idx);
-
-        [[nodiscard]]
-        Result<CapIdx> internal_derive(CapIdx src_idx, b64 new_perm);
+        /**
+         * @brief 清空当前 CHolder 中的所有 capability.
+         */
+        void clear();
 
         [[nodiscard]]
-        Result<void> internal_downgrade(CapIdx idx, b64 new_perm);
+        Result<CapIdx> clone(CapIdx src_idx);
+
+        [[nodiscard]]
+        Result<CapIdx> derive(CapIdx src_idx, b64 new_perm);
+
+        [[nodiscard]]
+        Result<void> downgrade(CapIdx idx, b64 new_perm);
 
         /**
          * @brief 将当前holder中的cap传递到目标holder空闲槽位.
@@ -123,52 +152,10 @@ namespace cap {
          * 消费源slot. 目标cap不会携带 MIGRATE_ONCE 位.
          */
         [[nodiscard]]
-        Result<CapIdx> internal_transfer_to(CHolder &dst, CapIdx src_idx);
+        Result<CapIdx> transfer_to(CHolder &dst, CapIdx src_idx);
 
         [[nodiscard]]
-        Result<void> internal_copy_all_to(CHolder &dst) const;
-
-        template <typename PayloadType, typename... Args>
-        [[nodiscard]]
-        static Result<CapIdx> create(Args &&...args) {
-            return current().and_then([&](CHolder *holder) {
-                return holder->internal_create<PayloadType>(
-                    std::forward<Args>(args)...);
-            });
-        }
-
-        [[nodiscard]]
-        static Result<CapIdx> get_free_slot();
-
-        /**
-         * @brief 将payload插入当前任务CSpace的第一个空闲槽位.
-         */
-        [[nodiscard]]
-        static Result<CapIdx> insert_to_free(Payload *payload);
-
-        /**
-         * @brief 将payload以指定权限插入当前任务CSpace的第一个空闲槽位.
-         */
-        [[nodiscard]]
-        static Result<CapIdx> insert_to_free(Payload *payload, b64 perm);
-
-        [[nodiscard]]
-        static Result<Capability *> lookup(CapIdx idx);
-
-        [[nodiscard]]
-        static Result<void> remove(CapIdx idx);
-
-        [[nodiscard]]
-        static Result<CapIdx> clone(CapIdx src_idx);
-
-        [[nodiscard]]
-        static Result<CapIdx> derive(CapIdx src_idx, b64 new_perm);
-
-        [[nodiscard]]
-        static Result<void> downgrade(CapIdx idx, b64 new_perm);
-
-        [[nodiscard]]
-        static Result<CHolder *> current();
+        Result<void> copy_all_to(CHolder &dst) const;
 
     private:
         [[nodiscard]]

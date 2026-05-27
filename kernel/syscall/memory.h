@@ -13,8 +13,8 @@
 
 #include <arch/description.h>
 #include <object/memory.h>
-#include <sustcore/addr.h>
 #include <sustcore/capability.h>
+#include <syscall/uaccess.h>
 
 namespace syscall {
     /**
@@ -39,6 +39,7 @@ namespace syscall {
      * @param idx Memory capability. 
      * @param vaddr 映射地址. 
      */
+    [[nodiscard]]
     Result<bool> mem_unmap(CapIdx idx, VirAddr vaddr);
     /**
      * @brief 调整当前进程中的 Memory 大小. 
@@ -48,6 +49,7 @@ namespace syscall {
      * @param idx Memory capability. 
      * @param newsz 新大小. 
      */
+    [[nodiscard]]
     Result<bool> mem_resize(CapIdx idx, size_t newsz);
     /**
      * @brief Memory 查询 syscall 返回值. 
@@ -66,5 +68,12 @@ namespace syscall {
      * @param idx Memory capability. 
      * @param out_uaddr 用户态 MemQueryRet 输出指针.
      */
-    Result<void> mem_query(CapIdx idx, VirAddr out_uaddr);
+    /**
+     * @brief 查询 Memory 状态并写回 first-layer syscall 持有的用户缓冲区代理.
+     *
+     * @param idx Memory capability.
+     * @param out_buf first-layer syscall 持有并回写的输出缓冲区代理.
+     */
+    [[nodiscard]]
+    Result<void> mem_query(CapIdx idx, UBuffer &&out_buf);
 }  // namespace syscall

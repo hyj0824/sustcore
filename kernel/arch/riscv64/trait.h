@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <arch/riscv64/ctxlayout.h>
 #include <arch/riscv64/csr.h>
 #include <arch/trait.h>
 #include <sus/types.h>
@@ -52,7 +53,7 @@ public:
 static_assert(MemoryLayoutTrait<Riscv64MemoryLayout>);
 
 struct Riscv64Context {
-    umb_t regs[31];
+    umb_t regs[CTX_SEPC_SLOT];
     umb_t sepc;
     csr_sstatus_t sstatus;
     umb_t kstack_sp;
@@ -61,13 +62,42 @@ struct Riscv64Context {
         return this->sepc;
     }
 
-    constexpr static size_t X1_BASE = 0;
-    constexpr static size_t RA_BASE = 1;
-    // x10 = a0
-    constexpr static size_t A0_BASE = X1_BASE + 9;
+    constexpr static size_t X1_BASE = CTX_X1_SLOT;
+    constexpr static size_t RA_BASE = CTX_RA_SLOT;
+    constexpr static size_t TP_BASE = CTX_TP_SLOT;
+    constexpr static size_t A0_BASE = CTX_A0_SLOT;
 
     constexpr umb_t &sp() {
-        return this->regs[X1_BASE + 1];  // x2 = sp
+        return this->regs[CTX_SP_SLOT];
+    }
+
+    /**
+     * @brief 访问保存的 tp 寄存器.
+     *
+     * @return umb_t& 保存的 tp 值
+     */
+    constexpr umb_t &tp() {
+        return this->regs[TP_BASE];
+    }
+
+    /**
+     * @brief 访问保存的只读 tp 寄存器.
+     *
+     * @return const umb_t& 保存的 tp 值
+     */
+    [[nodiscard]]
+    constexpr const umb_t &tp() const {
+        return this->regs[TP_BASE];
+    }
+
+    /**
+     * @brief 获取 trap 上下文在栈上的总字节数.
+     *
+     * @return size_t 上下文大小
+     */
+    [[nodiscard]]
+    constexpr static size_t size_bytes() noexcept {
+        return CTX_SLOT_OFFSET(CTX_SLOT_COUNT);
     }
 
     static void switch_to(void *kstack);
@@ -117,6 +147,8 @@ struct Riscv64Context {
 };
 
 static_assert(ContextTrait<Riscv64Context>);
+static_assert(sizeof(Riscv64Context) == Riscv64Context::size_bytes(),
+              "Riscv64Context layout must match ctxlayout slots");
 
 struct Riscv64Interrupt {
     /**

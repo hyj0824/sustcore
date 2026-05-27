@@ -21,6 +21,7 @@
 #include <sus/owner.h>
 #include <sus/tree.h>
 #include <sustcore/addr.h>
+#include <syscall/syscall.h>
 
 #include <coroutine>
 #include <functional>
@@ -34,6 +35,19 @@ namespace task {
     struct PCB;
     using KThreadEntry = void (*)(void *);
 
+    /**
+     * @brief syscall 协程执行时使用的显式上下文.
+     *
+     * 轻量级内核协程不能依赖 current_tcb/current_pcb/tmm 等动态全局状态,
+     * 因此所有 syscall 协程都必须通过该上下文访问其所属线程和地址空间.
+     */
+    struct SyscallContext {
+        TCB *tcb                    = nullptr;
+        PCB *pcb                    = nullptr;
+        TaskMemoryManager *tmm      = nullptr;
+        Context *trap_context       = nullptr;
+    };
+
     namespace wait {
         using WaitPredicate      = std::function<bool(TCB *tcb)>;
         using WaitReadyPredicate = std::function<bool()>;
@@ -43,6 +57,68 @@ namespace task {
     // so that we can use offsetof to get the TCB pointer from the SU pointer.
     // TCB are arranged as a linked list
     struct TCB {
+        /**
+         * @brief 单个线程的 syscall 生命周期信息.
+         */
+        struct SyscallInfo {
+            /**
+             * @brief syscall 状态.
+             */
+            enum class State {
+                NONE,
+                EXECUTING,
+                COMPLETED,
+            };
+
+            /// dispatcher 记录的 syscall 参数.
+            syscall::ArgPack syscall_args{};
+            /// 当前正在执行的 syscall 号.
+            b64 syscall_number = 0;
+            /// syscall 返回值缓存.
+            syscall::RetPack syscall_result{};
+            /// syscall 当前状态.
+            State syscall_state = State::NONE;
+            /// syscall coroutine 句柄.
+            std::coroutine_handle<> handle = nullptr;
+            /// syscall 协程的显式执行上下文.
+            SyscallContext context{};
+
+            /**
+             * @brief 清空 syscall 生命周期状态.
+             */
+            void reset() noexcept;
+
+            /**
+             * @brief 以新的参数启动 syscall 生命周期.
+             *
+             * @param args 本次 syscall 的寄存器参数包.
+             */
+            void begin(const syscall::ArgPack &args) noexcept;
+
+            /**
+             * @brief 将 syscall 标记为完成并缓存返回值.
+             *
+             * @param ret syscall 返回结果包.
+             */
+            void complete(const syscall::RetPack &ret) noexcept;
+
+            /**
+             * @brief 判断当前 syscall 是否仍在执行中.
+             */
+            [[nodiscard]]
+            bool executing() const noexcept {
+                return syscall_state == State::EXECUTING;
+            }
+
+            /**
+             * @brief 判断当前 syscall 是否已经完成.
+             */
+            [[nodiscard]]
+            bool completed() const noexcept {
+                return syscall_state == State::COMPLETED;
+            }
+        };
+
         // thread info
         tid_t tid;
         PCB *task;
@@ -68,23 +144,13 @@ namespace task {
         schd::SchedMeta basic_entity;
         schd::rr::Entity rr_entity;
 
-        struct SystemCoroutines {
-            // 协程句柄, 用于在协程中保存和恢复执行状态
-            std::coroutine_handle<> handle = nullptr;
-            // 协程状态.
-            // pending 表示线程正在等待一个尚未返回用户态的syscall;
-            // done 表示返回值已经写入上下文并且可以重新进入用户态.
-            bool pending           = false;
-            bool done              = true;
-        };
-
         // wait data
         util::ListHead<TCB> wait_head;
         WaitReasonId wait_reason;
         // 等待谓词, 由等待的线程在进入等待时设置,
         // 由被等待的事件在满足条件时检查, 决定是否可以唤醒线程
         wait::WaitPredicate wait_predicate;
-        SystemCoroutines coroutines;
+        SyscallInfo syscall_info;
 
         void *operator new(size_t size);
         void operator delete(void *ptr);

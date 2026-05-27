@@ -106,8 +106,8 @@ namespace cap {
             auto reply_guard = delete_guard(reply_payload);
 
             // insert a caller reply object into the holder
-            auto caller_slot_res = holder->internal_insert_to_free(
-                reply_payload, perm::reply::CALLER);
+            auto caller_slot_res =
+                holder->insert_to_free(reply_payload, perm::reply::CALLER);
             if (!caller_slot_res.has_value()) {
                 propagate_return(caller_slot_res);
             }
@@ -121,7 +121,7 @@ namespace cap {
             // with MIGRATE_ONCE permission so that the reply object can only be
             // forwarded from the sender side to the receiver side, and can't be
             // forwarded again.
-            auto replier_slot_res = holder->internal_insert_to_free(
+            auto replier_slot_res = holder->insert_to_free(
                 reply_payload,
                 perm::reply::REPLIER | perm::basic::MIGRATE_ONCE);
             propagate(replier_slot_res);
@@ -254,7 +254,7 @@ namespace cap {
         }
 
         // wait for the message to be consumed
-        auto wait_res = co_await task::wait::wait_current(
+        auto wait_res = co_await task::wait::CommonAwaiter(
             _obj->send_wait_reason, {}, [payload = _obj, msg]() {
                 return !message_is_queued(payload, msg);
             });
@@ -313,7 +313,7 @@ namespace cap {
             }
 
             // 队列为空时挂到endpoint接收等待队列, 条件由发送端入队满足.
-            auto wait_res = co_await task::wait::wait_current(
+            auto wait_res = co_await task::wait::CommonAwaiter(
                 _obj->recv_wait_reason, {}, [payload = _obj]() {
                     return payload != nullptr && !payload->messages.empty();
                 });
@@ -363,7 +363,8 @@ namespace cap {
             .capidxs = call_capidxs,
             .capsz   = call_capsz,
         };
-        auto send_res = co_await send_sync(sender_pid, call_msg);
+        auto send_task = send_sync(sender_pid, call_msg);
+        auto send_res  = co_await send_task;
         co_propagate(send_res);
 
         // send_sync成功后, replier cap已经随消息被接收方收取; 本地guard不应
@@ -371,7 +372,7 @@ namespace cap {
         replier_guard.release();
 
         // 使用caller端ReplyObject等待服务端写回的回复消息.
-        auto caller_cap_res = holder->internal_lookup(slots.caller);
+        auto caller_cap_res = holder->lookup(slots.caller);
         co_propagate(caller_cap_res);
         ReplyObject reply_obj(util::nnullforce(caller_cap_res.value()));
 
@@ -443,7 +444,7 @@ namespace cap {
         }
 
         // 服务端本方的replier cap只允许使用一次, 成功写入回复后立即移除.
-        auto remove_res = holder->internal_remove(reply_cap);
+        auto remove_res = holder->remove(reply_cap);
         propagate(remove_res);
         void_return();
     }
@@ -471,24 +472,39 @@ namespace cap {
             co_return std::unexpected(ErrCode::INSUFFICIENT_PERMISSIONS);
         }
 
-        while (true) {
-            // 先尝试非阻塞读取; 已有回复时直接返回消息所有权.
+        auto recv_res = recv_async();
+        if (!recv_res.has_value()) {
+            loggers::CAPABILITY::ERROR("Reply recv_async失败: %d",
+                                       recv_res.error());
+            co_return std::unexpected(recv_res.error());
+        }
+        if (recv_res.value() != nullptr) {
+            co_return recv_res.value();
+        }
+
+        do {
+            // reply尚未写入时等待对应ReplyPayload的接收条件.
+            auto wait_res = co_await task::wait::CommonAwaiter(
+                _obj->recv_wait_reason, {}, [payload = _obj]() {
+                    return payload != nullptr && payload->message != nullptr;
+                });
+            if (!wait_res.has_value()) {
+                loggers::CAPABILITY::ERROR("Reply recv_sync等待失败: %s",
+                                           to_cstring(wait_res.error()));
+                co_return std::unexpected(wait_res.error());
+            }
             auto recv_res = recv_async();
             if (!recv_res.has_value()) {
+                loggers::CAPABILITY::ERROR("Reply recv_async失败: %d",
+                                           recv_res.error());
                 co_return std::unexpected(recv_res.error());
             }
             if (recv_res.value() != nullptr) {
                 co_return recv_res.value();
             }
-
-            // reply尚未写入时等待对应ReplyPayload的接收条件.
-            auto wait_res = co_await task::wait::wait_current(
-                _obj->recv_wait_reason, {}, [payload = _obj]() {
-                    return payload != nullptr && payload->message != nullptr;
-                });
-            if (!wait_res.has_value()) {
-                co_return std::unexpected(wait_res.error());
-            }
-        }
+            loggers::TASK::WARN(
+                "ReplyObject等待被唤醒但消息仍未就绪, 可能发生虚假唤醒, "
+                "继续等待");
+        } while (true);
     }
 }  // namespace cap

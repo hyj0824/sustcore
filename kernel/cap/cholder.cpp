@@ -50,18 +50,7 @@ namespace cap {
 
     CHolder::~CHolder() {}
 
-    Result<CHolder *> CHolder::current() {
-        auto *tcb = schd::Scheduler::inst().current_tcb();
-        if (tcb == nullptr || tcb->task == nullptr ||
-            tcb->task->cholder == nullptr)
-        {
-            unexpect_return(ErrCode::INVALID_PARAM);
-        }
-
-        return tcb->task->cholder;
-    }
-
-    Result<Capability *> CHolder::internal_lookup(CapIdx idx) {
+    Result<Capability *> CHolder::lookup(CapIdx idx) {
         if (!cap::valid(idx)) {
             unexpect_return(ErrCode::TYPE_NOT_MATCHED);
         }
@@ -95,8 +84,8 @@ namespace cap {
         return cap;
     }
 
-    Result<void> CHolder::internal_insert(CapIdx idx, Payload *payload,
-                                          b64 permissions) {
+    Result<void> CHolder::insert(CapIdx idx, Payload *payload,
+                                 b64 permissions) {
         if (!cap::valid(idx)) {
             unexpect_return(ErrCode::TYPE_NOT_MATCHED);
         }
@@ -117,18 +106,16 @@ namespace cap {
         return set_res;
     }
 
-    Result<CapIdx> CHolder::internal_insert_to_free(Payload *payload,
-                                                    b64 permissions) {
-        auto slot_res = internal_lookup_freeslot();
+    Result<CapIdx> CHolder::insert_to_free(Payload *payload, b64 permissions) {
+        auto slot_res = lookup_freeslot();
         propagate(slot_res);
-        auto insert_res =
-            internal_insert(slot_res.value(), payload, permissions);
+        auto insert_res = insert(slot_res.value(), payload, permissions);
         propagate(insert_res);
         return slot_res.value();
     }
 
-    Result<void> CHolder::internal_remove(CapIdx idx) {
-        auto cap_res = internal_lookup(idx);
+    Result<void> CHolder::remove(CapIdx idx) {
+        auto cap_res = lookup(idx);
         propagate(cap_res);
 
         if (cap_res.value() == nullptr) {
@@ -139,12 +126,12 @@ namespace cap {
         return set_slot(idx, nullptr);
     }
 
-    void CHolder::internal_clear() {
+    void CHolder::clear() {
         _space.clear();
     }
 
-    Result<CapIdx> CHolder::internal_clone(CapIdx src_idx) {
-        auto cap_res = internal_lookup(src_idx);
+    Result<CapIdx> CHolder::clone(CapIdx src_idx) {
+        auto cap_res = lookup(src_idx);
         propagate(cap_res);
 
         Capability *src_cap = cap_res.value();
@@ -152,7 +139,7 @@ namespace cap {
             unexpect_return(ErrCode::INSUFFICIENT_PERMISSIONS);
         }
 
-        auto target_res = internal_lookup_freeslot();
+        auto target_res = lookup_freeslot();
         propagate(target_res);
         CapIdx target_idx = target_res.value();
 
@@ -176,14 +163,14 @@ namespace cap {
         return target_idx;
     }
 
-    Result<CapIdx> CHolder::internal_derive(CapIdx src_idx, b64 new_perm) {
-        auto clone_res = internal_clone(src_idx);
+    Result<CapIdx> CHolder::derive(CapIdx src_idx, b64 new_perm) {
+        auto clone_res = clone(src_idx);
         propagate(clone_res);
         CapIdx target_idx = clone_res.value();
 
         auto clone_guard = remove_guard(this, target_idx);
 
-        auto cap_res = internal_lookup(target_idx);
+        auto cap_res = lookup(target_idx);
         assert(cap_res.has_value());
         auto downgrade_res = cap_res.value()->downgrade(new_perm);
         propagate(downgrade_res);
@@ -192,16 +179,15 @@ namespace cap {
         return target_idx;
     }
 
-    Result<void> CHolder::internal_downgrade(CapIdx idx, b64 new_perm) {
-        auto cap_res = internal_lookup(idx);
+    Result<void> CHolder::downgrade(CapIdx idx, b64 new_perm) {
+        auto cap_res = lookup(idx);
         propagate(cap_res);
 
         return cap_res.value()->downgrade(new_perm);
     }
 
-    Result<CapIdx> CHolder::internal_transfer_to(CHolder &dst,
-                                                 CapIdx src_idx) {
-        auto cap_res = internal_lookup(src_idx);
+    Result<CapIdx> CHolder::transfer_to(CHolder &dst, CapIdx src_idx) {
+        auto cap_res = lookup(src_idx);
         propagate(cap_res);
         Capability *src_cap = cap_res.value();
 
@@ -211,7 +197,7 @@ namespace cap {
                 unexpect_return(ErrCode::OUT_OF_MEMORY);
             }
 
-            auto target_res = dst.internal_lookup_freeslot();
+            auto target_res = dst.lookup_freeslot();
             if (!target_res.has_value()) {
                 delete cloned_cap;
                 propagate_return(target_res);
@@ -232,27 +218,25 @@ namespace cap {
         }
 
         b64 delivered_perm = src_cap->perm() & ~perm::basic::MIGRATE_ONCE;
-        auto insert_res =
-            dst.internal_insert_to_free(src_cap->payload(), delivered_perm);
+        auto insert_res = dst.insert_to_free(src_cap->payload(), delivered_perm);
         propagate(insert_res);
 
-        auto remove_res = internal_remove(src_idx);
+        auto remove_res = remove(src_idx);
         if (!remove_res.has_value()) {
-            auto rollback_res = dst.internal_remove(insert_res.value());
+            auto rollback_res = dst.remove(insert_res.value());
             assert(rollback_res.has_value());
             propagate_return(remove_res);
         }
         return insert_res.value();
     }
 
-    Result<void> CHolder::internal_copy_all_to(CHolder &dst) const {
+    Result<void> CHolder::copy_all_to(CHolder &dst) const {
         ErrCode err = ErrCode::SUCCESS;
         _space.foreach ([&](CapIdx idx, Capability *cap) {
             if (err != ErrCode::SUCCESS) {
                 return;
             }
-            auto insert_res =
-                dst.internal_insert(idx, cap->payload(), cap->perm());
+            auto insert_res = dst.insert(idx, cap->payload(), cap->perm());
             if (!insert_res.has_value()) {
                 err = insert_res.error();
             }
@@ -261,48 +245,5 @@ namespace cap {
             unexpect_return(err);
         }
         void_return();
-    }
-
-    Result<CapIdx> CHolder::get_free_slot() {
-        return current().and_then(
-            [](CHolder *holder) { return holder->internal_lookup_freeslot(); });
-    }
-
-    Result<CapIdx> CHolder::insert_to_free(Payload *payload) {
-        return insert_to_free(payload, perm::allperm());
-    }
-
-    Result<CapIdx> CHolder::insert_to_free(Payload *payload, b64 perm) {
-        return current().and_then([=](CHolder *holder) {
-            return holder->internal_insert_to_free(payload, perm);
-        });
-    }
-
-    Result<Capability *> CHolder::lookup(CapIdx idx) {
-        return current().and_then(
-            [idx](CHolder *holder) { return holder->internal_lookup(idx); });
-    }
-
-    Result<void> CHolder::remove(CapIdx idx) {
-        return current().and_then(
-            [idx](CHolder *holder) { return holder->internal_remove(idx); });
-    }
-
-    Result<CapIdx> CHolder::clone(CapIdx src_idx) {
-        return current().and_then([=](CHolder *holder) {
-            return holder->internal_clone(src_idx);
-        });
-    }
-
-    Result<CapIdx> CHolder::derive(CapIdx src_idx, b64 new_perm) {
-        return current().and_then([&](CHolder *holder) {
-            return holder->internal_derive(src_idx, new_perm);
-        });
-    }
-
-    Result<void> CHolder::downgrade(CapIdx idx, b64 new_perm) {
-        return current().and_then([=](CHolder *holder) {
-            return holder->internal_downgrade(idx, new_perm);
-        });
     }
 }  // namespace cap

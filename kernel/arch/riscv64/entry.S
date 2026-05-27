@@ -9,9 +9,11 @@
  * 
  */
 
+#include "hart.S"
+
 .section .data
-.extern hart_id
 .extern dtb_ptr
+.extern __hart_context
 
 .extern c_setup
 .extern post_init
@@ -19,15 +21,24 @@
 .section .text.entry, "ax"
 .globl _start
 _start:
-    # 将64位寄存器a0, a1的值保存到全局变量中
-    la t0, hart_id
-    sd a0, 0(t0)
+    # 根据 hart id 计算当前 hart 的上下文槽地址并保存到 tp
+    li t0, MAX_HARTS
+    bgeu a0, t0, .Linvalid_hart
+    # tp = __hart_context + hart_id * sizeof(HartContext)
+    locate_hart_context a0, t1
+    # tp.hart_id = a0
+    set_hart_id a0
+    # 设置 dtb_ptr
     la t1, dtb_ptr
     sd a1, 0(t1)
     # 设置栈指针
     la sp, boot_stack_top
     # 跳转到 Rust/C 主函数
     call c_setup
+
+.Linvalid_hart:
+    wfi
+    j .Linvalid_hart
 
 .section .text, "ax"
 .globl redive

@@ -25,7 +25,7 @@ auto delete_guard(util::owner<T *> ptr) {
 
 inline auto remove_guard(cap::CHolder *cholder, CapIdx idx) {
     return util::Guard([cholder, idx]() {
-        auto remove_res = cholder->internal_remove(idx);
+        auto remove_res = cholder->remove(idx);
         assert(remove_res.has_value());
     });
 }
