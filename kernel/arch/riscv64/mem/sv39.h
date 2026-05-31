@@ -616,6 +616,38 @@ public:
         }
     }
 
+    Result<void> clone_mapping_from(Riscv64SV39PageMan &src,
+                                    VirAddr vaddr) noexcept {
+        auto query_res = src.query_page(vaddr);
+        if (!query_res.has_value()) {
+            propagate_return(query_res);
+        }
+
+        auto qres      = query_res.value();
+        PTE *src_pte   = qres.pte;
+        PhyAddr paddr  = get_physical_address(*src_pte);
+        RWX rwx        = static_cast<RWX>(src_pte->rwx);
+        bool u         = src_pte->u;
+        bool g         = src_pte->g;
+        VirAddr mapped = vaddr.page_align_down();
+
+        switch (qres.size) {
+            case PageSize::_1G:
+                map_page<PageSize::_1G>(mapped, paddr, rwx, u, g);
+                break;
+            case PageSize::_2M:
+                map_page<PageSize::_2M>(mapped, paddr, rwx, u, g);
+                break;
+            case PageSize::_4K:
+                map_page<PageSize::_4K>(mapped, paddr, rwx, u, g);
+                break;
+            case PageSize::_NULL:
+            default:
+                unexpect_return(ErrCode::INVALID_PTE);
+        }
+        void_return();
+    }
+
     // 更换页表根
     inline static void __switch_root(PhyAddr __root) {
         csr_satp_t new_satp;

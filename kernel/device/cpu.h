@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include <device/int.h>
+#include <driver/int/base.h>
 #include <sus/rtti.h>
 #include <sus/units.h>
 
@@ -68,7 +68,7 @@ namespace device {
         [[nodiscard]]
         virtual Result<void> send_ipi() = 0;
         [[nodiscard]]
-        virtual intc_t local_intc() const = 0;
+        virtual driver::intc_t local_intc() const = 0;
     };
 
     /**
@@ -136,7 +136,7 @@ namespace device {
          * @brief 获取 CPU 本地中断端点标识.
          */
         [[nodiscard]]
-        intc_t local_intc() const noexcept override;
+        driver::intc_t local_intc() const noexcept override;
 
     private:
         cpuid_t _id;
@@ -145,12 +145,12 @@ namespace device {
         std::string _isa_string;
         std::string _mmu_type;
         std::vector<CacheInfo> _caches;
-        intc_t _local_intc;
+        driver::intc_t _local_intc;
 
         RiscV64Cpu(cpuid_t id, std::string model, units::frequency freq,
                    std::string isa_string, std::string mmu_type,
                    std::vector<CacheInfo> caches,
-                   intc_t local_intc) noexcept;
+                   driver::intc_t local_intc) noexcept;
 
     public:
         /**
@@ -164,7 +164,7 @@ namespace device {
             std::optional<std::string> _isa_string;
             std::optional<std::string> _mmu_type;
             std::vector<CacheInfo> _caches;
-            std::optional<intc_t> _local_intc;
+            std::optional<driver::intc_t> _local_intc;
 
         public:
             /**
@@ -194,7 +194,7 @@ namespace device {
             /**
              * @brief 设置 CPU 本地中断端点标识.
              */
-            Builder &local_intc(intc_t local_intc) noexcept;
+            Builder &local_intc(driver::intc_t local_intc) noexcept;
             /**
              * @brief 构建 CPU 对象.
              *
@@ -402,7 +402,7 @@ namespace device {
         std::vector<util::owner<Cpu *>> cpus;
         units::frequency freq;
         CpuTopology topology{};
-        ClockSource *_clock_source = nullptr;
+        driver::ClockSource *_clock_source = nullptr;
 
         CpuGroupInfo()                                = default;
         CpuGroupInfo(const CpuGroupInfo &)            = delete;

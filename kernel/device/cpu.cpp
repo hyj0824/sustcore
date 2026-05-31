@@ -150,7 +150,7 @@ namespace device {
     RiscV64Cpu::RiscV64Cpu(cpuid_t id, std::string model, units::frequency freq,
                            std::string isa_string, std::string mmu_type,
                            std::vector<CacheInfo> caches,
-                           intc_t local_intc) noexcept
+                           driver::intc_t local_intc) noexcept
         : _id(id),
           _model(std::move(model)),
           _frequency(freq),
@@ -231,7 +231,7 @@ namespace device {
     /**
      * @brief 获取 CPU 本地中断端点标识.
      */
-    intc_t RiscV64Cpu::local_intc() const noexcept {
+    driver::intc_t RiscV64Cpu::local_intc() const noexcept {
         return _local_intc;
     }
 
@@ -290,7 +290,7 @@ namespace device {
      * @brief 设置 CPU 本地中断端点标识.
      */
     RiscV64Cpu::Builder &RiscV64Cpu::Builder::local_intc(
-        intc_t local_intc) noexcept {
+        driver::intc_t local_intc) noexcept {
         _local_intc = local_intc;
         return *this;
     }

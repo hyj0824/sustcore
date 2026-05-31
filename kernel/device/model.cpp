@@ -88,6 +88,33 @@ namespace {
 }  // namespace
 
 namespace device {
+    /**
+     * @brief 登记一个统一设备节点并转移所有权给 DeviceModel.
+     */
+    Result<DeviceNode *> DeviceModel::register_device_node(
+        util::owner<DeviceNode *> node) noexcept {
+        if (node.get() == nullptr) {
+            loggers::DEVICE::ERROR("登记 DeviceNode 失败: node 为空");
+            unexpect_return(ErrCode::NULLPTR);
+        }
+
+        auto *registered = node.get();
+        _devices.push_back(std::move(node));
+        loggers::DEVICE::DEBUG("已登记 DeviceNode: platform=%s",
+                               registered->platform());
+        return registered;
+    }
+
+    /**
+     * @brief 释放已登记的统一设备节点.
+     */
+    void DeviceModel::cleanup_device_nodes() noexcept {
+        for (auto &node : _devices) {
+            delete node.get();
+        }
+        _devices.clear();
+    }
+
     [[nodiscard]]
     std::vector<MemRegion> DeviceModel::_normalize_memory_regions(
         const std::vector<MemRegion> &regions) const {

@@ -58,6 +58,22 @@ TaskMemoryManager::TaskMemoryManager(PhyAddr _pgd)
     ker_paddr::mapping_kernel_areas(_pman);
 }
 
+TaskMemoryManager::TaskMemoryManager(ExistingPgdTag, PhyAddr _pgd)
+    : vma_list(), _pgd(_pgd), _pman(_pgd) {}
+
+Result<util::owner<TaskMemoryManager *>> TaskMemoryManager::from_existing_pgd(
+    PhyAddr pgd) noexcept {
+    if (!pgd.nonnull()) {
+        unexpect_return(ErrCode::INVALID_PARAM);
+    }
+
+    auto *tmm = new TaskMemoryManager(ExistingPgdTag{}, pgd);
+    if (tmm == nullptr) {
+        unexpect_return(ErrCode::OUT_OF_MEMORY);
+    }
+    return util::owner<TaskMemoryManager *>(tmm);
+}
+
 TaskMemoryManager::~TaskMemoryManager() {
     auto &&list = std::move(vma_list);
     for (VMA &vma : list) {

@@ -37,10 +37,12 @@ namespace device {
      * @brief 使用内部缓存的 virq 列表构造属性视图.
      */
     DevicePropView DevicePropView::from_virq_list(
-        std::vector<virq_t> virqs) noexcept {
+        std::function<std::vector<driver::virq_t>()> loader) noexcept {
         DevicePropView view;
-        view._type  = PropType::VIRQ_LIST;
-        view._virqs = std::move(virqs);
+        view._type        = PropType::VIRQ_LIST;
+        view._virq_lazy   = true;
+        view._virq_loaded = false;
+        view._virq_loader = std::move(loader);
         return view;
     }
 
@@ -169,9 +171,15 @@ namespace device {
     /**
      * @brief 读取结构化 virq 列表.
      */
-    std::vector<virq_t> DevicePropView::as_virq_list() const {
+    std::vector<driver::virq_t> DevicePropView::as_virq_list() const {
         if (_type != PropType::VIRQ_LIST) {
             return {};
+        }
+        if (_virq_lazy && !_virq_loaded) {
+            auto &self = const_cast<DevicePropView &>(*this);
+            self._virqs =
+                self._virq_loader ? self._virq_loader() : std::vector<driver::virq_t>{};
+            self._virq_loaded = true;
         }
         return _virqs;
     }

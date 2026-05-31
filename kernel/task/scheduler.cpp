@@ -42,7 +42,6 @@ extern "C" [[noreturn]] void isr_restore_kernel(void *kstack_top);
 extern "C" void riscv64_kernel_switch(void *prev_ctx, void *next_ctx);
 extern "C" void riscv64_kernel_switch_to_user(void *prev_ctx,
                                               void *next_kstack);
-extern PhyAddr kernel_root;
 
 namespace schd {
     using namespace task;
@@ -76,14 +75,6 @@ namespace schd {
     }
 
     void switch_pgd(TaskMemoryManager *tmm) {
-        if (tmm == nullptr) {
-            if (kernel_root.nonnull() && kernel_root != env::inst().pgd()) {
-                PageMan(kernel_root).switch_root();
-                PageMan::flush_tlb();
-            }
-            env::inst().tmm(key::schd()) = nullptr;
-            return;
-        }
         // 只在页表不为null且不等于当前页表时才切换
         if (tmm->pgd().nonnull() && tmm->pgd() != env::inst().pgd()) {
             PageMan(tmm->pgd()).switch_root();
@@ -146,7 +137,7 @@ namespace schd {
             void_return();
         }
 
-        loggers::SUSTCORE::DEBUG(
+        loggers::SYSCALL::DEBUG(
             "提交 syscall 返回值: pid=%lu tid=%lu sysno=0x%lx ret0=0x%lx "
             "ret1=0x%lx",
             tcb->task != nullptr ? tcb->task->pid : 0, tcb->tid,
@@ -379,7 +370,7 @@ namespace schd {
 
     // RR > FCFS
     void Scheduler::do_tick(const TimerTickEvent &e) {
-        loggers::SUSTCORE::DEBUG(
+        loggers::TASK::DEBUG(
             "调度 tick: last=%llu now=%llu delta=%llu",
             static_cast<unsigned long long>(e.last.to_nanoseconds()),
             static_cast<unsigned long long>(e.now.to_nanoseconds()),

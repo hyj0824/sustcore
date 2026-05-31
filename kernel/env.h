@@ -37,6 +37,7 @@ namespace env {
         };
 
         struct tmm : public tags {};
+        struct main_kernel_pgd : public tags {};
         struct trap_context : public tags {};
         struct pgd : public unmodifiable {};
         struct meminfo : public tags {};
@@ -58,6 +59,7 @@ namespace env {
     class Environment {
     private:
         MemInfo _meminfo;
+        PhyAddr _main_kernel_pgd = PhyAddr::null;
 
     public:
         constexpr Environment();
@@ -67,6 +69,11 @@ namespace env {
         TaskMemoryManager *tmm() const noexcept;
         [[nodiscard]]
         TaskMemoryManager *&tmm(key::tmm) noexcept;
+
+        [[nodiscard]]
+        PhyAddr main_kernel_pgd() const noexcept;
+        [[nodiscard]]
+        PhyAddr &main_kernel_pgd(key::main_kernel_pgd) noexcept;
 
         [[nodiscard]]
         Context *trap_context() const noexcept;
@@ -355,6 +362,14 @@ namespace env {
 
     inline TaskMemoryManager *&Environment::tmm(key::tmm) noexcept {
         return hart_ctx->tmm_ref();
+    }
+
+    inline PhyAddr Environment::main_kernel_pgd() const noexcept {
+        return _main_kernel_pgd;
+    }
+
+    inline PhyAddr &Environment::main_kernel_pgd(key::main_kernel_pgd) noexcept {
+        return _main_kernel_pgd;
     }
 
     inline Context *Environment::trap_context() const noexcept {

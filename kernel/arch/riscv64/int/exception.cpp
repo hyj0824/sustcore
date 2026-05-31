@@ -140,6 +140,10 @@ namespace exception {
     }
 
     namespace paging {
+        [[nodiscard]]
+        bool is_kernel_vaddr(VirAddr vaddr) noexcept {
+            return !is_user_vaddr(vaddr);
+        }
 
         void log_pte_debug(VirAddr addr, PageMan &pman) {
             auto query_res = pman.query_page(addr);
@@ -337,6 +341,34 @@ namespace exception {
 
             switch (cause) {
                 case FaultCause::NO_PRESENT: {
+                    // 如果是内核地址, 则尝试复制主内核页表的映射
+                    if (is_kernel_vaddr(fault_addr)) {
+                        auto kernel_pgd = e.main_kernel_pgd();
+                        if (! kernel_pgd.nonnull()) {
+                            loggers::INTERRUPT::ERROR(
+                                "kernel page fault: 主内核页表不可用 addr=%p",
+                                fault_addr.addr());
+                            break;
+                        }
+
+                        PageMan kernel_pman(kernel_pgd);
+                        auto clone_res =
+                            pman.clone_mapping_from(kernel_pman, fault_page);
+                        if (!clone_res.has_value()) {
+                            loggers::INTERRUPT::ERROR(
+                                "kernel page fault: 复制主内核页表映射失败 addr=%p err=%s",
+                                fault_addr.addr(),
+                                to_cstring(clone_res.error()));
+                            break;
+                        }
+                        PageMan::flush_tlb();
+                        loggers::INTERRUPT::DEBUG(
+                            "kernel page fault: 已复制主内核页表映射 addr=%p page=%p",
+                            fault_addr.addr(), fault_page.addr());
+                        processed = true;
+                        break;
+                    }
+
                     // 使用缺页异常处理程序处理缺页异常
                     auto *tm = e.tmm();
                     if (tm != nullptr) {
@@ -591,7 +623,7 @@ namespace interrupt {
         // 把 S-Mode 的 scause.cause 转为 M-Mode 的 mcause.cause,
         // 以便传递给根中断域
         // 根据规范, m-mode 下的中断号 = s-mode 下的中断号 | 0x2
-        device::hwirq_t hwirq = (scause.cause | 0x2);
+        driver::hwirq_t hwirq = (scause.cause | 0x2);
 
         auto root_domain_res = irq_manager.get_domain(cpu->local_intc());
         if (!root_domain_res.has_value()) {

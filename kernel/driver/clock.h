@@ -19,7 +19,8 @@
 #include <functional>
 #include <optional>
 #include <vector>
-namespace device {
+
+namespace driver {
     /**
      * @brief 系统时钟源抽象接口.
      */

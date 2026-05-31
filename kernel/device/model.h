@@ -12,7 +12,10 @@
 #pragma once
 
 #include <device/cpu.h>
-#include <device/int.h>
+#include <device/device.h>
+#include <driver/base.h>
+#include <driver/factory.h>
+#include <driver/int/base.h>
 #include <logger.h>
 #include <sus/owner.h>
 #include <sustcore/addr.h>
@@ -22,6 +25,9 @@
 
 namespace device {
     class DeviceModel;
+}
+
+namespace device {
     /**
      * @brief 内存区域
      *
@@ -72,9 +78,31 @@ namespace device {
         }
 
         [[nodiscard]]
-        IrqManager &interrupt() {
+        driver::IrqManager &interrupt() {
             return _interrupt;
         }
+
+        /**
+         * @brief 获取已登记的统一设备节点列表.
+         *
+         * @return const std::vector<util::owner<DeviceNode *>>& 节点 owner
+         * 列表.
+         */
+        [[nodiscard]]
+        const std::vector<util::owner<DeviceNode *>> &device_nodes()
+            const noexcept {
+            return _devices;
+        }
+
+        /**
+         * @brief 登记一个统一设备节点并转移所有权给 DeviceModel.
+         *
+         * @param node 待登记节点所有权.
+         * @return Result<DeviceNode*> 已登记节点的非拥有指针.
+         */
+        [[nodiscard]]
+        Result<DeviceNode *> register_device_node(
+            util::owner<DeviceNode *> node) noexcept;
 
         /**
          * @brief 将一批内存区域并入设备模型.
@@ -94,7 +122,7 @@ namespace device {
          *
          * @param virq 时钟中断对应的全局 virq.
          */
-        void set_clock_virq(virq_t virq) {
+        void set_clock_virq(driver::virq_t virq) {
             _clock_virq = virq;
         }
 
@@ -104,7 +132,7 @@ namespace device {
          * @return virq_t clock virq.
          */
         [[nodiscard]]
-        virq_t clock_virq() const {
+        driver::virq_t clock_virq() const {
             return _clock_virq;
         }
 
@@ -127,6 +155,7 @@ namespace device {
                 delete provider.get();
             }
             _providers.clear();
+            cleanup_device_nodes();
         }
 
         static DeviceModel &inst();
@@ -153,15 +182,21 @@ namespace device {
         std::vector<MemRegion> _normalize_memory_regions(
             const std::vector<MemRegion> &regions) const;
 
+        /**
+         * @brief 释放已登记的统一设备节点.
+         */
+        void cleanup_device_nodes() noexcept;
+
     private:
         static DeviceModel _INSTANCE;
         static bool _initialized;
         DeviceModel() = default;
         std::vector<util::owner<DeviceProvider *>> _providers;
+        std::vector<util::owner<DeviceNode *>> _devices;
         std::vector<MemRegion> _regions;
         CpuGroupInfo _cpus;
-        IrqManager _interrupt;
-        virq_t _clock_virq = 0;
+        driver::IrqManager _interrupt;
+        driver::virq_t _clock_virq = 0;
     };
 
     class KernelProvider : public DeviceProvider {

@@ -18,28 +18,44 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <ranges>
 #include <string>
 #include <string_view>
 #include <vector>
 
-namespace device {
-    // types and constants
+namespace driver
+{
+    using domain_t                              = b32;
     using irq_prio_t                            = b32;
     using cpu_mask_t                            = b64;
     using virq_t                                = b64;
     using hwirq_t                               = b32;
     using intc_t                                = b32;
-    using domain_t                              = b32;
-    using cpuid_t                               = b32;
-    using topo_t                                = b32;
     inline constexpr intc_t INVALID_ICTRL_ID    = static_cast<intc_t>(-1);
     inline constexpr domain_t INVALID_DOMAIN_ID = static_cast<domain_t>(-1);
+
+    struct IrqEvent;
+    using IrqHandler = std::function<void(const IrqEvent &)>;
+}
+
+namespace device {
+    // types and constants
+    using driver::domain_t;
+    using driver::irq_prio_t;
+    using driver::cpu_mask_t;
+    using driver::virq_t;
+    using driver::hwirq_t;
+    using driver::intc_t;
+    inline constexpr intc_t INVALID_ICTRL_ID    = driver::INVALID_ICTRL_ID;
+    inline constexpr domain_t INVALID_DOMAIN_ID = driver::INVALID_DOMAIN_ID;
+    using cpuid_t                               = b32;
+    using topo_t                                = b32;
 
     constexpr const char *STANDARD_COMPATIBLE_KEY = "compatible";
     constexpr const char *STANDARD_MMIO_KEY = "mmio";  // "regs" key in DTB
     // "interrupts" + "interrupt-parent" / "interrupts-extended" keys in DTB
-    constexpr const char *STANDARD_IRQ_KEY = "irqs";
+    constexpr const char *STANDARD_IRQ_KEY  = "irqs";
     constexpr const char *STANDARD_INTERRUPT_PARENT_KEY = "interrupt-parent";
 
     /**
@@ -123,7 +139,7 @@ namespace device {
          */
         [[nodiscard]]
         static DevicePropView from_virq_list(
-            std::vector<virq_t> virqs) noexcept;
+            std::function<std::vector<driver::virq_t>()> loader) noexcept;
 
         ~DevicePropView() = default;
 
@@ -144,7 +160,7 @@ namespace device {
         [[nodiscard]]
         std::vector<PhyArea> as_region_list() const;
         [[nodiscard]]
-        std::vector<virq_t> as_virq_list() const;
+        std::vector<driver::virq_t> as_virq_list() const;
 
     private:
         /**
@@ -155,13 +171,17 @@ namespace device {
          * @return uint64_t 解析结果.
          */
         [[nodiscard]]
-        static uint64_t parse_be_integer(const byte *data, size_t size) noexcept;
+        static uint64_t parse_be_integer(const byte *data,
+                                         size_t size) noexcept;
 
-        PropType _type = PropType::NONE;
+        PropType _type    = PropType::NONE;
         const byte *_data = nullptr;
-        size_t _size = 0;
+        size_t _size      = 0;
         std::vector<PhyArea> _regions;
-        std::vector<virq_t> _virqs;
+        bool _virq_lazy   = false;
+        bool _virq_loaded = false;
+        std::function<std::vector<driver::virq_t>()> _virq_loader;
+        std::vector<driver::virq_t> _virqs;
     };
 
     /**
@@ -174,6 +194,14 @@ namespace device {
         virtual ~DeviceNode() = default;
 
         /**
+         * @brief 获取统一设备节点名称.
+         *
+         * @return const char* 设备名称字符串; FDT 下为节点名.
+         */
+        [[nodiscard]]
+        virtual const char *name() const noexcept = 0;
+
+        /**
          * @brief DeviceNode 所属平台 (riscv64, loongarch64等)
          *
          * @return const char* 平台名称字符串
@@ -183,7 +211,7 @@ namespace device {
 
         [[nodiscard]]
         virtual Optional<DevicePropView> property(
-            const std::string &name) const = 0;
+            const std::string_view &name) const = 0;
 
         [[nodiscard]]
         std::vector<std::string_view> compatibles() const {
@@ -198,10 +226,21 @@ namespace device {
             return compatible_prop.as_string_list();
         }
 
+        /**
+         * @brief 该设备是否与给定兼容性字符串匹配.
+         *
+         * @param compatible 兼容性字符串
+         * @return int 与兼容性字符串匹配的结果, -1 表示不匹配 ; 否则,
+         * 返回值代表这是第几个兼容项匹配成功
+         */
         [[nodiscard]]
-        bool is_compatible_with(std::string_view compatible) const {
+        int is_compatible_with(std::string_view compatible) const {
             auto _compatibles = compatibles();
-            return std::ranges::contains(_compatibles, compatible);
+            auto it           = std::ranges::find(_compatibles, compatible);
+            if (it == _compatibles.end()) {
+                return -1;
+            }
+            return static_cast<int>(std::distance(_compatibles.begin(), it));
         }
 
         [[nodiscard]]
@@ -218,7 +257,7 @@ namespace device {
         }
 
         [[nodiscard]]
-        Optional<std::vector<virq_t>> irqs() const {
+        Optional<std::vector<driver::virq_t>> irqs() const {
             auto prop_res = property(STANDARD_IRQ_KEY);
             if (!prop_res.has_value()) {
                 return std::nullopt;

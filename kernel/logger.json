@@ -53,5 +53,10 @@
         "name": "SYSCALL",
         "channel": "KernelIO",
         "default": "info"
+    },
+    "timer": {
+        "name": "TIMER",
+        "channel": "KernelIO",
+        "default": "info"
     }
 }

@@ -21,6 +21,8 @@
 #include <device/fdt.h>
 #include <device/int.h>
 #include <device/model.h>
+#include <device/resource.h>
+#include <driver/int/clint.h>
 #include <env.h>
 #include <exe/elfloader.h>
 #include <exe/task.h>
@@ -36,6 +38,7 @@
 #include <sus/raii.h>
 #include <sus/tree.h>
 #include <sus/types.h>
+#include <sus/units.h>
 #include <sustcore/addr.h>
 #include <symbols.h>
 #include <task/scheduler.h>
@@ -49,11 +52,8 @@
 
 #include <cassert>
 #include <cstddef>
-#include <cstdint>
 #include <cstdio>
 #include <cstring>
-#include <memory>
-#include <unordered_map>
 
 env::PaddedHartContext __hart_context[MAX_HARTS] = {};
 
@@ -245,7 +245,7 @@ namespace {
             int64_t integral_part   = error_ppm / 100;
             int64_t fractional_part = error_ppm % 100;
 
-            loggers::SUSTCORE::INFO(
+            loggers::SUSTCORE::DEBUG(
                 "TimeKeeper 测试触发: 现在 = %llu ns, 计划间隔 = %llu ns, "
                 "实际间隔 = %llu ns, 相对误差 = %d.%04d%%",
                 static_cast<unsigned long long>(event.now.to_nanoseconds()),
@@ -258,7 +258,7 @@ namespace {
                                     ? env::hart_ctx->time_keeper()
                                     : nullptr;
             if (time_keeper == nullptr) {
-                loggers::SUSTCORE::ERROR("TimeKeeperLogAction 缺少 TimeKeeper");
+                loggers::TIMER::ERROR("TimeKeeperLogAction 缺少 TimeKeeper");
                 return;
             }
 
@@ -266,7 +266,7 @@ namespace {
             auto *next_action         = new TimeKeeperLogAction(
                 event.now, event.now + next_interval, next_interval);
             if (next_action == nullptr) {
-                loggers::SUSTCORE::FATAL("无法分配下一次 TimeKeeperLogAction");
+                loggers::TIMER::FATAL("无法分配下一次 TimeKeeperLogAction");
                 panic("无法分配下一次 TimeKeeperLogAction");
             }
             time_keeper->enqueue(
@@ -331,14 +331,13 @@ namespace {
 
 namespace key {
     using namespace env::key;
-    struct main : public tmm, meminfo {
+    struct main : public tmm, main_kernel_pgd, meminfo {
     public:
         main() = default;
     };
 }  // namespace key
 
 // path
-PhyAddr kernel_root                   = PhyAddr::null;
 constexpr const char *INITRD_PATH     = "/initrd/";
 constexpr const char *INITMOD_PATH    = "/initrd/init.mod";
 constexpr const char *SETUPMOD_PATH   = "/initrd/setup.mod";
@@ -365,10 +364,10 @@ void kernel_paging_setup() {
         while (true);
     }
 
-    PhyAddr pgd = gfp_res.value();
+    PhyAddr pgd                               = gfp_res.value();
+    e.main_kernel_pgd(key::main_kernel_pgd()) = pgd;
     EarlyPageMan::make_root(pgd);
-    kernel_root = pgd;
-    EarlyPageMan kernelman(kernel_root);
+    EarlyPageMan kernelman(pgd);
 
     ker_paddr::init();
     ker_paddr::mapping_kernel_areas(kernelman);
@@ -467,6 +466,7 @@ void init_device_model() {
     loggers::SUSTCORE::INFO("构建设备模型");
 
     device::DeviceModel::init();
+    device::MMIOManager::init();
 
     auto &model = device::DeviceModel::inst();
 
@@ -501,30 +501,20 @@ extern "C" void post_init(void) {
     // 将 pre-init 阶段中初始化的子系统再次初始化, 以适应内核虚拟地址空间
     GFP::post_init();
     PageMan::init();
+    Allocator::init();
 
     // 将 tp 寄存器中的指针更新为内核虚拟地址空间中的环境实例
     PhyAddr old_tp = convert_pointer(env::hart_ctx);
     env::hart_ctx  = convert<KvaAddr>(old_tp).as<env::HartContext>();
 
-    Allocator::init();
-
-    // 初始化中断处理程序
-    Interrupt::init();
-
     // 将低端内存设置为用户态
     loggers::SUSTCORE::INFO("将低端内存设置为用户态");
     auto &meminfo = e.meminfo();
-    PageMan kernelman(kernel_root);
+    PageMan kernelman(env::inst().main_kernel_pgd());
     kernelman.modify_range_flags<PageMan::ModifyMask::U>(
         meminfo.lowvm, meminfo.uppm - meminfo.lowpm, PageMan::RWX::NONE, true,
         false);
     Initialization::promote_dtb_to_kpa();
-
-    loggers::SUSTCORE::INFO("初始化设备树配置");
-    init_device_model();
-    env::init_hart();
-
-    Initialization::post_init();
 
     // 初始化 kernel object pool
     loggers::SUSTCORE::INFO("初始化内核对象池");
@@ -532,6 +522,15 @@ extern "C" void post_init(void) {
 
     loggers::SUSTCORE::INFO("初始化权限系统");
     cap::CHolderManager::init();
+
+    // 初始化中断处理程序
+    Interrupt::init();
+
+    loggers::SUSTCORE::INFO("初始化设备树配置");
+    init_device_model();
+    env::init_hart();
+
+    Initialization::post_init();
 
     loggers::SUSTCORE::INFO("初始化VFS");
     auto init_res = init_vfs();

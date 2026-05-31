@@ -168,6 +168,7 @@ constexpr const char *to_string(VMA::Type type) {
 // Task Memory
 class TaskMemoryManager {
 private:
+    struct ExistingPgdTag {};
     util::IntrusiveList<VMA> vma_list;
     PhyAddr _pgd;
     PageMan _pman;
@@ -185,6 +186,10 @@ private:
 
 public:
     TaskMemoryManager(PhyAddr _pgd);
+    TaskMemoryManager(ExistingPgdTag, PhyAddr _pgd);
+    [[nodiscard]]
+    static Result<util::owner<TaskMemoryManager *>> from_existing_pgd(
+        PhyAddr pgd) noexcept;
     ~TaskMemoryManager();
 
     /**

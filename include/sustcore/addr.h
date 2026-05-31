@@ -52,10 +52,13 @@ constexpr addr_t MAX_ADDR   = 0xFFFF'FFFF'FFFF'FFFFULL;
 constexpr addr_t KVA_OFFSET = 0xFFFF'FFFF'0000'0000ULL;
 constexpr addr_t KPA_OFFSET = 0xFFFF'FFC0'0000'0000ULL;
 
-constexpr AddrScope KVA_SCOPE   = {KVA_OFFSET, MAX_ADDR};
-constexpr AddrScope KPA_SCOPE   = {KPA_OFFSET, KVA_OFFSET - 1};
-constexpr AddrScope PA_SCOPE    = {NULL_ADDR, KPA_OFFSET - 1};
-constexpr AddrScope VADDR_SCOPE = {NULL_ADDR, MAX_ADDR};
+constexpr AddrScope KVA_SCOPE   = {.start=KVA_OFFSET, .end=MAX_ADDR};
+constexpr AddrScope KPA_SCOPE   = {.start=KPA_OFFSET, .end=KVA_OFFSET - 1};
+constexpr AddrScope PA_SCOPE    = {.start=NULL_ADDR, .end=KPA_OFFSET - 1};
+constexpr AddrScope VADDR_SCOPE = {.start=NULL_ADDR, .end=MAX_ADDR};
+
+constexpr addr_t KVA_MMIO_OFFSET = 0xFFFF'FFFF'4000'0000ULL;
+constexpr AddrScope KVA_MMIO_SCOPE = {.start=KVA_MMIO_OFFSET, .end=MAX_ADDR};
 
 static inline addr_t KVA2PA(addr_t ka) {
     return ka - KVA_OFFSET;

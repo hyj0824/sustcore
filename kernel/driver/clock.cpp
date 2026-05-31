@@ -10,11 +10,11 @@
  */
 
 #include <arch/riscv64/csr.h>
-#include <device/clock.h>
-#include <device/int.h>
+#include <driver/clock.h>
+#include <driver/int/base.h>
 #include <logger.h>
 
-namespace device {
+namespace driver {
     namespace {
         /**
          * @brief 复制一个到期动作条目但不转移所有权.
@@ -157,17 +157,17 @@ namespace device {
 
     void TimeKeeper::enqueue(util::owner<ExpireAction *> action) noexcept {
         if (action == nullptr) {
-            loggers::DEVICE::ERROR("TimeKeeper::enqueue 收到空动作");
+            loggers::TIMER::ERROR("TimeKeeper::enqueue 收到空动作");
             return;
         }
         if (_source == nullptr || _alarm == nullptr) {
-            loggers::DEVICE::ERROR("TimeKeeper 未绑定完整时钟设备");
+            loggers::TIMER::ERROR("TimeKeeper 未绑定完整时钟设备");
             return;
         }
 
         units::time now = _source->to_ns(_source->now());
         if (action->deadline().to_nanoseconds() <= now.to_nanoseconds()) {
-            loggers::DEVICE::DEBUG(
+            loggers::TIMER::DEBUG(
                 "TimeKeeper 直接执行已到期动作: deadline=%llu now=%llu",
                 static_cast<unsigned long long>(
                     action->deadline().to_nanoseconds()),
@@ -178,7 +178,7 @@ namespace device {
         }
 
         bool root_changed = _queue.push(std::move(action));
-        loggers::DEVICE::DEBUG("TimeKeeper 入队动作: root_changed=%d size=%llu",
+        loggers::TIMER::DEBUG("TimeKeeper 入队动作: root_changed=%d size=%llu",
                                root_changed,
                                static_cast<unsigned long long>(_queue.size()));
         if (root_changed) {
@@ -188,7 +188,7 @@ namespace device {
 
     void TimeKeeper::on_timer_irq(const ClockEvent &event) noexcept {
         if (_source == nullptr || _alarm == nullptr) {
-            loggers::DEVICE::ERROR("TimeKeeper 收到 timer IRQ 时未初始化");
+            loggers::TIMER::ERROR("TimeKeeper 收到 timer IRQ 时未初始化");
             return;
         }
 
@@ -210,7 +210,7 @@ namespace device {
 
         auto next_opt = _queue.peek();
         if (!next_opt.has_value() || next_opt->action == nullptr) {
-            loggers::DEVICE::DEBUG("TimeKeeper 队列为空, 不重编程 timer");
+            loggers::TIMER::DEBUG("TimeKeeper 队列为空, 不重编程 timer");
             return;
         }
 
@@ -219,7 +219,7 @@ namespace device {
         units::time delta    = deadline.to_nanoseconds() <= now.to_nanoseconds()
                                    ? units::time::from_nanoseconds(1)
                                    : deadline - now;
-        loggers::DEVICE::DEBUG(
+        loggers::TIMER::DEBUG(
             "TimeKeeper 重编程 timer: now=%llu deadline=%llu delta=%llu",
             static_cast<unsigned long long>(now.to_nanoseconds()),
             static_cast<unsigned long long>(deadline.to_nanoseconds()),

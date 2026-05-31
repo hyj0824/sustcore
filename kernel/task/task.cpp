@@ -581,7 +581,15 @@ namespace task {
         propagate(init_res);
 
         pcb->is_kernel    = true;
-        pcb->tmm          = util::owner<TaskMemoryManager *>(nullptr);
+
+        auto tmm_res = TaskMemoryManager::from_existing_pgd(env::inst().main_kernel_pgd());
+        if (!tmm_res.has_value()) {
+            loggers::SUSTCORE::FATAL("无法绑定主内核页表: %s",
+                                     to_cstring(tmm_res.error()));
+            propagate_return(tmm_res);
+        }
+        auto tmm_guard           = delete_guard(tmm_res.value());
+        pcb->tmm          = tmm_res.value();
         pcb->cholder      = nullptr;
         pcb->entrypoint   = VirAddr(reinterpret_cast<addr_t>(&kthread_idle));
         pcb->pcb_cap      = cap::null;
@@ -590,6 +598,7 @@ namespace task {
         _kernel_pcb        = pcb.get();
         _pid_map[pcb->pid] = pcb.get();
         pcb_guard.release();
+        tmm_guard.release();
         return pcb;
     }
 

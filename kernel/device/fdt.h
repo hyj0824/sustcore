@@ -11,6 +11,9 @@
 
 #pragma once
 
+#include <device/factory.h>
+#include <driver/int/plic.h>
+#include <driver/serial.h>
 #include <device/model.h>
 #include <logger.h>
 #include <sus/rtti.h>
@@ -26,6 +29,12 @@
 #include <vector>
 
 namespace fdt {
+    using driver::domain_t;
+    using driver::DriverBase;
+    using driver::hwirq_t;
+    using driver::intc_t;
+    using driver::virq_t;
+
     namespace detail {
         [[nodiscard]]
         constexpr bool parse_be_integer(const char *data, size_t size,
@@ -54,6 +63,16 @@ namespace fdt {
     struct RegionCells {
         size_t addr_cells;
         size_t size_cells;
+    };
+
+    using LocalInterruptTargetMap =
+        std::unordered_map<phandle_t, device::cpuid_t>;
+
+    struct CpuIntcDescriptor {
+        const struct Node *node = nullptr;
+        device::cpuid_t hart_id = 0;
+        intc_t identifier = driver::INVALID_ICTRL_ID;
+        std::string name;
     };
 
     struct Property {
@@ -286,6 +305,14 @@ namespace fdt {
         ~FDTDeviceNode() override = default;
 
         /**
+         * @brief 获取统一设备节点名称.
+         *
+         * @return const char* FDT 节点名称字符串.
+         */
+        [[nodiscard]]
+        const char *name() const noexcept override;
+
+        /**
          * @brief 获取节点所属平台名称.
          *
          * @return const char* 固定返回 "fdt".
@@ -301,7 +328,17 @@ namespace fdt {
          */
         [[nodiscard]]
         Optional<device::DevicePropView> property(
-            const std::string &name) const override;
+            const std::string_view &name) const override;
+
+        /**
+         * @brief 获取对应的原始 FDT 节点只读引用.
+         *
+         * @return const Node& 原始节点引用.
+         */
+        [[nodiscard]]
+        const Node &raw_node() const noexcept {
+            return *_node;
+        }
 
     private:
         /**
@@ -348,10 +385,17 @@ namespace fdt {
         friend class FDTDeviceNode;
 
     private:
-        using InterruptRef = std::pair<phandle_t, device::hwirq_t>;
+        using InterruptRef = std::pair<phandle_t, hwirq_t>;
 
         Configuration _config;
-        mutable std::unordered_map<phandle_t, device::domain_t> _irq_domains;
+        mutable std::unordered_map<phandle_t, domain_t> _irq_domains;
+        device::DeviceFactoryRegistry _device_factories;
+        device::IrqChipFactoryRegistry _irq_factories;
+        mutable LocalInterruptTargetMap _local_intc_map;
+        mutable std::vector<CpuIntcDescriptor> _cpu_intc_candidates;
+        std::vector<util::owner<device::IDeviceFactory *>> _owned_device_factories;
+        std::vector<util::owner<device::IIrqChipFactory *>> _owned_irq_factories;
+        mutable std::vector<util::owner<DriverBase *>> _owned_runtime_devices;
 
         /**
          * @brief 在 FDT 解析器内部登记 phandle 到中断域的映射.
@@ -428,10 +472,10 @@ namespace fdt {
          *
          * @param refs 待解析的中断引用列表.
          * @param irqman 全局中断管理器.
-         * @return Result<std::vector<device::virq_t>> 对应的 virq 列表.
+         * @return Result<std::vector<virq_t>> 对应的 virq 列表.
          */
         [[nodiscard]]
-        Result<std::vector<device::virq_t>> resolve_interrupt_refs_to_virqs(
+        Result<std::vector<virq_t>> resolve_interrupt_refs_to_virqs(
             const std::vector<InterruptRef> &refs,
             device::IrqManager &irqman) const;
 
@@ -443,10 +487,10 @@ namespace fdt {
          *
          * @param node 待解析节点.
          * @param irqman 全局中断管理器.
-         * @return Result<std::vector<device::virq_t>> 解析得到的 virq 列表.
+         * @return Result<std::vector<virq_t>> 解析得到的 virq 列表.
          */
         [[nodiscard]]
-        Result<std::vector<device::virq_t>> parse_interrupt_virqs(
+        Result<std::vector<virq_t>> parse_interrupt_virqs(
             const Node &node, device::IrqManager &irqman) const;
 
         void append_as_regions(std::vector<device::MemRegion> &regions,
@@ -454,17 +498,90 @@ namespace fdt {
                                device::MemRegion::MemoryStatus status) const;
 
         bool is_memory_node(Node &node) const;
+        [[nodiscard]]
+        bool node_is_simple_bus(const device::DeviceNode &node) const noexcept;
+        [[nodiscard]]
+        Result<device::DeviceNode *> make_device_node(
+            const Node &node, device::DeviceModel &model) const;
+        template <typename Fn>
+        void scan_visible_nodes(const Node &root, Fn &&handler) const;
 
         void register_memory_regions(device::DeviceModel &model) const;
         void register_cpus(device::DeviceModel &model) const;
-        void register_clint(device::DeviceModel &model) const;
-        void register_plic(device::DeviceModel &model) const;
-        void register_clock_virq(device::DeviceModel &model) const;
+        void register_nodes(device::DeviceModel &model) const;
+        void register_intcs(device::DeviceModel &model) const;
+        void create_devices(device::DeviceModel &model) const;
+        void register_clock_virq(device::DeviceModel &model) const noexcept;
 
     public:
-        FDTProvider(void *dtb) {
-            make_config(dtb, _config);
+        FDTProvider(void *dtb);
+        /**
+         * @brief 向普通设备工厂注册表登记默认 FDT 设备工厂.
+         */
+        void init_device_factories() noexcept;
+        /**
+         * @brief 向 IRQ 工厂注册表登记默认 FDT IRQ 工厂.
+         */
+        void init_irq_factories() noexcept;
+
+        [[nodiscard]]
+        const device::IrqChipFactoryRegistry &irq_factories() const noexcept {
+            return _irq_factories;
         }
+
+        /**
+         * @brief 公开解析 interrupts-extended 的只读入口.
+         *
+         * @param node 待解析节点.
+         * @return Result<std::vector<InterruptRef>> 中断引用列表.
+         */
+        [[nodiscard]]
+        Result<std::vector<InterruptRef>> parse_interrupts_extended_view(
+            const Node &node) const {
+            return parse_interrupts_extended(node);
+        }
+
+        /**
+         * @brief 公开按 phandle 查找 IRQ domain 的只读入口.
+         *
+         * @param phandle 中断控制器 phandle.
+         * @param irqman 全局中断管理器.
+         * @return Result<device::IrqDomain&> 对应中断域.
+         */
+        [[nodiscard]]
+        Result<device::IrqDomain &> resolve_irq_domain_view(
+            phandle_t phandle, device::IrqManager &irqman) const {
+            return resolve_irq_domain(phandle, irqman);
+        }
+
+        /**
+         * @brief 公开登记 IRQ domain 的只读入口.
+         *
+         * @param phandle 中断控制器 phandle.
+         * @param domain 目标中断域.
+         * @return Result<void> 登记结果.
+         */
+        [[nodiscard]]
+        Result<void> register_irq_domain_view(
+            phandle_t phandle, const device::IrqDomain &domain) const {
+            return register_irq_domain(phandle, domain);
+        }
+
+        /**
+         * @brief 获取 FDT 配置树.
+         *
+         * @return const Configuration& FDT 配置树.
+         */
+        [[nodiscard]]
+        const Configuration &config() const noexcept {
+            return _config;
+        }
+
+        FDTProvider(void *dtb, int) = delete;
+        FDTProvider(const FDTProvider &)            = delete;
+        FDTProvider &operator=(const FDTProvider &) = delete;
+        FDTProvider(FDTProvider &&)                 = delete;
+        FDTProvider &operator=(FDTProvider &&)      = delete;
         void register_device(device::DeviceModel &model) const override;
         [[nodiscard]]
         const char *name() const override {
