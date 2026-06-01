@@ -49,7 +49,10 @@ namespace driver {
          * @return std::string_view compatible 字符串.
          */
         [[nodiscard]]
-        std::string_view compatible() const noexcept override;
+        std::string_view compatible() const noexcept override
+        {
+            return NS16550A_COMPATIBLE;
+        }
 
         void writec(char ch);
         void write(const char *str, size_t len);
@@ -64,10 +67,6 @@ namespace driver {
          */
         SerialDevice(const device::DeviceNode &node,
                      units::frequency clock_frequency) noexcept;
-
-        std::string _name;
-        units::frequency _clock_frequency = units::frequency::from_hz(0);
-        std::string _compatible;
 
         using uart_t = sus_u32;
         struct NS16550 {
@@ -95,7 +94,6 @@ namespace driver {
             uart_t rfl;
             uart_t __rsvd2[7];
             uart_t halt;
-            uart_t __rsvd3[22];
         } __attribute__((packed));
         constexpr static size_t UART_RBR  = 0x00;
         constexpr static size_t UART_THR  = 0x00;
@@ -113,7 +111,7 @@ namespace driver {
         constexpr static size_t UART_TFL  = 0x80;
         constexpr static size_t UART_RFL  = 0x84;
         constexpr static size_t UART_HALT = 0xA4;
-        constexpr static size_t UART_REG_SIZE = 0x100;
+        constexpr static size_t UART_REG_SIZE = 0xA8;
 
         static_assert(offsetof(NS16550, rbr) == UART_RBR);
         static_assert(offsetof(NS16550, thr) == UART_THR);
@@ -134,6 +132,7 @@ namespace driver {
 
         static_assert(sizeof(NS16550) == UART_REG_SIZE);
 
+        units::frequency _clock_frequency = units::frequency::from_hz(0);
         volatile NS16550 *uart = nullptr;
 
         friend class SerialDeviceFactory;

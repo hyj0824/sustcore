@@ -144,6 +144,13 @@ Result<void> Riscv64MemoryLayout::detect() {
     PhyAddr kernel_end_pa   = convert_pointer(&ekernel);
     PhyArea kernel_area(kernel_start_pa, kernel_end_pa);
 
+    loggers::SUSTCORE::INFO("内核占用物理地址范围: [%p, %p)",
+                            kernel_start_pa.addr(), kernel_end_pa.addr());
+    loggers::SUSTCORE::INFO("内核占用虚拟地址范围: [%p, %p)", &skernel,
+                            &ekernel);
+    loggers::SUSTCORE::INFO("内核占用物理内存大小: %u KB",
+                            kernel_area.size() / 1024);
+
     reserved_buf[num_reserved] = {
         .ptr  = kernel_area.begin.addr(),
         .size = kernel_area.size(),

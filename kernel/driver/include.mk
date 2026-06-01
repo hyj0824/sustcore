@@ -1,1 +1,1 @@
-sources += base.cpp factory.cpp clock.cpp serial.cpp
+sources += base.cpp clock.cpp factory.cpp model.cpp serial.cpp

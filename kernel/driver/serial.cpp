@@ -39,13 +39,6 @@ namespace driver {
         return _clock_frequency;
     }
 
-    /**
-     * @brief 获取设备命中的主 compatible.
-     */
-    std::string_view SerialDevice::compatible() const noexcept {
-        return _compatible;
-    }
-
     void SerialDevice::writec(char ch) {
         uart->thr = static_cast<uart_t>(ch) & 0xFF;
     }
@@ -86,7 +79,6 @@ namespace driver {
             unexpect_return(ErrCode::OUT_OF_MEMORY);
         }
 
-        device->_compatible = SerialDevice::NS16550A_COMPATIBLE;
         loggers::DEVICE::DEBUG(
             "创建 SerialDevice: name=%s clock=%llu "
             "compatible=%s",

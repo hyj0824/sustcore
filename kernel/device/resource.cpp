@@ -115,12 +115,13 @@ namespace device {
 
         const PhyArea aligned = page_align_area(mmio.region());
         PageMan kernelman(env::inst().main_kernel_pgd());
-        kernelman.map_range<true>(from_mmio_addr(aligned.begin), aligned.begin,
+        VirAddr kva_start = from_mmio_addr(aligned.begin);
+        kernelman.map_range<false>(kva_start, aligned.begin,
                                   aligned.end - aligned.begin,
                                   PageMan::rwx(true, true, false), false, true);
         PageMan::flush_tlb();
 
-        auto mapped = KvaAddr(from_mmio_addr(mmio.region().begin).arith());
+        auto mapped = KvaAddr(kva_start.arith());
         loggers::DEVICE::DEBUG("建立 MMIO 映射: pa=[%p,%p) kva=%p",
                                mmio.region().begin.addr(),
                                mmio.region().end.addr(),

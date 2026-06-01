@@ -65,30 +65,97 @@ namespace exception {
                          "软件检查异常",
                          "硬件错误"};
 
-    const char *exception_name(umb_t cause) {
+    /**
+     * @brief 获取异常号对应的可读名称.
+     *
+     * @param cause 异常号.
+     * @return const char* 异常名称.
+     */
+    [[nodiscard]]
+    const char *exception_name(umb_t cause) noexcept {
         if (cause < sizeof(MSG) / sizeof(MSG[0])) {
             return MSG[cause];
         }
         return "未知";
     }
 
-    const char *privilege_name(const Riscv64Context *ctx) {
+    /**
+     * @brief 获取 trap 上下文对应的特权级名称.
+     *
+     * @param ctx trap 上下文.
+     * @return const char* 特权级名称.
+     */
+    [[nodiscard]]
+    const char *privilege_name(const Riscv64Context *ctx) noexcept {
         if (ctx == nullptr) {
             return "未知";
         }
         return ctx->sstatus.spp ? "S-Mode" : "U-Mode";
     }
 
-    const char *page_fault_kind(umb_t cause) {
+    /**
+     * @brief 判断异常是否属于标准页错误.
+     *
+     * @param cause 异常号.
+     * @return true 异常为 instruction/load/store page fault.
+     * @return false 异常不是标准页错误.
+     */
+    [[nodiscard]]
+    bool is_page_fault_exception(umb_t cause) noexcept {
+        return cause == INST_PAGE_FAULT || cause == LOAD_PAGE_FAULT ||
+               cause == STORE_PAGE_FAULT;
+    }
+
+    /**
+     * @brief 判断异常是否属于数据访问错误.
+     *
+     * @param cause 异常号.
+     * @return true 异常为 load/store access fault.
+     * @return false 异常不是 load/store access fault.
+     */
+    [[nodiscard]]
+    bool is_access_fault_exception(umb_t cause) noexcept {
+        return cause == LOAD_ACCESS_FAULT || cause == STORE_ACCESS_FAULT;
+    }
+
+    /**
+     * @brief 判断异常是否应纳入统一页异常分析链路.
+     *
+     * @param cause 异常号.
+     * @return true 异常属于页相关异常或访问错误.
+     * @return false 异常不属于页相关异常分析范围.
+     */
+    [[nodiscard]]
+    bool is_paging_related_exception(umb_t cause) noexcept {
+        return is_page_fault_exception(cause) || is_access_fault_exception(cause);
+    }
+
+    /**
+     * @brief 获取页相关异常的分类字符串.
+     *
+     * @param cause 异常号.
+     * @return const char* 页相关异常分类名称.
+     */
+    [[nodiscard]]
+    const char *page_fault_kind(umb_t cause) noexcept {
         switch (cause) {
-            case INST_PAGE_FAULT:  return "instruction";
-            case LOAD_PAGE_FAULT:  return "load";
-            case STORE_PAGE_FAULT: return "store";
-            default:               return "not-page-fault";
+            case INST_PAGE_FAULT:    return "instruction-page";
+            case LOAD_PAGE_FAULT:    return "load-page";
+            case STORE_PAGE_FAULT:   return "store-page";
+            case LOAD_ACCESS_FAULT:  return "load-access";
+            case STORE_ACCESS_FAULT: return "store-access";
+            default:                 return "not-paging-fault";
         }
     }
 
-    const char *page_size_name(PageMan::PageSize size) {
+    /**
+     * @brief 获取页大小枚举对应的字符串.
+     *
+     * @param size 页大小枚举.
+     * @return const char* 页大小名称.
+     */
+    [[nodiscard]]
+    const char *page_size_name(PageMan::PageSize size) noexcept {
         switch (size) {
             case PageMan::PageSize::_4K:   return "4K";
             case PageMan::PageSize::_2M:   return "2M";
@@ -190,18 +257,27 @@ namespace exception {
             SAU_NO_SUM,       // S-mode Access User page without SUM
             SEU,              // S-mode Execute User page
             UAS,              // User Access Supervisor page
+            ACCESS_FAULT,     // Access fault after address translation
             INVALID_AD,       // Invalid A/D bit
             WRITE_PROTECT,    // Write protection
             EXECUTE_PROTECT,  // Execute protection
             UNKNOWN           // Unknown cause
         };
 
-        static const char *fault_cause_name(FaultCause cause) {
+        /**
+         * @brief 获取页异常分析结果的可读名称.
+         *
+         * @param cause 页异常分析结果.
+         * @return const char* 分析结果名称.
+         */
+        [[nodiscard]]
+        static const char *fault_cause_name(FaultCause cause) noexcept {
             switch (cause) {
                 case FaultCause::NO_PRESENT:      return "NO_PRESENT";
                 case FaultCause::SAU_NO_SUM:      return "SAU_NO_SUM";
                 case FaultCause::SEU:             return "SEU";
                 case FaultCause::UAS:             return "UAS";
+                case FaultCause::ACCESS_FAULT:    return "ACCESS_FAULT";
                 case FaultCause::INVALID_AD:      return "INVALID_AD";
                 case FaultCause::WRITE_PROTECT:   return "WRITE_PROTECT";
                 case FaultCause::EXECUTE_PROTECT: return "EXECUTE_PROTECT";
@@ -210,12 +286,23 @@ namespace exception {
             }
         }
 
-        static void log_page_fault_error(csr_scause_t scause, umb_t sepc,
-                                         umb_t stval, const Riscv64Context *ctx,
-                                         FaultCause cause, PageMan &pman) {
+        /**
+         * @brief 记录页相关异常的完整错误信息.
+         *
+         * @param scause trap cause.
+         * @param sepc 异常发生时的 PC.
+         * @param stval 异常关联地址.
+         * @param ctx trap 上下文.
+         * @param cause 页异常分析结果.
+         * @param pman 当前页表管理器.
+         */
+        static void log_paging_fault_error(csr_scause_t scause, umb_t sepc,
+                                           umb_t stval,
+                                           const Riscv64Context *ctx,
+                                           FaultCause cause, PageMan &pman) {
             VirAddr fault_addr = VirAddr(stval);
             loggers::INTERRUPT::ERROR(
-                "page fault: kind=%s, fault_cause=%s, addr=%p, page=%p",
+                "paging fault: kind=%s, fault_cause=%s, addr=%p, page=%p",
                 page_fault_kind(scause.cause), fault_cause_name(cause),
                 fault_addr.addr(), fault_addr.page_align_down().addr());
             log_trap_context_error(scause, sepc, stval, ctx);
@@ -223,19 +310,34 @@ namespace exception {
             log_pte_error(fault_addr, pman);
         }
 
+        /**
+         * @brief 分析页相关异常的可能原因.
+         *
+         * @param scause trap cause.
+         * @param fault_addr 异常虚拟地址.
+         * @param ctx trap 上下文.
+         * @param pman 当前页表管理器.
+         * @return FaultCause 页异常原因分类.
+         */
+        [[nodiscard]]
         static FaultCause confirm_fault_cause(const csr_scause_t &scause,
                                               const VirAddr &fault_addr,
                                               const Riscv64Context *ctx,
                                               PageMan &pman) {
-            if (scause.cause != INST_PAGE_FAULT &&
-                scause.cause != LOAD_PAGE_FAULT &&
-                scause.cause != STORE_PAGE_FAULT)
+            if (!is_paging_related_exception(scause.cause))
             {
                 return FaultCause::UNKNOWN;
             }
 
             auto query_res = pman.query_page(fault_addr);
             if (!query_res.has_value()) {
+                if (is_access_fault_exception(scause.cause)) {
+                    loggers::INTERRUPT::DEBUG(
+                        "access fault analysis: addr=%p, page lookup failed err=%s(%d)",
+                        fault_addr.addr(), to_cstring(query_res.error()),
+                        query_res.error());
+                    return FaultCause::ACCESS_FAULT;
+                }
                 // 页面不存在
                 if (query_res.error() == ErrCode::PAGE_NOT_PRESENT) {
                     return FaultCause::NO_PRESENT;
@@ -250,7 +352,20 @@ namespace exception {
 
             // 页面不存在
             if (!PageMan::is_present(*pte)) {
+                if (is_access_fault_exception(scause.cause)) {
+                    loggers::INTERRUPT::DEBUG(
+                        "access fault analysis: addr=%p, mapped but not present",
+                        fault_addr.addr());
+                    return FaultCause::ACCESS_FAULT;
+                }
                 return FaultCause::NO_PRESENT;
+            }
+
+            if (is_access_fault_exception(scause.cause)) {
+                loggers::INTERRUPT::DEBUG(
+                    "access fault analysis: addr=%p, mapped page present, treat as unrecoverable access fault",
+                    fault_addr.addr());
+                return FaultCause::ACCESS_FAULT;
             }
 
             int acc_priv = ctx->sstatus.spp
@@ -312,13 +427,24 @@ namespace exception {
             return FaultCause::UNKNOWN;
         }
 
+        /**
+         * @brief 处理页相关异常并在可恢复时完成修复.
+         *
+         * @param scause trap cause.
+         * @param sepc 异常发生时的 PC.
+         * @param stval 异常关联地址.
+         * @param ctx trap 上下文.
+         * @return true 异常已恢复, 可以继续执行.
+         * @return false 异常不可恢复, 需由上层终止执行流.
+         */
+        [[nodiscard]]
         bool paging_fault(csr_scause_t scause, umb_t sepc, umb_t stval,
                           Riscv64Context *ctx) {
             const VirAddr fault_addr = VirAddr(stval);
             const VirAddr fault_page = fault_addr.page_align_down();
             auto &e                  = env::inst();
             loggers::INTERRUPT::DEBUG(
-                "page fault: kind=%s, addr=%p, page=%p, sepc=0x%lx",
+                "paging fault: kind=%s, addr=%p, page=%p, sepc=0x%lx",
                 page_fault_kind(scause.cause), fault_addr.addr(),
                 fault_page.addr(), sepc);
             loggers::INTERRUPT::DEBUG("page fault env: pgd=%p, tm=%p",
@@ -413,6 +539,12 @@ namespace exception {
                 case FaultCause::SEU: {
                     break;
                 }
+                case FaultCause::ACCESS_FAULT: {
+                    loggers::INTERRUPT::ERROR(
+                        "access fault is not recoverable: type=%s, addr=%p, sepc=0x%lx",
+                        exception_name(scause.cause), fault_addr.addr(), sepc);
+                    break;
+                }
                 case FaultCause::INVALID_AD: {
                     auto query_res = pman.query_page(fault_addr);
                     if (!query_res.has_value()) {
@@ -474,7 +606,7 @@ namespace exception {
             }
 
             if (!processed) {
-                log_page_fault_error(scause, sepc, stval, ctx, cause, pman);
+                log_paging_fault_error(scause, sepc, stval, ctx, cause, pman);
             }
 
             return processed;
@@ -489,6 +621,17 @@ namespace exception {
         }
     }  // namespace paging
 
+    /**
+     * @brief 处理非法指令异常.
+     *
+     * @param scause trap cause.
+     * @param sepc 异常发生时的 PC.
+     * @param stval 异常关联值.
+     * @param ctx trap 上下文.
+     * @return true 异常已恢复.
+     * @return false 异常不可恢复.
+     */
+    [[nodiscard]]
     bool illegal_instruction(csr_scause_t scause, umb_t sepc, umb_t stval,
                              Riscv64Context *ctx) {
         loggers::INTERRUPT::DEBUG(
@@ -497,6 +640,14 @@ namespace exception {
         return false;  // 无法处理该异常
     }
 
+    /**
+     * @brief 分发并处理同步异常.
+     *
+     * @param scause trap cause.
+     * @param sepc 异常发生时的 PC.
+     * @param stval 异常关联值.
+     * @param ctx trap 上下文.
+     */
     void exception(csr_scause_t scause, umb_t sepc, umb_t stval,
                    Riscv64Context *ctx) {
         bool processed = false;
@@ -585,6 +736,8 @@ namespace exception {
             case INST_PAGE_FAULT:
             case LOAD_PAGE_FAULT:
             case STORE_PAGE_FAULT:
+            case LOAD_ACCESS_FAULT:
+            case STORE_ACCESS_FAULT:
                 processed = paging::paging_fault(scause, sepc, stval, ctx);
                 break;
             default:
@@ -598,9 +751,7 @@ namespace exception {
                                       exception_name(scause.cause),
                                       scause.cause, privilege_name(ctx));
             loggers::INTERRUPT::ERROR("无法处理该异常, 需终止相关进程");
-            if (scause.cause != INST_PAGE_FAULT &&
-                scause.cause != LOAD_PAGE_FAULT &&
-                scause.cause != STORE_PAGE_FAULT)
+            if (!is_paging_related_exception(scause.cause))
             {
                 log_trap_context_error(scause, sepc, stval, ctx);
                 log_current_task_error();

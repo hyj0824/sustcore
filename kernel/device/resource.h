@@ -118,7 +118,7 @@ namespace device {
          */
         [[nodiscard]]
         static VirAddr from_mmio_addr(const PhyAddr &mmio_addr) noexcept {
-            return VirAddr(KVA_MMIO_OFFSET + mmio_addr.arith());
+            return VirAddr(KVA_OFFSET + mmio_addr.arith());
         }
 
         /**

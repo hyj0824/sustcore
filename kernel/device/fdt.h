@@ -389,13 +389,8 @@ namespace fdt {
 
         Configuration _config;
         mutable std::unordered_map<phandle_t, domain_t> _irq_domains;
-        device::DeviceFactoryRegistry _device_factories;
-        device::IrqChipFactoryRegistry _irq_factories;
         mutable LocalInterruptTargetMap _local_intc_map;
         mutable std::vector<CpuIntcDescriptor> _cpu_intc_candidates;
-        std::vector<util::owner<device::IDeviceFactory *>> _owned_device_factories;
-        std::vector<util::owner<device::IIrqChipFactory *>> _owned_irq_factories;
-        mutable std::vector<util::owner<DriverBase *>> _owned_runtime_devices;
 
         /**
          * @brief 在 FDT 解析器内部登记 phandle 到中断域的映射.
@@ -510,7 +505,6 @@ namespace fdt {
         void register_cpus(device::DeviceModel &model) const;
         void register_nodes(device::DeviceModel &model) const;
         void register_intcs(device::DeviceModel &model) const;
-        void create_devices(device::DeviceModel &model) const;
         void register_clock_virq(device::DeviceModel &model) const noexcept;
 
     public:
@@ -523,11 +517,6 @@ namespace fdt {
          * @brief 向 IRQ 工厂注册表登记默认 FDT IRQ 工厂.
          */
         void init_irq_factories() noexcept;
-
-        [[nodiscard]]
-        const device::IrqChipFactoryRegistry &irq_factories() const noexcept {
-            return _irq_factories;
-        }
 
         /**
          * @brief 公开解析 interrupts-extended 的只读入口.

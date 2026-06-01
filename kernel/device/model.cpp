@@ -106,6 +106,24 @@ namespace device {
     }
 
     /**
+     * @brief 按 compatible 查询全部匹配的设备节点.
+     */
+    std::vector<DeviceNode *> DeviceModel::find_devices_by_compatible(
+        std::string_view compatible) const noexcept {
+        std::vector<DeviceNode *> matched;
+        matched.reserve(_devices.size());
+        for (const auto &node : _devices) {
+            if (node.get() == nullptr) {
+                continue;
+            }
+            if (node->is_compatible_with(compatible) >= 0) {
+                matched.push_back(node.get());
+            }
+        }
+        return matched;
+    }
+
+    /**
      * @brief 释放已登记的统一设备节点.
      */
     void DeviceModel::cleanup_device_nodes() noexcept {

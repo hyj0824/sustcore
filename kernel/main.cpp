@@ -23,6 +23,8 @@
 #include <device/model.h>
 #include <device/resource.h>
 #include <driver/int/clint.h>
+#include <driver/model.h>
+#include <driver/rtc/goldfish.h>
 #include <env.h>
 #include <exe/elfloader.h>
 #include <exe/task.h>
@@ -427,19 +429,66 @@ Result<void> init_scheduler() {
     schd::Scheduler::init(idle_res.value(), task->threads.front());
     schd::Scheduler::inst().init();
     register_scheduler_tick_action();
-#ifdef __CONF_KERNEL_TIMEKEEPER_TEST
-    register_timekeeper_log_test();
-#endif
-#ifdef __CONF_KERNEL_TESTS
-    auto kthread_test_res = test::kthread::start_logger_yield_test();
-    propagate(kthread_test_res);
-#endif
     void_return();
 }
 
 void after_init() {
     // 打开中断
     Interrupt::sti();
+
+    auto devices1 =
+        device::DeviceModel::inst().find_devices_by_compatible("ns16550a");
+    loggers::SUSTCORE::INFO("兼容 ns16550a 的设备数量: %u",
+                            static_cast<unsigned>(devices1.size()));
+    if (devices1.size() > 0) {
+        auto *serial_device = devices1[0];
+        // 注册其驱动
+        auto create_res =
+            driver::DriverModel::inst().create_driver(serial_device);
+        if (!create_res.has_value()) {
+            loggers::SUSTCORE::ERROR("为 ns16550a 设备创建驱动失败: %s",
+                                     to_cstring(create_res.error()));
+        } else {
+            loggers::SUSTCORE::INFO("已为 ns16550a 设备创建驱动");
+            auto *driver =
+                static_cast<driver::SerialDevice *>(create_res.value());
+            driver->write("Hello, Sustcore!\n", strlen("Hello, Sustcore!\n"));
+        }
+    }
+
+    auto devices2 = device::DeviceModel::inst().find_devices_by_compatible(
+        "google,goldfish-rtc");
+    loggers::SUSTCORE::INFO("兼容 google,goldfish-rtc 的设备数量: %u",
+                            static_cast<unsigned>(devices2.size()));
+    if (devices2.size() > 0) {
+        auto *rtc_device = devices2[0];
+        // 注册其驱动
+        auto create_res = driver::DriverModel::inst().create_driver(rtc_device);
+        if (!create_res.has_value()) {
+            loggers::SUSTCORE::ERROR(
+                "为 google,goldfish-rtc 设备创建驱动失败: %s",
+                to_cstring(create_res.error()));
+        } else {
+            loggers::SUSTCORE::INFO("已为 google,goldfish-rtc 设备创建驱动");
+            auto *driver =
+                static_cast<driver::GoldfishRTC *>(create_res.value());
+            // auto time = driver->read_time();
+            // loggers::SUSTCORE::INFO(
+            //     "当前 RTC 时间: %llu 秒",
+            //     static_cast<unsigned long long>(time.to_seconds()));
+            loggers::SUSTCORE::INFO(
+                "driver: %p", driver);
+        }
+    }
+
+#ifdef __CONF_KERNEL_TIMEKEEPER_TEST
+    register_timekeeper_log_test();
+#endif
+
+#ifdef __CONF_KERNEL_TESTS
+    auto kthread_test_res = test::kthread::start_logger_yield_test();
+    propagate(kthread_test_res);
+#endif
 
     // Kernel tests
 #ifdef __CONF_KERNEL_TESTS
@@ -466,6 +515,7 @@ void init_device_model() {
     loggers::SUSTCORE::INFO("构建设备模型");
 
     device::DeviceModel::init();
+    driver::DriverModel::init();
     device::MMIOManager::init();
 
     auto &model = device::DeviceModel::inst();

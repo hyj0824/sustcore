@@ -16,6 +16,7 @@
 #include <driver/base.h>
 #include <driver/factory.h>
 #include <driver/int/base.h>
+#include <driver/model.h>
 #include <logger.h>
 #include <sus/owner.h>
 #include <sustcore/addr.h>
@@ -105,6 +106,16 @@ namespace device {
             util::owner<DeviceNode *> node) noexcept;
 
         /**
+         * @brief 按 compatible 查询全部匹配的设备节点.
+         *
+         * @param compatible 目标 compatible 字符串.
+         * @return std::vector<DeviceNode*> 全部匹配节点的非拥有指针列表.
+         */
+        [[nodiscard]]
+        std::vector<DeviceNode *> find_devices_by_compatible(
+            std::string_view compatible) const noexcept;
+
+        /**
          * @brief 将一批内存区域并入设备模型.
          *
          * @param regs 待加入的内存区域集合.
@@ -151,6 +162,9 @@ namespace device {
             cleanup();
         }
         void cleanup() {
+            if (driver::DriverModel::initialized()) {
+                driver::DriverModel::inst().cleanup();
+            }
             for (auto &provider : _providers) {
                 delete provider.get();
             }

@@ -15,6 +15,9 @@
 #include <driver/int/clint.h>
 #include <driver/int/plic.h>
 #include <driver/int/riscv_intc.h>
+#include <driver/model.h>
+#include <driver/rtc/goldfish.h>
+#include <driver/serial.h>
 #include <libfdt.h>
 #include <logger.h>
 
@@ -1190,23 +1193,27 @@ namespace fdt {
      * @brief 向普通设备工厂注册表登记默认 FDT 设备工厂.
      */
     void FDTProvider::init_device_factories() noexcept {
-        _owned_device_factories.clear();
-
-        auto *serial_factory = new driver::SerialDeviceFactory();
-        if (serial_factory == nullptr) {
+        if (!driver::DriverModel::initialized()) {
             return;
         }
 
-        _owned_device_factories.emplace_back(serial_factory);
         [[maybe_unused]] auto serial_res =
-            _device_factories.register_factory(*serial_factory);
+            driver::DriverModel::inst().register_factory(
+                util::owner<driver::IDeviceFactory *>(
+                    new driver::SerialDeviceFactory()));
+        [[maybe_unused]] auto rtc_res =
+            driver::DriverModel::inst().register_factory(
+                util::owner<driver::IDeviceFactory *>(
+                    new driver::GoldfishRTCFactory()));
     }
 
     /**
      * @brief 向 IRQ 工厂注册表登记默认 FDT IRQ 工厂.
      */
     void FDTProvider::init_irq_factories() noexcept {
-        _owned_irq_factories.clear();
+        if (!driver::DriverModel::initialized()) {
+            return;
+        }
 
         auto *root_factory  = new RiscVIntCIrqFactory(&_cpu_intc_candidates);
         auto *clint_factory = new ClintIrqFactory(&_local_intc_map);
@@ -1220,16 +1227,16 @@ namespace fdt {
         root_factory->bind_provider(*this);
         clint_factory->bind_provider(*this);
         plic_factory->bind_provider(*this);
-        _owned_irq_factories.emplace_back(root_factory);
-        _owned_irq_factories.emplace_back(clint_factory);
-        _owned_irq_factories.emplace_back(plic_factory);
 
         [[maybe_unused]] auto root_res =
-            _irq_factories.register_factory(*root_factory);
+            driver::DriverModel::inst().register_factory(
+                util::owner<driver::IIrqChipFactory *>(root_factory));
         [[maybe_unused]] auto clint_res =
-            _irq_factories.register_factory(*clint_factory);
+            driver::DriverModel::inst().register_factory(
+                util::owner<driver::IIrqChipFactory *>(clint_factory));
         [[maybe_unused]] auto plic_res =
-            _irq_factories.register_factory(*plic_factory);
+            driver::DriverModel::inst().register_factory(
+                util::owner<driver::IIrqChipFactory *>(plic_factory));
     }
 
     Result<void> FDTProvider::register_irq_domain(
@@ -1758,7 +1765,8 @@ namespace fdt {
     void FDTProvider::register_intcs(device::DeviceModel &model) const {
         auto register_node =
             [this, &model](const FDTDeviceNode &fdt_node) -> Result<void> {
-            auto *irq_factory = _irq_factories.find(fdt_node);
+            auto *irq_factory =
+                driver::DriverModel::inst().irq_factories().find(fdt_node);
             if (irq_factory == nullptr) {
                 void_return();
             }
@@ -1767,10 +1775,9 @@ namespace fdt {
                                    fdt_node.raw_node().name.c_str(),
                                    irq_factory->compatible().data());
 
-            auto device_res = irq_factory->create(fdt_node, model);
+            auto device_res = driver::DriverModel::inst().create_driver(
+                const_cast<FDTDeviceNode *>(&fdt_node));
             propagate(device_res);
-            _owned_runtime_devices.push_back(
-                util::owner<DriverBase *>(device_res.value()));
             void_return();
         };
 
@@ -1835,43 +1842,11 @@ namespace fdt {
             static_cast<unsigned long long>(model.clock_virq()));
     }
 
-    void FDTProvider::create_devices(device::DeviceModel &model) const {
-        for (const auto &node_owner : model.device_nodes()) {
-            if (node_owner.get() == nullptr) {
-                continue;
-            }
-
-            auto *fdt_node =
-                static_cast<const FDTDeviceNode *>(node_owner.get());
-            if (_irq_factories.find(*node_owner) != nullptr) {
-                continue;
-            }
-
-            auto *device_factory = _device_factories.find(*node_owner);
-            if (device_factory == nullptr) {
-                loggers::DEVICE::DEBUG("普通设备未命中 DeviceFactory: node=%s",
-                                       fdt_node->raw_node().name.c_str());
-                continue;
-            }
-
-            auto device_res = device_factory->create(*node_owner, model);
-            if (!device_res.has_value()) {
-                loggers::DEVICE::ERROR("创建普通设备失败: node=%s err=%s",
-                                       fdt_node->raw_node().name.c_str(),
-                                       to_cstring(device_res.error()));
-                continue;
-            }
-            _owned_runtime_devices.push_back(
-                util::owner<DriverBase *>(device_res.value()));
-        }
-    }
-
     void FDTProvider::register_device(device::DeviceModel &model) const {
         register_memory_regions(model);
         register_cpus(model);
         register_nodes(model);
         register_intcs(model);
-        create_devices(model);
         register_clock_virq(model);
     }
 }  // namespace fdt

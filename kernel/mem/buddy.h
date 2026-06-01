@@ -253,6 +253,9 @@ Result<PhyAddr> BuddyAllocator::get_free_page(size_t frame_count) {
         add_memory_range<Stage>(remain_addr, remain_pages);
     }
 
+    loggers::BUDDY::DEBUG("分配了 %u 页物理内存: [%p, %p)", frame_count, paddr.addr(),
+                 (paddr + frame_count * PAGESIZE).addr());
+
     return paddr;
 }
 
