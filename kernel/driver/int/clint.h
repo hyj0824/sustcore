@@ -25,7 +25,7 @@ namespace driver {
         /**
          * @brief 创建一个 CLINT 设备包装对象.
          *
-         * @param node 统一设备节点非拥有指针.
+         * @param res 统一设备节点与资源集合.
          * @param identifier 设备标识.
          * @param hart_id 默认 hart.
          * @param target_harts 目标 hart 集合.
@@ -33,7 +33,7 @@ namespace driver {
          */
         [[nodiscard]]
         static Result<util::owner<Clint *>> create(
-            device::DeviceNode *node, intc_t identifier, device::cpuid_t hart_id,
+            ResPack res, intc_t identifier, device::cpuid_t hart_id,
             std::vector<device::cpuid_t> target_harts) noexcept;
 
         /**
@@ -77,12 +77,12 @@ namespace driver {
         /**
          * @brief 构造一个 CLINT 驱动
          *
-         * @param node 统一 Clint 设备节点引用指针.
+         * @param res 统一 Clint 设备节点与资源集合.
          * @param identifier 设备标识.
          * @param hart_id 默认 hart.
          * @param target_harts 目标 hart 集合.
          */
-        Clint(const device::DeviceNode &node, intc_t identifier,
+        Clint(ResPack res, intc_t identifier,
               device::cpuid_t hart_id,
               std::vector<device::cpuid_t> target_harts) noexcept;
 

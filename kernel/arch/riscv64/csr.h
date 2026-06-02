@@ -528,7 +528,9 @@ union csr_senvcfg_t {
         umb_t wrpi1 : 24;  // [8:31] WRPI
         umb_t
             pmm : 2;  // [32:33] Pause Mask in M-Mode M-Mode下是否屏蔽PAUSE指令
-        umb_t wrpi2 : 30;  // [34:63] WRPI
+        umb_t wrpi2 : 27;    // [34:60]
+        umb_t pbmt : 1;      // [61] PBMTE
+        umb_t wrpi3 : 2;  // [62:63]
     } PACKED;
 };
 

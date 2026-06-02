@@ -10,26 +10,21 @@
  */
 
 #include <driver/rtc/goldfish.h>
+#include <mem/userspace.h>
 
 namespace driver {
-    GoldfishRTC::GoldfishRTC(const device::DeviceNode &node) noexcept
-        : DriverBase(node) {
-        assert(_mmios.size() >= 1);
-        auto *mmio = _mmios[0].get();
-        assert(mmio != nullptr);
-        assert(mmio->region().size() >= sizeof(Goldfish));
-        auto map_res = device::MMIOManager::inst().map_to_kernel(*mmio);
-        assert(map_res.has_value());
-        goldfish = map_res.value().as<Goldfish>();
+    GoldfishRTC::GoldfishRTC(ResPack res, char *base) noexcept
+        : DriverBase(std::move(res)),
+          regs(reinterpret_cast<volatile Goldfish *>(base))
+    {
+        // to flush the rtc registers
+        [[maybe_unused]] auto t = read_time();
     }
 
     [[nodiscard]]
-    units::time GoldfishRTC::read_time() const noexcept
-    {
-        sus_u64 time_high = goldfish->time_high;
-        sus_u64 time_low  = goldfish->time_low;
-        sus_u64 time = (time_high & 0xFFFFFFFF) << 32 | (time_low & 0xFFFFFFFF);
-        return units::time::from_seconds(time);
+    units::time GoldfishRTC::read_time() const noexcept {
+        sus_u64 time = (static_cast<sus_u64>(regs->time_high) << 32) | regs->time_low;
+        return units::time::from_nanoseconds(time);
     }
 
     /**
@@ -53,6 +48,31 @@ namespace driver {
     Result<DriverBase *> GoldfishRTCFactory::create(
         const device::DeviceNode &node, device::DeviceModel &model) const {
         (void)model;
-        return new GoldfishRTC(node);
+        loggers::DEVICE::INFO("开始创建设备驱动: goldfish-rtc name=%s",
+                              node.name());
+        // 获取 mmio & virqs
+        auto virqs = device::DevResManager::get_virq_resource(node);
+        auto mmios = device::DevResManager::get_mmio_resource(node);
+
+        // 以第一个 mmio 作为 RTC 寄存器基址
+        if (mmios.empty()) {
+            loggers::DEVICE::ERROR("Goldfish RTC 设备缺少 MMIO 资源!");
+            unexpect_return(ErrCode::ENTRY_NOT_FOUND);
+        }
+        // 校验 mmio
+        auto *mmio = mmios[0].get();
+        assert(mmio != nullptr);
+        assert(mmio->region().size() >= GoldfishRTC::RTC_REG_SIZE);
+
+        // 映射
+        auto map_res = device::MMIOManager::inst().map_to_kernel(*mmio);
+        if (!map_res.has_value()) {
+            loggers::DEVICE::ERROR("Goldfish RTC MMIO 资源映射失败!");
+            unexpect_return(map_res.error());
+        }
+        char *base = map_res.value().as<char>();
+        return new GoldfishRTC(
+            DriverBase::ResPack(node, std::move(virqs), std::move(mmios)),
+            base);
     }
 }  // namespace driver

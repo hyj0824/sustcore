@@ -28,14 +28,14 @@ namespace driver {
         /**
          * @brief 创建一个 CPU 本地中断驱动.
          *
-         * @param node 统一设备节点非拥有指针.
+         * @param res 统一设备节点与资源集合.
          * @param identifier 设备标识.
          * @param hart_id 所属 hart.
          * @return Result<util::owner<RiscVIntC*>> 创建结果.
          */
         [[nodiscard]]
         static Result<util::owner<RiscVIntC *>> create(
-            device::DeviceNode *node, intc_t identifier,
+            ResPack res, intc_t identifier,
             device::cpuid_t hart_id) noexcept;
 
         /**
@@ -89,11 +89,11 @@ namespace driver {
         /**
          * @brief 构造一个 CPU 本地中断设备驱动.
          *
-         * @param node 统一CPU 本地中断设备节点引用指针.
+         * @param res 统一 CPU 本地中断设备节点与资源集合.
          * @param identifier 设备标识.
          * @param hart_id 所属 hart.
          */
-        RiscVIntC(const device::DeviceNode &node, intc_t identifier,
+        RiscVIntC(ResPack res, intc_t identifier,
                   device::cpuid_t hart_id) noexcept;
 
         intc_t _identifier = device::INVALID_ICTRL_ID;

@@ -41,7 +41,7 @@ concept KOPTrait = requires(T *kop, ObjType *obj) {
 
 class LinearGrowAllocator {
 private:
-    static constexpr size_t SIZE = 0x10000;  // 64KB
+    static constexpr size_t SIZE = 0x200000;  // 2 MB
     static char LGA_HEAP[LinearGrowAllocator::SIZE];
     static size_t lga_offset;
 

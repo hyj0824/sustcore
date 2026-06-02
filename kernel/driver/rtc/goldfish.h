@@ -13,9 +13,10 @@
 
 #include <driver/base.h>
 #include <driver/factory.h>
-#include <sus/units.h>
-#include <string_view>
 #include <sus/types.h>
+#include <sus/units.h>
+
+#include <string_view>
 
 namespace driver {
     /**
@@ -23,7 +24,9 @@ namespace driver {
      */
     class GoldfishRTC final : public DriverBase {
     private:
-        static constexpr std::string_view GOLDFISH_RTC_COMPATIBLE = "google,goldfish-rtc";
+        static constexpr std::string_view GOLDFISH_RTC_COMPATIBLE =
+            "google,goldfish-rtc";
+
     public:
         /**
          * @brief 销毁驱动.
@@ -36,13 +39,13 @@ namespace driver {
          * @return std::string_view compatible 字符串.
          */
         [[nodiscard]]
-        std::string_view compatible() const noexcept override
-        {
+        std::string_view compatible() const noexcept override {
             return GOLDFISH_RTC_COMPATIBLE;
         }
 
         [[nodiscard]]
         units::time read_time() const noexcept;
+
     private:
         /**
          * @brief 构造一个串口驱动.
@@ -50,35 +53,39 @@ namespace driver {
          * @param node 统一串口设备节点引用指针.
          * @param name 设备名称.
          */
-        GoldfishRTC(const device::DeviceNode &node) noexcept;
+        GoldfishRTC(ResPack res, char *base) noexcept;
 
-        using rtc_t = sus_u32;
-        struct Goldfish {
+        using rtc_t                            = sus_u32;
+        constexpr static size_t RTC_TIME_LOW   = 0x00;
+        constexpr static size_t RTC_TIME_HIGH  = 0x04;
+        constexpr static size_t RTC_ALARM_LOW  = 0x08;
+        constexpr static size_t RTC_ALARM_HIGH = 0x0C;
+        constexpr static size_t RTC_IRQ_ENABLE = 0x10;
+        constexpr static size_t RTC_INT_FLAG   = 0x14;
+        constexpr static size_t RTC_REG_SIZE   = 0x18;
+
+        struct Goldfish
+        {
             rtc_t time_low;
             rtc_t time_high;
             rtc_t alarm_low;
             rtc_t alarm_high;
             rtc_t irq_enable;
             rtc_t int_flag;
-        } __attribute__((packed));
-        constexpr static size_t RTC_TIME_LOW = 0x00;
-        constexpr static size_t RTC_TIME_HIGH = 0x04;
-        constexpr static size_t RTC_ALARM_LOW = 0x08;
-        constexpr static size_t RTC_ALARM_HIGH = 0x0C;
-        constexpr static size_t RTC_IRQ_ENABLE = 0x10;
-        constexpr static size_t RTC_INT_FLAG = 0x14;
-        constexpr static size_t RTC_REG_SIZE = 0x18;
+        };
 
-        static_assert(offsetof(Goldfish, time_low) == RTC_TIME_LOW);
-        static_assert(offsetof(Goldfish, time_high) == RTC_TIME_HIGH);
-        static_assert(offsetof(Goldfish, alarm_low) == RTC_ALARM_LOW);
-        static_assert(offsetof(Goldfish, alarm_high) == RTC_ALARM_HIGH);
-        static_assert(offsetof(Goldfish, irq_enable) == RTC_IRQ_ENABLE);
-        static_assert(offsetof(Goldfish, int_flag) == RTC_INT_FLAG);
+        static_assert(sizeof(Goldfish) == RTC_REG_SIZE,
+                      "GoldfishRTC register struct size mismatch!");
+        static_assert(offsetof(Goldfish, time_low) == RTC_TIME_LOW, "time_low offset mismatch!");
+        static_assert(offsetof(Goldfish, time_high) == RTC_TIME_HIGH, "time_high offset mismatch!");
+        static_assert(offsetof(Goldfish, alarm_low) == RTC_ALARM_LOW, "alarm_low offset mismatch!");
+        static_assert(offsetof(Goldfish, alarm_high) == RTC_ALARM_HIGH, "alarm_high offset mismatch!");
+        static_assert(offsetof(Goldfish, irq_enable) == RTC_IRQ_ENABLE, "irq_enable offset mismatch!");
+        static_assert(offsetof(Goldfish, int_flag) == RTC_INT_FLAG, "int_flag offset mismatch!");
+        static_assert(sizeof(rtc_t) == 4, "rtc_t size mismatch!");
+        static_assert(sizeof(Goldfish) == RTC_REG_SIZE, "GoldfishRTC register struct size mismatch!");
 
-        static_assert(sizeof(Goldfish) == RTC_REG_SIZE);
-
-        volatile Goldfish *goldfish = nullptr;
+        volatile Goldfish *regs = nullptr;
 
         friend class GoldfishRTCFactory;
     };

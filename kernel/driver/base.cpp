@@ -49,10 +49,10 @@ namespace driver {
      *
      * @param node 设备节点非拥有指针.
      */
-    DriverBase::DriverBase(const device::DeviceNode &node) noexcept
-        : _node(&node),
-          _virqs(device::DevResManager::get_virq_resource(node)),
-          _mmios(device::DevResManager::get_mmio_resource(node)) {}
+    DriverBase::DriverBase(ResPack res) noexcept
+        : _node(res.node),
+          _virqs(std::move(res.virqs)),
+          _mmios(std::move(res.mmios)) {}
 
     DriverBase::~DriverBase() noexcept {
         for (auto &virq_resource : _virqs) {

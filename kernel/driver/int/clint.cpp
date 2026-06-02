@@ -17,14 +17,14 @@ namespace driver {
      * @brief 创建一个 CLINT 设备驱动.
      */
     Result<util::owner<Clint *>> Clint::create(
-        device::DeviceNode *node, intc_t identifier, device::cpuid_t hart_id,
+        ResPack res, intc_t identifier, device::cpuid_t hart_id,
         std::vector<device::cpuid_t> target_harts) noexcept {
-        if (node == nullptr) {
+        if (res.node == nullptr) {
             loggers::INTERRUPT::ERROR("Clint 创建失败: node 为空");
             unexpect_return(ErrCode::NULLPTR);
         }
-        auto *device =
-            new Clint(*node, identifier, hart_id, std::move(target_harts));
+        auto *device = new Clint(std::move(res), identifier, hart_id,
+                                 std::move(target_harts));
         if (device == nullptr) {
             loggers::INTERRUPT::ERROR("Clint 创建失败: 内存不足");
             unexpect_return(ErrCode::OUT_OF_MEMORY);
@@ -55,10 +55,10 @@ namespace driver {
     /**
      * @brief 构造一个 CLINT 设备驱动.
      */
-    Clint::Clint(const device::DeviceNode &node, intc_t identifier,
+    Clint::Clint(ResPack res, intc_t identifier,
                  device::cpuid_t hart_id,
                  std::vector<device::cpuid_t> target_harts) noexcept
-        : device::IrqChip(node),
+        : device::IrqChip(std::move(res)),
           _identifier(identifier),
           _hart_id(hart_id),
           _target_harts(std::move(target_harts)) {}

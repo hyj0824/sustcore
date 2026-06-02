@@ -23,14 +23,14 @@ namespace driver {
      * @brief 创建一个 PLIC 设备驱动.
      */
     Result<util::owner<Plic *>> Plic::create(
-        device::DeviceNode *node, intc_t identifier, hwirq_t source_count,
+        ResPack res, intc_t identifier, hwirq_t source_count,
         std::vector<PlicContext> contexts) noexcept {
-        if (node == nullptr) {
+        if (res.node == nullptr) {
             loggers::INTERRUPT::ERROR("Plic 创建失败: node 为空");
             unexpect_return(ErrCode::NULLPTR);
         }
-        auto *device =
-            new Plic(*node, identifier, source_count, std::move(contexts));
+        auto *device = new Plic(std::move(res), identifier, source_count,
+                                std::move(contexts));
         if (device == nullptr) {
             loggers::INTERRUPT::ERROR("Plic 创建失败: 内存不足");
             unexpect_return(ErrCode::OUT_OF_MEMORY);
@@ -56,9 +56,9 @@ namespace driver {
     /**
      * @brief 构造一个 PLIC 设备驱动.
      */
-    Plic::Plic(const device::DeviceNode &node, intc_t identifier,
+    Plic::Plic(ResPack res, intc_t identifier,
                hwirq_t source_count, std::vector<PlicContext> contexts) noexcept
-        : device::IrqChip(node),
+        : device::IrqChip(std::move(res)),
           _identifier(identifier),
           _source_count(source_count),
           _contexts(std::move(contexts)) {}
@@ -123,17 +123,45 @@ namespace driver {
             unexpect_return(ErrCode::FAILURE);
         }
         assert(mmio_resources().front() != nullptr);
+        auto *mmio = mmio_resources().front().get();
+        assert(mmio != nullptr);
         auto base_res = device::MMIOManager::inst().map_to_kernel(
-            *mmio_resources().front());
+            *mmio);
         if (!base_res.has_value()) {
             loggers::INTERRUPT::ERROR("Plic 创建失败: MMIO 映射失败 err=%s",
                                       to_cstring(base_res.error()));
             propagate_return(base_res);
         }
-        _base = reinterpret_cast<volatile sus_u32 *>(base_res.value().addr());
+        _base = base_res.value().as<char>();
+        _mmio_range = mmio->region().size();
+        _max_supported_contexts =
+            _mmio_range > PLIC_CRSR ? (_mmio_range - PLIC_CRSR) / sizeof(CRSR)
+                                    : 0;
+        _intprios_base =
+            reinterpret_cast<volatile IntPrios *>(_base + PLIC_INTPRIO);
+        _ipbs_base = reinterpret_cast<volatile IPBs *>(_base + PLIC_IPB);
+        _iebs_base = reinterpret_cast<volatile IEBs *>(_base + PLIC_IEB);
+        _crsrs_base = reinterpret_cast<volatile CRSRs *>(_base + PLIC_CRSR);
+        loggers::INTERRUPT::INFO(
+            "Plic[%u] MMIO 初始化完成: range=0x%llx max_contexts=%u",
+            identifier(), static_cast<unsigned long long>(_mmio_range),
+            static_cast<unsigned>(_max_supported_contexts));
         for (const auto &context : contexts()) {
+            auto context_res = validate_context(context.context_index);
+            if (!context_res.has_value()) {
+                loggers::INTERRUPT::ERROR(
+                    "Plic[%u] context 越界: hart=%u context=%u max_contexts=%u",
+                    identifier(), context.hart_id,
+                    static_cast<unsigned>(context.context_index),
+                    static_cast<unsigned>(_max_supported_contexts));
+                propagate_return(context_res);
+            }
             _context_indices[context.hart_id] = context.context_index;
-            write32(Plic::threshold_offset(context.context_index), 0);
+            _crsrs_base->crsrs[context.context_index].threshold = 0;
+            loggers::INTERRUPT::DEBUG(
+                "Plic[%u] 初始化 context threshold: hart=%u context=%u",
+                identifier(), context.hart_id,
+                static_cast<unsigned>(context.context_index));
         }
         void_return();
     }
@@ -143,6 +171,10 @@ namespace driver {
      */
     Plic::~Plic() {
         _base        = nullptr;
+        _intprios_base = nullptr;
+        _ipbs_base     = nullptr;
+        _iebs_base     = nullptr;
+        _crsrs_base    = nullptr;
         _irqman      = nullptr;
         _self_domain = nullptr;
     }
@@ -360,29 +392,32 @@ namespace driver {
         if (hw_irq == 0) {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
-        if (hw_irq > source_count()) {
+        if (hw_irq > source_count() || hw_irq > PLIC_MAX_SOURCES) {
             unexpect_return(ErrCode::OUT_OF_BOUNDARY);
         }
         void_return();
     }
 
     /**
-     * @brief 读取 32 位寄存器.
+     * @brief 校验 context 编号是否合法.
      */
-    sus_u32 Plic::read32(size_t offset) const noexcept {
-        assert(_base != nullptr);
-        return *reinterpret_cast<volatile sus_u32 *>(
-            reinterpret_cast<addr_t>(const_cast<sus_u32 *>(_base)) + offset);
+    Result<void> Plic::validate_context(size_t context_index) const noexcept {
+        if (context_index >= PLIC_MAX_CONTEXTS ||
+            context_index >= _max_supported_contexts)
+        {
+            unexpect_return(ErrCode::OUT_OF_BOUNDARY);
+        }
+        void_return();
     }
 
     /**
-     * @brief 写入 32 位寄存器.
+     * @brief 校验 context 与中断源组合是否合法.
      */
-    void Plic::write32(size_t offset, sus_u32 value) noexcept {
-        assert(_base != nullptr);
-        *reinterpret_cast<volatile sus_u32 *>(
-            reinterpret_cast<addr_t>(const_cast<sus_u32 *>(_base)) + offset) =
-            value;
+    Result<void> Plic::validate_context_source(size_t context_index,
+                                               hwirq_t hw_irq) const noexcept {
+        propagate(validate_context(context_index));
+        propagate(validate_source(hw_irq));
+        void_return();
     }
 
     /**
@@ -393,10 +428,24 @@ namespace driver {
         propagate(valid_res);
 
         for (const auto &context : contexts()) {
-            size_t offset = enable_offset(context.context_index, hw_irq);
-            sus_u32 mask  = static_cast<sus_u32>(1u << (hw_irq % 32));
-            sus_u32 value = read32(offset) | mask;
-            write32(offset, value);
+            auto context_res =
+                validate_context_source(context.context_index, hw_irq);
+            if (!context_res.has_value()) {
+                loggers::INTERRUPT::ERROR(
+                    "Plic[%u] enable 越界: context=%u hwirq=%u",
+                    identifier(), static_cast<unsigned>(context.context_index),
+                    static_cast<unsigned>(hw_irq));
+                propagate_return(context_res);
+            }
+            size_t word_index = static_cast<size_t>(hw_irq / 32);
+            sus_u32 mask      = static_cast<sus_u32>(1u << (hw_irq % 32));
+            auto &reg = _iebs_base->ieb[context.context_index][word_index];
+            reg       = reg | mask;
+            loggers::INTERRUPT::DEBUG(
+                "Plic[%u] enable hwirq=%u context=%u word=%u mask=0x%x",
+                identifier(), static_cast<unsigned>(hw_irq),
+                static_cast<unsigned>(context.context_index),
+                static_cast<unsigned>(word_index), mask);
         }
         void_return();
     }
@@ -409,10 +458,24 @@ namespace driver {
         propagate(valid_res);
 
         for (const auto &context : contexts()) {
-            size_t offset = enable_offset(context.context_index, hw_irq);
-            sus_u32 mask  = static_cast<sus_u32>(1u << (hw_irq % 32));
-            sus_u32 value = read32(offset) & ~mask;
-            write32(offset, value);
+            auto context_res =
+                validate_context_source(context.context_index, hw_irq);
+            if (!context_res.has_value()) {
+                loggers::INTERRUPT::ERROR(
+                    "Plic[%u] disable 越界: context=%u hwirq=%u",
+                    identifier(), static_cast<unsigned>(context.context_index),
+                    static_cast<unsigned>(hw_irq));
+                propagate_return(context_res);
+            }
+            size_t word_index = static_cast<size_t>(hw_irq / 32);
+            sus_u32 mask      = static_cast<sus_u32>(1u << (hw_irq % 32));
+            auto &reg = _iebs_base->ieb[context.context_index][word_index];
+            reg       = reg & ~mask;
+            loggers::INTERRUPT::DEBUG(
+                "Plic[%u] disable hwirq=%u context=%u word=%u mask=0x%x",
+                identifier(), static_cast<unsigned>(hw_irq),
+                static_cast<unsigned>(context.context_index),
+                static_cast<unsigned>(word_index), mask);
         }
         void_return();
     }
@@ -423,7 +486,10 @@ namespace driver {
     Result<void> Plic::set_priority(hwirq_t hw_irq, domain_t prio) noexcept {
         auto valid_res = validate_source(hw_irq);
         propagate(valid_res);
-        write32(priority_offset(hw_irq), prio);
+        _intprios_base->int_prios[hw_irq] = prio;
+        loggers::INTERRUPT::DEBUG("Plic[%u] set_priority hwirq=%u prio=%u",
+                                  identifier(), static_cast<unsigned>(hw_irq),
+                                  static_cast<unsigned>(prio));
         void_return();
     }
 
@@ -449,6 +515,16 @@ namespace driver {
         auto hart_id = static_cast<device::cpuid_t>(env::hart_ctx->hart_id());
         auto context_res = context_for_hart(hart_id);
         propagate(context_res);
+        auto valid_context_res =
+            validate_context(context_res.value().get().context_index);
+        if (!valid_context_res.has_value()) {
+            loggers::INTERRUPT::ERROR(
+                "Plic[%u] ack 越界: hart=%u context=%u hwirq=%u", identifier(),
+                hart_id,
+                static_cast<unsigned>(context_res.value().get().context_index),
+                static_cast<unsigned>(hw_irq));
+            propagate_return(valid_context_res);
+        }
 
         auto claimed_it = _claimed_sources.find(hart_id);
         if (claimed_it == _claimed_sources.end()) {
@@ -458,8 +534,13 @@ namespace driver {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
 
-        write32(claim_complete_offset(context_res.value().get().context_index),
-                hw_irq);
+        _crsrs_base->crsrs[context_res.value().get().context_index].complete =
+            hw_irq;
+        loggers::INTERRUPT::DEBUG("Plic[%u] complete hwirq=%u hart=%u context=%u",
+                                  identifier(), static_cast<unsigned>(hw_irq),
+                                  hart_id,
+                                  static_cast<unsigned>(
+                                      context_res.value().get().context_index));
         _claimed_sources.erase(claimed_it);
         void_return();
     }
@@ -486,10 +567,19 @@ namespace driver {
         auto hart_id = static_cast<device::cpuid_t>(env::hart_ctx->hart_id());
         auto context_res = context_for_hart(hart_id);
         propagate(context_res);
+        auto valid_context_res =
+            validate_context(context_res.value().get().context_index);
+        if (!valid_context_res.has_value()) {
+            loggers::INTERRUPT::ERROR(
+                "Plic[%u] claim 越界: hart=%u context=%u", identifier(),
+                hart_id,
+                static_cast<unsigned>(context_res.value().get().context_index));
+            propagate_return(valid_context_res);
+        }
 
         // 读取 claim 寄存器获得中断源编号
-        auto source = static_cast<hwirq_t>(read32(
-            claim_complete_offset(context_res.value().get().context_index)));
+        auto source = static_cast<hwirq_t>(
+            _crsrs_base->crsrs[context_res.value().get().context_index].claim);
         if (source == 0) {
             unexpect_return(ErrCode::ENTRY_NOT_FOUND);
         }
@@ -498,6 +588,11 @@ namespace driver {
         auto valid_res = validate_source(source);
         propagate(valid_res);
         _claimed_sources[hart_id] = source;
+        loggers::INTERRUPT::DEBUG("Plic[%u] claim hwirq=%u hart=%u context=%u",
+                                  identifier(), static_cast<unsigned>(source),
+                                  hart_id,
+                                  static_cast<unsigned>(
+                                      context_res.value().get().context_index));
         return source;
     }
 }  // namespace driver

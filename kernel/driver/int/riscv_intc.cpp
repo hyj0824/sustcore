@@ -18,14 +18,14 @@ namespace driver {
      * @brief 创建一个 CPU 本地中断设备驱动.
      */
     Result<util::owner<RiscVIntC *>> RiscVIntC::create(
-        device::DeviceNode *node, intc_t identifier,
+        ResPack res, intc_t identifier,
         device::cpuid_t hart_id) noexcept {
-        if (node == nullptr) {
+        if (res.node == nullptr) {
             loggers::INTERRUPT::ERROR("RiscVIntC 创建失败: node 为空");
             unexpect_return(ErrCode::NULLPTR);
         }
 
-        auto *device = new RiscVIntC(*node, identifier, hart_id);
+        auto *device = new RiscVIntC(std::move(res), identifier, hart_id);
         if (device == nullptr) {
             loggers::INTERRUPT::ERROR("RiscVIntC 创建失败: 内存不足");
             unexpect_return(ErrCode::OUT_OF_MEMORY);
@@ -39,9 +39,9 @@ namespace driver {
     /**
      * @brief 构造一个 CPU 本地中断设备驱动.
      */
-    RiscVIntC::RiscVIntC(const device::DeviceNode &node, intc_t identifier,
+    RiscVIntC::RiscVIntC(ResPack res, intc_t identifier,
                          device::cpuid_t hart_id) noexcept
-        : device::IrqChip(node),
+        : device::IrqChip(std::move(res)),
           _identifier(identifier),
           _hart_id(hart_id) {}
 

@@ -936,6 +936,8 @@ namespace fdt {
                 if (_candidates == nullptr) {
                     unexpect_return(ErrCode::INVALID_PARAM);
                 }
+                loggers::DEVICE::INFO("开始创建 RiscVIntC 驱动: name=%s",
+                                      node.name());
                 auto &fdt_node      = static_cast<const FDTDeviceNode &>(node);
                 const auto *matched = std::ranges::find_if(
                     *_candidates,
@@ -946,8 +948,11 @@ namespace fdt {
                 if (matched == _candidates->end()) {
                     unexpect_return(ErrCode::ENTRY_NOT_FOUND);
                 }
+                auto virqs = device::DevResManager::get_virq_resource(node);
+                auto mmios = device::DevResManager::get_mmio_resource(node);
                 auto device_owner_res = driver::RiscVIntC::create(
-                    const_cast<device::DeviceNode *>(&node),
+                    driver::DriverBase::ResPack(
+                        node, std::move(virqs), std::move(mmios)),
                     matched->identifier, matched->hart_id);
                 propagate(device_owner_res);
                 auto &root   = *device_owner_res.value();
@@ -1002,6 +1007,8 @@ namespace fdt {
                 {
                     unexpect_return(ErrCode::INVALID_PARAM);
                 }
+                loggers::DEVICE::INFO("开始创建 Clint 驱动: name=%s",
+                                      node.name());
                 auto *fdt_node = static_cast<const FDTDeviceNode *>(&node);
 
                 auto refs_res = _provider->parse_interrupts_extended_view(
@@ -1013,9 +1020,12 @@ namespace fdt {
                 if (target_harts.empty()) {
                     unexpect_return(ErrCode::ENTRY_NOT_FOUND);
                 }
+                auto virqs = device::DevResManager::get_virq_resource(node);
+                auto mmios = device::DevResManager::get_mmio_resource(node);
 
                 auto device_owner_res = driver::Clint::create(
-                    const_cast<device::DeviceNode *>(&node),
+                    driver::DriverBase::ResPack(
+                        node, std::move(virqs), std::move(mmios)),
                     fdt_node->raw_node().phandle != 0
                         ? static_cast<intc_t>(
                               fdt_node->raw_node().phandle)
@@ -1075,6 +1085,8 @@ namespace fdt {
                 {
                     unexpect_return(ErrCode::INVALID_PARAM);
                 }
+                loggers::DEVICE::INFO("开始创建 Plic 驱动: name=%s",
+                                      node.name());
                 auto *fdt_node = static_cast<const FDTDeviceNode *>(&node);
 
                 auto refs_res = _provider->parse_interrupts_extended_view(
@@ -1135,9 +1147,12 @@ namespace fdt {
                 if (ndev_it == fdt_node->raw_node().properties.end()) {
                     unexpect_return(ErrCode::ENTRY_NOT_FOUND);
                 }
+                auto virqs = device::DevResManager::get_virq_resource(node);
+                auto mmios = device::DevResManager::get_mmio_resource(node);
 
                 auto device_owner_res = driver::Plic::create(
-                    const_cast<device::DeviceNode *>(&node),
+                    driver::DriverBase::ResPack(
+                        node, std::move(virqs), std::move(mmios)),
                     fdt_node->raw_node().phandle != 0
                         ? static_cast<intc_t>(
                               fdt_node->raw_node().phandle)

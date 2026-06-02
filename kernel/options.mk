@@ -1,6 +1,6 @@
 component-kind := kernel
 component-name := kernel
-component-variants := default physical
+component-variants := default
 
 attachments := initrd.tar.attachment.o
 
@@ -8,11 +8,6 @@ variant.default.target := $(path-kernel)
 variant.default.dir-obj := $(path-objects)/kernel
 variant.default.script-ld := $(component-root)/arch/$(architecture)/kernel.ld
 variant.default.libraries := kersbi kerbasecpp fdt
-
-variant.physical.target := $(path-kernel-phy)
-variant.physical.dir-obj := $(path-objects)/kernel
-variant.physical.script-ld := $(component-root)/arch/$(architecture)/kernel-phy.ld
-variant.physical.libraries := kersbi kerbasecpp fdt
 
 flags-ld := $(flags-kernel-ld) $(flags-common-ld) $(flags-mode-ld)
 

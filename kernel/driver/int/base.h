@@ -71,13 +71,16 @@ namespace driver {
     class IrqChip : public DriverBase {
     public:
         /**
-         * @brief 使用设备节点构造中断控制器对象.
+         * @brief 使用驱动资源包构造中断控制器对象.
          *
-         * @param node 统一设备节点引用.
+         * @param res 设备节点与资源集合.
          */
-        explicit IrqChip(const device::DeviceNode &node) noexcept : DriverBase(node) {}
+        explicit IrqChip(ResPack res) noexcept : DriverBase(std::move(res)) {}
 
-        virtual ~IrqChip() = default;
+        /**
+         * @brief 销毁中断控制器对象.
+         */
+        virtual ~IrqChip() noexcept = default;
         [[nodiscard]]
         virtual std::vector<PhyArea> mmio_regions() const noexcept = 0;
         [[nodiscard]]

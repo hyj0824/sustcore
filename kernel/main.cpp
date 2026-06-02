@@ -460,6 +460,11 @@ void after_init() {
         "google,goldfish-rtc");
     loggers::SUSTCORE::INFO("兼容 google,goldfish-rtc 的设备数量: %u",
                             static_cast<unsigned>(devices2.size()));
+
+    csr_senvcfg_t senvcfg = csr_get_senvcfg();
+    loggers::SUSTCORE::INFO("senvcfg: 0x%08x", senvcfg.value);
+    loggers::SUSTCORE::INFO("PBMT: %s", senvcfg.pbmt ? "启用" : "禁用");
+
     if (devices2.size() > 0) {
         auto *rtc_device = devices2[0];
         // 注册其驱动
@@ -472,12 +477,16 @@ void after_init() {
             loggers::SUSTCORE::INFO("已为 google,goldfish-rtc 设备创建驱动");
             auto *driver =
                 static_cast<driver::GoldfishRTC *>(create_res.value());
-            // auto time = driver->read_time();
-            // loggers::SUSTCORE::INFO(
-            //     "当前 RTC 时间: %llu 秒",
-            //     static_cast<unsigned long long>(time.to_seconds()));
+            auto time    = driver->read_time();
+            auto rt_time = units::rt_time::from_seconds(time.to_seconds());
+            auto ft      = rt_time.to_formatted_time();
             loggers::SUSTCORE::INFO(
-                "driver: %p", driver);
+                "当前 RTC 时间: %04lld-%02lld-%02lld %02lld:%02lld:%02lld",
+                static_cast<long long>(ft.year),
+                static_cast<long long>(ft.month),
+                static_cast<long long>(ft.day), static_cast<long long>(ft.hour),
+                static_cast<long long>(ft.minute),
+                static_cast<long long>(ft.second));
         }
     }
 

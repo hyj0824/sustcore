@@ -19,17 +19,15 @@ namespace driver {
     /**
      * @brief 构造一个串口设备驱动.
      */
-    SerialDevice::SerialDevice(const device::DeviceNode &node,
-                               units::frequency clock_frequency) noexcept
-        : DriverBase(node),
-          _clock_frequency(clock_frequency) {
+    SerialDevice::SerialDevice(ResPack res, units::frequency clock_frequency,
+                               char *base) noexcept
+        : DriverBase(std::move(res)),
+          _clock_frequency(clock_frequency),
+          _base(reinterpret_cast<volatile UART *>(base)) {
         assert(_mmios.size() >= 1);
         auto *mmio = _mmios[0].get();
         assert(mmio != nullptr);
-        assert(mmio->region().size() >= sizeof(NS16550));
-        auto map_res = device::MMIOManager::inst().map_to_kernel(*mmio);
-        assert(map_res.has_value());
-        uart = map_res.value().as<NS16550>();
+        assert(mmio->region().size() >= UART_REG_SIZE);
     }
 
     /**
@@ -39,12 +37,12 @@ namespace driver {
         return _clock_frequency;
     }
 
-    void SerialDevice::writec(char ch) {
-        uart->thr = static_cast<uart_t>(ch) & 0xFF;
+    void SerialDevice::writec(char ch) noexcept {
+        _base->thr = static_cast<uart_t>(ch) & 0xFF;
     }
 
-    void SerialDevice::write(const char *str, size_t len) {
-        for (int i = 0; i < len; ++i) {
+    void SerialDevice::write(const char *str, size_t len) noexcept {
+        for (size_t i = 0; i < len; ++i) {
             writec(str[i]);
         }
     }
@@ -62,8 +60,8 @@ namespace driver {
     Result<DriverBase *> SerialDeviceFactory::create(
         const device::DeviceNode &node, device::DeviceModel &model) const {
         (void)model;
+        loggers::DEVICE::INFO("开始创建设备驱动: serial name=%s", node.name());
 
-        // 读取时钟频率
         auto load_res = SerialDevice::__load_integral(
             node, SerialDevice::CLOCK_FREQUENCY_PROP, sizeof(sus_u32));
         propagate(load_res);
@@ -72,8 +70,37 @@ namespace driver {
             loggers::DEVICE::ERROR("SerialDevice 创建失败: 时钟频率为 0");
             unexpect_return(ErrCode::INVALID_PARAM);
         }
+        loggers::DEVICE::DEBUG(
+            "SerialDevice[%s] 时钟频率=%llu Hz", node.name(),
+            static_cast<unsigned long long>(clock_frequency.to_hz()));
 
-        auto *device = new SerialDevice(node, clock_frequency);
+        auto virqs = device::DevResManager::get_virq_resource(node);
+        auto mmios = device::DevResManager::get_mmio_resource(node);
+        if (mmios.empty()) {
+            loggers::DEVICE::ERROR("SerialDevice 创建失败: 缺少 MMIO 资源");
+            unexpect_return(ErrCode::ENTRY_NOT_FOUND);
+        }
+        auto *mmio = mmios.front().get();
+        assert(mmio != nullptr);
+        if (mmio->region().size() < SerialDevice::UART_REG_SIZE) {
+            loggers::DEVICE::ERROR(
+                "SerialDevice 创建失败: MMIO 区域过小 size=%llu need=%llu",
+                static_cast<unsigned long long>(mmio->region().size()),
+                static_cast<unsigned long long>(SerialDevice::UART_REG_SIZE));
+            unexpect_return(ErrCode::OUT_OF_BOUNDARY);
+        }
+        auto map_res = device::MMIOManager::inst().map_to_kernel(*mmio);
+        if (!map_res.has_value()) {
+            loggers::DEVICE::ERROR(
+                "SerialDevice 创建失败: MMIO 映射失败 err=%s",
+                to_cstring(map_res.error()));
+            propagate_return(map_res);
+        }
+        auto res_pack =
+            DriverBase::ResPack(node, std::move(virqs), std::move(mmios));
+
+        auto *device = new SerialDevice(std::move(res_pack), clock_frequency,
+                                        map_res.value().as<char>());
         if (device == nullptr) {
             loggers::DEVICE::ERROR("SerialDevice 创建失败: 内存不足");
             unexpect_return(ErrCode::OUT_OF_MEMORY);

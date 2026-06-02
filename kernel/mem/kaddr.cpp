@@ -20,7 +20,6 @@ addr_t g_kpa_offset = 0;
 namespace ker_paddr {
     Segment kernel;
     Segment text;
-    Segment ivt;
     Segment rodata;
     Segment data;
     Segment bss;
@@ -44,7 +43,6 @@ namespace ker_paddr {
     void init() {
         ker_paddr::kernel = make_kva_seg(&skernel, &ekernel);
         ker_paddr::text   = make_kva_seg(&s_text, &e_text);
-        ker_paddr::ivt    = make_kva_seg(&s_ivt, &e_ivt);
         ker_paddr::rodata = make_kva_seg(&s_rodata, &e_rodata);
         ker_paddr::data   = make_kva_seg(&s_data, &e_data);
         ker_paddr::bss    = make_kva_seg(&s_bss, &e_bss);

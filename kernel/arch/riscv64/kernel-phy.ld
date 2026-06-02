@@ -18,13 +18,6 @@ SECTIONS
         e_text = .;
     }
 
-    s_ivt = .;
-    .ivt : {
-        *(.ivt .ivt.*)
-        . = ALIGN(4K);
-        e_ivt = .;
-    }
-
     . = ALIGN(4K);
     s_rodata = .;
     .rodata : {
@@ -62,10 +55,13 @@ SECTIONS
     . = ALIGN(4K);
     s_misc = .;
 
-    . = ALIGN(4K);
-    .comment : { *(.comment .comment.*) }
-    .riscv.attributes : { *(.riscv.attributes .riscv.attributes.*) }
-
     . = ALIGN(2M);
     ekernel = .;
+
+    /DISCARD/ : {
+        *(.comment)
+        *(.riscv.attributes .riscv.attributes.*)
+        *(.eh_frame*)
+        *(.note .note.*)
+    }
 }

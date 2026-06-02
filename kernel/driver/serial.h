@@ -54,47 +54,33 @@ namespace driver {
             return NS16550A_COMPATIBLE;
         }
 
-        void writec(char ch);
-        void write(const char *str, size_t len);
+        /**
+         * @brief 向 UART 发送一个字符.
+         *
+         * @param ch 待发送字符.
+         */
+        void writec(char ch) noexcept;
+
+        /**
+         * @brief 向 UART 连续发送字符串数据.
+         *
+         * @param str 待发送缓冲区.
+         * @param len 缓冲区长度.
+         */
+        void write(const char *str, size_t len) noexcept;
 
     private:
         /**
          * @brief 构造一个串口驱动.
          *
-         * @param node 统一串口设备节点引用指针.
-         * @param name 设备名称.
+         * @param res 统一串口设备资源.
          * @param clock_frequency UART 输入时钟频率.
+         * @param base 已映射的 UART MMIO 基址.
          */
-        SerialDevice(const device::DeviceNode &node,
-                     units::frequency clock_frequency) noexcept;
+        SerialDevice(ResPack res, units::frequency clock_frequency,
+                     char *base) noexcept;
 
         using uart_t = sus_u32;
-        struct NS16550 {
-            union {
-                uart_t rbr;
-                uart_t thr;
-                uart_t dll;
-            };
-            union {
-                uart_t dlh;
-                uart_t ier;
-            };
-            union {
-                uart_t iir;
-                uart_t fcr;
-            };
-            uart_t lcr;
-            uart_t mcr;
-            uart_t lsr;
-            uart_t msr;
-            uart_t sch;
-            uart_t __rsvd1[23];
-            uart_t usr;
-            uart_t tfl;
-            uart_t rfl;
-            uart_t __rsvd2[7];
-            uart_t halt;
-        } __attribute__((packed));
         constexpr static size_t UART_RBR  = 0x00;
         constexpr static size_t UART_THR  = 0x00;
         constexpr static size_t UART_DLL  = 0x00;
@@ -113,27 +99,57 @@ namespace driver {
         constexpr static size_t UART_HALT = 0xA4;
         constexpr static size_t UART_REG_SIZE = 0xA8;
 
-        static_assert(offsetof(NS16550, rbr) == UART_RBR);
-        static_assert(offsetof(NS16550, thr) == UART_THR);
-        static_assert(offsetof(NS16550, dll) == UART_DLL);
-        static_assert(offsetof(NS16550, dlh) == UART_DLH);
-        static_assert(offsetof(NS16550, ier) == UART_IER);
-        static_assert(offsetof(NS16550, iir) == UART_IIR);
-        static_assert(offsetof(NS16550, fcr) == UART_FCR);
-        static_assert(offsetof(NS16550, lcr) == UART_LCR);
-        static_assert(offsetof(NS16550, mcr) == UART_MCR);
-        static_assert(offsetof(NS16550, lsr) == UART_LSR);
-        static_assert(offsetof(NS16550, msr) == UART_MSR);
-        static_assert(offsetof(NS16550, sch) == UART_SCH);
-        static_assert(offsetof(NS16550, usr) == UART_USR);
-        static_assert(offsetof(NS16550, tfl) == UART_TFL);
-        static_assert(offsetof(NS16550, rfl) == UART_RFL);
-        static_assert(offsetof(NS16550, halt) == UART_HALT);
-
-        static_assert(sizeof(NS16550) == UART_REG_SIZE);
-
         units::frequency _clock_frequency = units::frequency::from_hz(0);
-        volatile NS16550 *uart = nullptr;
+        
+        
+        struct UART
+        {
+            union {
+                uart_t rbr;
+                uart_t thr;
+                uart_t dll;
+            };
+            union {
+                uart_t dlh;
+                uart_t ier;
+            };
+            union {
+                uart_t iir;
+                uart_t fcr;
+            };
+            uart_t lcr;
+            uart_t mcr;
+            uart_t lsr;
+            uart_t msr;
+            uart_t sch;
+            char padding1[92];
+            uart_t usr;
+            uart_t tfl;
+            uart_t rfl;
+            char padding2[28];
+            uart_t halt;
+        };
+
+        static_assert(offsetof(UART, rbr) == UART_RBR, "RBR offset mismatch!");
+        static_assert(offsetof(UART, thr) == UART_THR, "THR offset mismatch!");
+        static_assert(offsetof(UART, dll) == UART_DLL, "DLL offset mismatch!");
+        static_assert(offsetof(UART, dlh) == UART_DLH, "DLH offset mismatch!");
+        static_assert(offsetof(UART, ier) == UART_IER, "IER offset mismatch!");
+        static_assert(offsetof(UART, iir) == UART_IIR, "IIR offset mismatch!");
+        static_assert(offsetof(UART, fcr) == UART_FCR, "FCR offset mismatch!");
+        static_assert(offsetof(UART, lcr) == UART_LCR, "LCR offset mismatch!");
+        static_assert(offsetof(UART, mcr) == UART_MCR, "MCR offset mismatch!");
+        static_assert(offsetof(UART, lsr) == UART_LSR, "LSR offset mismatch!");
+        static_assert(offsetof(UART, msr) == UART_MSR, "MSR offset mismatch!");
+        static_assert(offsetof(UART, sch) == UART_SCH, "SCH offset mismatch!");
+        static_assert(offsetof(UART, usr) == UART_USR, "USR offset mismatch!");
+        static_assert(offsetof(UART, tfl) == UART_TFL, "TFL offset mismatch!");
+        static_assert(offsetof(UART, rfl) == UART_RFL, "RFL offset mismatch!");
+        static_assert(offsetof(UART, halt) == UART_HALT, "HALT offset mismatch!");
+        static_assert(sizeof(UART) == UART_REG_SIZE,
+                      "UART struct size mismatch!");
+
+        volatile UART *_base;
 
         friend class SerialDeviceFactory;
     };

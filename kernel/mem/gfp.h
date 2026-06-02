@@ -21,7 +21,7 @@
  * RawGFPImpl 只负责实际页框的分配与释放, 不维护页框共享状态. 
  * GFP 在此基础上叠加引用计数, 用于支持 fork 后的 COW 页面共享. 
  */
-using RawGFPImpl = BuddyAllocator;
+using RawGFPImpl = LinearGrowGFP;
 
 /**
  * @brief 带引用计数管理的页框分配器接口. 
