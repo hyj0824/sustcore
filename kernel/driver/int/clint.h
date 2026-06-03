@@ -33,7 +33,7 @@ namespace driver {
          */
         [[nodiscard]]
         static Result<util::owner<Clint *>> create(
-            ResPack res, intc_t identifier, device::cpuid_t hart_id,
+            DevRes res, intc_t identifier, device::cpuid_t hart_id,
             std::vector<device::cpuid_t> target_harts) noexcept;
 
         /**
@@ -43,8 +43,6 @@ namespace driver {
 
         [[nodiscard]]
         std::string_view compatible() const noexcept override;
-        [[nodiscard]]
-        std::vector<PhyArea> mmio_regions() const noexcept;
         [[nodiscard]]
         intc_t identifier() const noexcept;
         [[nodiscard]]
@@ -68,7 +66,7 @@ namespace driver {
         Result<void> set_affinity(hwirq_t hw_irq,
                                   cpu_mask_t mask) noexcept override;
         [[nodiscard]]
-        Result<void> ack_irq(hwirq_t hw_irq) noexcept override;
+        Result<void> ack(const IrqEvent &event) noexcept override;
         [[nodiscard]]
         Result<void> set_trigger(hwirq_t hw_irq,
                                  device::IrqTrigger trigger) noexcept override;
@@ -82,7 +80,7 @@ namespace driver {
          * @param hart_id 默认 hart.
          * @param target_harts 目标 hart 集合.
          */
-        Clint(ResPack res, intc_t identifier,
+        Clint(DevRes res, intc_t identifier,
               device::cpuid_t hart_id,
               std::vector<device::cpuid_t> target_harts) noexcept;
 

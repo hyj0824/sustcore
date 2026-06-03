@@ -12,14 +12,18 @@
 #include <arch/riscv64/csr.h>
 #include <driver/int/riscv_intc.h>
 #include <logger.h>
+#include <sus/raii.h>
 
 namespace driver {
+    namespace {
+        constexpr size_t RISCV_INTC_MAX_HW_IRQ = 16;
+    }  // namespace
+
     /**
      * @brief 创建一个 CPU 本地中断设备驱动.
      */
     Result<util::owner<RiscVIntC *>> RiscVIntC::create(
-        ResPack res, intc_t identifier,
-        device::cpuid_t hart_id) noexcept {
+        DevRes res, intc_t identifier, device::cpuid_t hart_id) noexcept {
         if (res.node == nullptr) {
             loggers::INTERRUPT::ERROR("RiscVIntC 创建失败: node 为空");
             unexpect_return(ErrCode::NULLPTR);
@@ -30,23 +34,67 @@ namespace driver {
             loggers::INTERRUPT::ERROR("RiscVIntC 创建失败: 内存不足");
             unexpect_return(ErrCode::OUT_OF_MEMORY);
         }
+        util::Guard device_deleter([device]() { delete device; });
 
-        loggers::INTERRUPT::DEBUG("创建 RiscVIntC 设备: id=%u hart=%u name=%s",
-                                  identifier, hart_id, device->name());
+        auto *domain = new LinearIrqDomain<RISCV_INTC_MAX_HW_IRQ>(
+            static_cast<domain_t>(identifier), device->name(), *device);
+        if (domain == nullptr) {
+            loggers::INTERRUPT::ERROR("RiscVIntC[%u] 创建失败: domain 内存不足",
+                                      identifier);
+            unexpect_return(ErrCode::OUT_OF_MEMORY);
+        }
+        util::Guard domain_deleter([domain]() { delete domain; });
+
+        auto register_res =
+            device->irqman().register_domain(util::owner<IrqDomain *>(domain));
+        if (!register_res.has_value()) {
+            loggers::INTERRUPT::ERROR(
+                "RiscVIntC[%u] 创建失败: 注册 domain 失败 err=%s", identifier,
+                to_cstring(register_res.error()));
+            propagate_return(register_res);
+        }
+
+        auto init_res = device->initialize(domain);
+        if (!init_res.has_value()) {
+            loggers::INTERRUPT::ERROR("RiscVIntC[%u] 初始化失败: err=%s",
+                                      identifier, to_cstring(init_res.error()));
+            propagate_return(init_res);
+        }
+
+        domain_deleter.release();
+        device_deleter.release();
+        loggers::INTERRUPT::INFO("RiscVIntC[%u] 创建成功: hart=%u name=%s",
+                                 identifier, hart_id, device->name());
         return util::owner<RiscVIntC *>(device);
     }
 
     /**
      * @brief 构造一个 CPU 本地中断设备驱动.
      */
-    RiscVIntC::RiscVIntC(ResPack res, intc_t identifier,
+    RiscVIntC::RiscVIntC(DevRes res, intc_t identifier,
                          device::cpuid_t hart_id) noexcept
-        : device::IrqChip(std::move(res)),
-          _identifier(identifier),
-          _hart_id(hart_id) {}
+        : IrqChip(std::move(res)), _identifier(identifier), _hart_id(hart_id) {}
 
+    /**
+     * @brief 获取驱动命中的主 compatible.
+     */
     std::string_view RiscVIntC::compatible() const noexcept {
-        return "riscv,cpu-intc";
+        return COMPATIBLE_STRING;
+    }
+
+    /**
+     * @brief 初始化 RiscVIntC 的中断域关联.
+     */
+    Result<void> RiscVIntC::initialize(IrqDomain *domain) {
+        if (domain == nullptr) {
+            loggers::INTERRUPT::ERROR("RiscVIntC[%u] 初始化失败: domain 为空",
+                                      identifier());
+            unexpect_return(ErrCode::NULLPTR);
+        }
+        _domain = domain;
+        loggers::INTERRUPT::DEBUG("RiscVIntC[%u] 初始化成功: domain=%u hart=%u",
+                                  identifier(), domain->id(), hart_id());
+        void_return();
     }
 
     /**
@@ -135,8 +183,10 @@ namespace driver {
      */
     Result<void> RiscVIntC::set_priority(hwirq_t hw_irq,
                                          domain_t prio) noexcept {
-        (void)hw_irq;
-        (void)prio;
+        loggers::INTERRUPT::DEBUG(
+            "RiscVIntC[%u] set_priority hwirq=%u prio=%u 不支持",
+            identifier(), static_cast<unsigned>(hw_irq),
+            static_cast<unsigned>(prio));
         unexpect_return(ErrCode::NOT_SUPPORTED);
     }
 
@@ -145,26 +195,29 @@ namespace driver {
      */
     Result<void> RiscVIntC::set_affinity(hwirq_t hw_irq,
                                          cpu_mask_t mask) noexcept {
-        (void)hw_irq;
-        (void)mask;
+        loggers::INTERRUPT::DEBUG(
+            "RiscVIntC[%u] set_affinity hwirq=%u mask=0x%llx 不支持",
+            identifier(), static_cast<unsigned>(hw_irq),
+            static_cast<unsigned long long>(mask));
         unexpect_return(ErrCode::NOT_SUPPORTED);
     }
 
     /**
      * @brief 应答中断.
      */
-    Result<void> RiscVIntC::ack_irq(hwirq_t hw_irq) noexcept {
-        (void)hw_irq;
-        unexpect_return(ErrCode::NOT_SUPPORTED);
+    Result<void> RiscVIntC::ack(const IrqEvent &event) noexcept {
+        return enable_irq(event.hw_irq);
     }
 
     /**
      * @brief 设置中断触发方式.
      */
     Result<void> RiscVIntC::set_trigger(hwirq_t hw_irq,
-                                        device::IrqTrigger trigger) noexcept {
-        (void)hw_irq;
-        (void)trigger;
+                                        IrqTrigger trigger) noexcept {
+        loggers::INTERRUPT::DEBUG(
+            "RiscVIntC[%u] set_trigger hwirq=%u trigger=%d 不支持",
+            identifier(), static_cast<unsigned>(hw_irq),
+            static_cast<int>(trigger));
         unexpect_return(ErrCode::NOT_SUPPORTED);
     }
 }  // namespace driver

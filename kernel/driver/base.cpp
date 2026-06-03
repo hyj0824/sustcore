@@ -49,7 +49,7 @@ namespace driver {
      *
      * @param node 设备节点非拥有指针.
      */
-    DriverBase::DriverBase(ResPack res) noexcept
+    DriverBase::DriverBase(DevRes res) noexcept
         : _node(res.node),
           _virqs(std::move(res.virqs)),
           _mmios(std::move(res.mmios)) {}

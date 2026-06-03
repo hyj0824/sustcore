@@ -19,7 +19,7 @@ namespace driver {
     /**
      * @brief 构造一个串口设备驱动.
      */
-    SerialDevice::SerialDevice(ResPack res, units::frequency clock_frequency,
+    SerialDevice::SerialDevice(DevRes res, units::frequency clock_frequency,
                                char *base) noexcept
         : DriverBase(std::move(res)),
           _clock_frequency(clock_frequency),
@@ -97,7 +97,7 @@ namespace driver {
             propagate_return(map_res);
         }
         auto res_pack =
-            DriverBase::ResPack(node, std::move(virqs), std::move(mmios));
+            DriverBase::DevRes(node, std::move(virqs), std::move(mmios));
 
         auto *device = new SerialDevice(std::move(res_pack), clock_frequency,
                                         map_res.value().as<char>());

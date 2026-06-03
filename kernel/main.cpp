@@ -477,16 +477,22 @@ void after_init() {
             loggers::SUSTCORE::INFO("已为 google,goldfish-rtc 设备创建驱动");
             auto *driver =
                 static_cast<driver::GoldfishRTC *>(create_res.value());
-            auto time    = driver->read_time();
-            auto rt_time = units::rt_time::from_seconds(time.to_seconds());
-            auto ft      = rt_time.to_formatted_time();
-            loggers::SUSTCORE::INFO(
-                "当前 RTC 时间: %04lld-%02lld-%02lld %02lld:%02lld:%02lld",
-                static_cast<long long>(ft.year),
-                static_cast<long long>(ft.month),
-                static_cast<long long>(ft.day), static_cast<long long>(ft.hour),
-                static_cast<long long>(ft.minute),
-                static_cast<long long>(ft.second));
+            while (true) {
+                auto time    = driver->read_time();
+                auto rt_time = units::rt_time::from_seconds(time.to_seconds());
+                auto ft      = rt_time.to_formatted_time();
+                loggers::SUSTCORE::INFO(
+                    "当前 RTC 时间: %04lld-%02lld-%02lld %02lld:%02lld:%02lld",
+                    static_cast<long long>(ft.year),
+                    static_cast<long long>(ft.month),
+                    static_cast<long long>(ft.day),
+                    static_cast<long long>(ft.hour),
+                    static_cast<long long>(ft.minute),
+                    static_cast<long long>(ft.second));
+                size_t status = driver->regs->alarm_status;
+                loggers::SUSTCORE::INFO("RTC alarm_status: %#08x", status);
+                for (volatile size_t i = 0; i < 250000000; i += 1);  // 简单延迟
+            }
         }
     }
 

@@ -24,29 +24,29 @@
 #include <string_view>
 #include <vector>
 
-namespace driver
-{
+namespace driver {
     using domain_t                              = b32;
     using irq_prio_t                            = b32;
     using cpu_mask_t                            = b64;
     using virq_t                                = b64;
     using hwirq_t                               = b32;
     using intc_t                                = b32;
-    inline constexpr intc_t INVALID_ICTRL_ID    = static_cast<intc_t>(-1);
-    inline constexpr domain_t INVALID_DOMAIN_ID = static_cast<domain_t>(-1);
+    inline constexpr intc_t INVALID_ICTRL_ID    = 0xFFFFFFFF;
+    inline constexpr domain_t INVALID_DOMAIN_ID = 0xFFFFFFFF;
+    inline constexpr virq_t INVALID_VIRQ        = 0xFFFFFFFF'FFFFFFFFuLL;
 
     struct IrqEvent;
     using IrqHandler = std::function<void(const IrqEvent &)>;
-}
+}  // namespace driver
 
 namespace device {
     // types and constants
-    using driver::domain_t;
-    using driver::irq_prio_t;
     using driver::cpu_mask_t;
-    using driver::virq_t;
+    using driver::domain_t;
     using driver::hwirq_t;
     using driver::intc_t;
+    using driver::irq_prio_t;
+    using driver::virq_t;
     inline constexpr intc_t INVALID_ICTRL_ID    = driver::INVALID_ICTRL_ID;
     inline constexpr domain_t INVALID_DOMAIN_ID = driver::INVALID_DOMAIN_ID;
     using cpuid_t                               = b32;
@@ -178,10 +178,10 @@ namespace device {
         const byte *_data = nullptr;
         size_t _size      = 0;
         std::vector<PhyArea> _regions;
-        bool _virq_lazy   = false;
-        bool _virq_loaded = false;
+        mutable bool _virq_lazy   = false;
+        mutable bool _virq_loaded = false;
         std::function<std::vector<driver::virq_t>()> _virq_loader;
-        std::vector<driver::virq_t> _virqs;
+        mutable std::vector<driver::virq_t> _virqs = {};
     };
 
     /**

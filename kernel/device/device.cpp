@@ -10,6 +10,7 @@
  */
 
 #include <device/device.h>
+
 #include <cstring>
 
 namespace device {
@@ -18,9 +19,7 @@ namespace device {
      */
     DevicePropView::DevicePropView(PropType type, const byte *data,
                                    size_t size) noexcept
-        : _type(type),
-          _data(data),
-          _size(size) {}
+        : _type(type), _data(data), _size(size) {}
 
     /**
      * @brief 使用内部缓存的 region 列表构造属性视图.
@@ -68,16 +67,16 @@ namespace device {
      */
     std::vector<byte> DevicePropView::as_byte_array() const {
         switch (_type) {
-            case PropType::NONE:        return {};
+            case PropType::NONE:         return {};
             case PropType::BYTE_ARRAY:
             case PropType::STRING:
             case PropType::STRING_LIST:
             case PropType::INTEGER:
             case PropType::INTEGER_LIST:
-            case PropType::ANY:         return raw_bytes();
+            case PropType::ANY:          return raw_bytes();
             case PropType::REGION_LIST:
             case PropType::VIRQ_LIST:
-            default:                    return {};
+            default:                     return {};
         }
     }
 
@@ -111,10 +110,9 @@ namespace device {
 
         size_t offset = 0;
         while (offset < _size) {
-            const char *entry =
-                reinterpret_cast<const char *>(_data + offset);
-            size_t remaining = _size - offset;
-            size_t len = strnlen(entry, remaining);
+            const char *entry = reinterpret_cast<const char *>(_data + offset);
+            size_t remaining  = _size - offset;
+            size_t len        = strnlen(entry, remaining);
             if (len == 0) {
                 ++offset;
                 continue;
@@ -176,10 +174,9 @@ namespace device {
             return {};
         }
         if (_virq_lazy && !_virq_loaded) {
-            auto &self = const_cast<DevicePropView &>(*this);
-            self._virqs =
-                self._virq_loader ? self._virq_loader() : std::vector<driver::virq_t>{};
-            self._virq_loaded = true;
+            this->_virqs       = this->_virq_loader ? this->_virq_loader()
+                                                    : std::vector<driver::virq_t>{};
+            this->_virq_loaded = true;
         }
         return _virqs;
     }

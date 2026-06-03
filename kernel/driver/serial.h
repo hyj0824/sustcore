@@ -77,7 +77,7 @@ namespace driver {
          * @param clock_frequency UART 输入时钟频率.
          * @param base 已映射的 UART MMIO 基址.
          */
-        SerialDevice(ResPack res, units::frequency clock_frequency,
+        SerialDevice(DevRes res, units::frequency clock_frequency,
                      char *base) noexcept;
 
         using uart_t = sus_u32;

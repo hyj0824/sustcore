@@ -1,0 +1,1 @@
+riscv64-unknown-elf-addr2line -e ./build/debug/bin/kernel/sustcore.bin -f $1

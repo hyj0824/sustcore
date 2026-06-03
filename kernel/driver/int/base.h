@@ -75,14 +75,12 @@ namespace driver {
          *
          * @param res 设备节点与资源集合.
          */
-        explicit IrqChip(ResPack res) noexcept : DriverBase(std::move(res)) {}
+        explicit IrqChip(DevRes res) noexcept : DriverBase(std::move(res)) {}
 
         /**
          * @brief 销毁中断控制器对象.
          */
         virtual ~IrqChip() noexcept = default;
-        [[nodiscard]]
-        virtual std::vector<PhyArea> mmio_regions() const noexcept = 0;
         [[nodiscard]]
         virtual Result<void> enable_irq(hwirq_t hw_irq) noexcept = 0;
         [[nodiscard]]
@@ -94,7 +92,7 @@ namespace driver {
         virtual Result<void> set_affinity(hwirq_t hw_irq,
                                           cpu_mask_t mask) noexcept = 0;
         [[nodiscard]]
-        virtual Result<void> ack_irq(hwirq_t hw_irq) noexcept = 0;
+        virtual Result<void> ack(const IrqEvent &event) noexcept = 0;
         [[nodiscard]]
         virtual Result<void> set_trigger(hwirq_t hw_irq,
                                          IrqTrigger trigger) noexcept = 0;
@@ -129,12 +127,14 @@ namespace driver {
      * @brief 一次 virq 分发时传递给处理函数的上下文.
      */
     struct IrqEvent {
+        // 对应的 virq
         virq_t virq    = 0;
+        // 对应的 hw_irq
         hwirq_t hw_irq = 0;
-        umb_t scause   = 0;
-        umb_t sepc     = 0;
-        umb_t stval    = 0;
-        void *context  = nullptr;
+        // 对应的 IrqDomain
+        IrqDomain *domain = nullptr;
+        // 保留: 供IrqChip使用, 以保存特殊的事件上下文
+        qword chip_specific[2];
     };
 
     /**
@@ -164,7 +164,7 @@ namespace driver {
         [[nodiscard]]
         virtual Result<void> disable(hwirq_t hw_irq) = 0;
         [[nodiscard]]
-        virtual Result<void> ack(hwirq_t hw_irq) = 0;
+        virtual Result<void> ack(const IrqEvent &event) = 0;
         [[nodiscard]]
         virtual Result<void> set_priority(hwirq_t hw_irq, domain_t prio) = 0;
         [[nodiscard]]
@@ -284,11 +284,11 @@ namespace driver {
         }
 
         [[nodiscard]]
-        Result<void> ack(hwirq_t hw_irq) override {
-            if (!supports(hw_irq)) {
+        Result<void> ack(const IrqEvent &event) override {
+            if (!supports(event.hw_irq)) {
                 unexpect_return(ErrCode::OUT_OF_BOUNDARY);
             }
-            return _chip->ack_irq(hw_irq);
+            return _chip->ack(event);
         }
 
         [[nodiscard]]
@@ -443,15 +443,15 @@ namespace driver {
         }
 
         /**
-         * @brief 应答全局 virq.
+         * @brief 应答 IrqEvent
          */
         [[nodiscard]]
-        Result<void> ack_irq(virq_t virq) {
-            auto resolved = resolve(virq);
+        Result<void> ack(const IrqEvent &event) {
+            auto resolved = resolve(event.virq);
             propagate(resolved);
             auto domain = get_domain(resolved.value().domain);
             propagate(domain);
-            return domain.value().get().ack(resolved.value().hw_irq);
+            return domain.value().get().ack(event);
         }
 
         /**
@@ -501,6 +501,7 @@ namespace driver {
          * @return Result<void> 注册结果.
          */
         Result<void> register_handler(virq_t virq, IrqHandler handler) {
+            loggers::INTERRUPT::INFO("注册 virq handler: virq=%llu", (unsigned long long)virq);
             auto resolve_res = resolve(virq);
             propagate(resolve_res);
             if (_handlers.contains(virq)) {
@@ -533,13 +534,6 @@ namespace driver {
         Result<void> dispatch(const IrqEvent &event) {
             auto resolve_res = resolve(event.virq);
             propagate(resolve_res);
-
-            auto ack_res = ack_irq(event.virq);
-            if (!ack_res.has_value() &&
-                ack_res.error() != ErrCode::NOT_SUPPORTED)
-            {
-                propagate_return(ack_res);
-            }
 
             auto it = _handlers.find(event.virq);
             if (it == _handlers.end()) {

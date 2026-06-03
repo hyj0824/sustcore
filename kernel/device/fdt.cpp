@@ -951,26 +951,17 @@ namespace fdt {
                 auto virqs = device::DevResManager::get_virq_resource(node);
                 auto mmios = device::DevResManager::get_mmio_resource(node);
                 auto device_owner_res = driver::RiscVIntC::create(
-                    driver::DriverBase::ResPack(
+                    driver::DriverBase::DevRes(
                         node, std::move(virqs), std::move(mmios)),
                     matched->identifier, matched->hart_id);
                 propagate(device_owner_res);
-                auto &root   = *device_owner_res.value();
-                auto *domain = new device::LinearIrqDomain<CLINT_MAX_HW_IRQ>(
-                    static_cast<domain_t>(root.identifier()),
-                    root.name(), root);
-                if (domain == nullptr) {
-                    unexpect_return(ErrCode::OUT_OF_MEMORY);
-                }
-                auto register_res = model.interrupt().register_domain(
-                    util::owner<device::IrqDomain *>(domain));
-                propagate(register_res);
+                auto &root = *device_owner_res.value();
+                auto domain_res = model.interrupt().get_domain(root.identifier());
+                propagate(domain_res);
                 auto irq_domain_res = _provider->register_irq_domain_view(
-                    static_cast<phandle_t>(root.identifier()), *domain);
+                    static_cast<phandle_t>(root.identifier()),
+                    domain_res.value().get());
                 propagate(irq_domain_res);
-                auto attach_res =
-                    root.attach_to_parent_domain(model.interrupt(), *domain);
-                propagate(attach_res);
                 return static_cast<DriverBase *>(
                     device_owner_res.value().get());
             }
@@ -1024,7 +1015,7 @@ namespace fdt {
                 auto mmios = device::DevResManager::get_mmio_resource(node);
 
                 auto device_owner_res = driver::Clint::create(
-                    driver::DriverBase::ResPack(
+                    driver::DriverBase::DevRes(
                         node, std::move(virqs), std::move(mmios)),
                     fdt_node->raw_node().phandle != 0
                         ? static_cast<intc_t>(
@@ -1093,46 +1084,14 @@ namespace fdt {
                     fdt_node->raw_node());
                 propagate(refs_res);
 
-                std::vector<driver::PlicContext> contexts;
                 auto &irqman = model.interrupt();
-                for (size_t index = 0; index < refs_res.value().size(); ++index)
-                {
-                    const auto &[phandle, hwirq] = refs_res.value()[index];
-                    if (hwirq != driver::RiscVIntC::EXTERNAL_LOCAL_IRQ) {
-                        continue;
-                    }
-
-                    auto *intc_node =
-                        _provider->config().get_node_by_phandle(phandle);
-                    if (intc_node == nullptr || intc_node->parent == nullptr) {
-                        continue;
-                    }
-
-                    auto parsed_res = parse_cpu_node(*intc_node->parent);
-                    if (!parsed_res.has_value()) {
-                        continue;
-                    }
-
-                    auto parent_domain_res =
-                        _provider->resolve_irq_domain_view(phandle, irqman);
-                    if (!parent_domain_res.has_value()) {
-                        continue;
-                    }
-
-                    auto virq_res = irqman.allocate_virq(
-                        parent_domain_res.value().get().id(), hwirq);
-                    if (!virq_res.has_value()) {
-                        continue;
-                    }
-
-                    contexts.push_back(driver::PlicContext{
-                        .hart_id       = parsed_res.value().id,
-                        .parent_intc   = static_cast<intc_t>(phandle),
-                        .external_virq = virq_res.value(),
-                        .context_index = index,
-                    });
-                }
+                auto contexts_res = build_plic_contexts(refs_res.value(), irqman);
+                propagate(contexts_res);
+                auto contexts = std::move(contexts_res.value());
                 if (contexts.empty()) {
+                    loggers::DEVICE::ERROR(
+                        "PLIC 节点 %s 未解析到任何 external context",
+                        node.name());
                     unexpect_return(ErrCode::ENTRY_NOT_FOUND);
                 }
                 auto node_virqs = node.irqs();
@@ -1151,7 +1110,7 @@ namespace fdt {
                 auto mmios = device::DevResManager::get_mmio_resource(node);
 
                 auto device_owner_res = driver::Plic::create(
-                    driver::DriverBase::ResPack(
+                    driver::DriverBase::DevRes(
                         node, std::move(virqs), std::move(mmios)),
                     fdt_node->raw_node().phandle != 0
                         ? static_cast<intc_t>(
@@ -1164,22 +1123,17 @@ namespace fdt {
                 auto &plic = *device_owner_res.value();
                 const auto &fdt_device_node =
                     static_cast<const FDTDeviceNode &>(plic.node());
-                auto *domain = new device::LinearIrqDomain<MAX_PLIC_IRQS>(
-                    static_cast<domain_t>(plic.identifier()),
-                    plic.name(), plic);
-                if (domain == nullptr) {
-                    unexpect_return(ErrCode::OUT_OF_MEMORY);
-                }
-                auto register_res = model.interrupt().register_domain(
-                    util::owner<device::IrqDomain *>(domain));
-                propagate(register_res);
+                auto domain_res = model.interrupt().get_domain(plic.identifier());
+                propagate(domain_res);
                 if (fdt_device_node.raw_node().phandle != 0) {
                     auto irq_domain_res = _provider->register_irq_domain_view(
-                        fdt_device_node.raw_node().phandle, *domain);
+                        fdt_device_node.raw_node().phandle,
+                        domain_res.value().get());
                     propagate(irq_domain_res);
                 }
                 auto attach_res =
-                    plic.attach_to_parent_domain(model.interrupt(), *domain);
+                    plic.attach_to_parent_domain(model.interrupt(),
+                                                 domain_res.value().get());
                 propagate(attach_res);
                 return static_cast<DriverBase *>(
                     device_owner_res.value().get());
@@ -1190,6 +1144,118 @@ namespace fdt {
             }
 
         private:
+            /**
+             * @brief 将 interrupts-extended 条目转换为 PLIC context 列表.
+             *
+             * @param refs 中断引用列表.
+             * @param irqman 全局中断管理器.
+             * @return Result<std::vector<driver::Plic::Context>> context 列表.
+             */
+            [[nodiscard]]
+            Result<std::vector<driver::Plic::Context>> build_plic_contexts(
+                const std::vector<std::pair<phandle_t, hwirq_t>> &refs,
+                driver::IrqManager &irqman) const noexcept {
+                std::vector<driver::Plic::Context> contexts;
+                contexts.reserve(refs.size());
+
+                size_t enabled_count  = 0;
+                size_t disabled_count = 0;
+                for (size_t index = 0; index < refs.size(); ++index) {
+                    const auto &[phandle, hwirq] = refs[index];
+
+                    auto context_res =
+                        build_plic_context(index, phandle, hwirq, irqman);
+                    if (!context_res.has_value()) {
+                        propagate_return(context_res);
+                    }
+
+                    auto &context = context_res.value();
+                    if (context.enabled) {
+                        ++enabled_count;
+                    } else {
+                        ++disabled_count;
+                    }
+                    loggers::DEVICE::DEBUG(
+                        "PLIC context: phandle=%u hwirq=%u hart=%u ctx=%u enabled=%d virq=%llu",
+                        phandle, static_cast<unsigned>(hwirq), context.hart_id,
+                        static_cast<unsigned>(context.ctx_id), context.enabled,
+                        static_cast<unsigned long long>(context.external_virq));
+                    contexts.push_back(context);
+                }
+
+                loggers::DEVICE::INFO(
+                    "PLIC context 解析完成: total=%u enabled=%u disabled=%u",
+                    static_cast<unsigned>(contexts.size()),
+                    static_cast<unsigned>(enabled_count),
+                    static_cast<unsigned>(disabled_count));
+                return contexts;
+            }
+
+            /**
+             * @brief 构造单个 PLIC context.
+             *
+             * @param index interrupts-extended 中的原始条目序号.
+             * @param phandle 父中断控制器 phandle.
+             * @param hwirq 条目中的硬件中断号.
+             * @param irqman 全局中断管理器.
+             * @return Result<driver::Plic::Context> context 构造结果.
+             */
+            [[nodiscard]]
+            Result<driver::Plic::Context> build_plic_context(
+                size_t index, phandle_t phandle, hwirq_t hwirq,
+                driver::IrqManager &irqman) const noexcept {
+                auto *intc_node = _provider->config().get_node_by_phandle(phandle);
+                if (intc_node == nullptr || intc_node->parent == nullptr) {
+                    loggers::DEVICE::ERROR(
+                        "PLIC context 解析失败: phandle=%u 找不到对应 CPU intc 节点",
+                        phandle);
+                    unexpect_return(ErrCode::ENTRY_NOT_FOUND);
+                }
+
+                auto parsed_res = parse_cpu_node(*intc_node->parent);
+                if (!parsed_res.has_value()) {
+                    loggers::DEVICE::ERROR(
+                        "PLIC context 解析失败: phandle=%u CPU 节点解析失败 err=%s",
+                        phandle, to_cstring(parsed_res.error()));
+                    propagate_return(parsed_res);
+                }
+
+                auto hart_id = parsed_res.value().id;
+                auto ctx_id = static_cast<driver::Plic::ctx_t>(
+                    hart_id * 2 + index % 2);
+                driver::Plic::Context context{
+                    .hart_id       = hart_id,
+                    .external_virq = 0,
+                    .ctx_id        = ctx_id,
+                    .enabled       = false,
+                    .completed     = true,
+                };
+
+                auto parent_domain_res =
+                    _provider->resolve_irq_domain_view(phandle, irqman);
+                if (!parent_domain_res.has_value()) {
+                    loggers::DEVICE::DEBUG(
+                        "PLIC context 保留为 disabled: phandle=%u hart=%u ctx=%u err=%s",
+                        phandle, hart_id, static_cast<unsigned>(ctx_id),
+                        to_cstring(parent_domain_res.error()));
+                    return context;
+                }
+
+                auto virq_res = irqman.allocate_virq(
+                    parent_domain_res.value().get().id(), hwirq);
+                if (!virq_res.has_value()) {
+                    loggers::DEVICE::DEBUG(
+                        "PLIC context 保留为 disabled: phandle=%u hart=%u ctx=%u virq 分配失败 err=%s",
+                        phandle, hart_id, static_cast<unsigned>(ctx_id),
+                        to_cstring(virq_res.error()));
+                    return context;
+                }
+
+                context.external_virq = virq_res.value();
+                context.enabled       = true;
+                return context;
+            }
+
             const FDTProvider *_provider = nullptr;
         };
 

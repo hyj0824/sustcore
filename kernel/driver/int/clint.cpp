@@ -17,7 +17,7 @@ namespace driver {
      * @brief 创建一个 CLINT 设备驱动.
      */
     Result<util::owner<Clint *>> Clint::create(
-        ResPack res, intc_t identifier, device::cpuid_t hart_id,
+        DevRes res, intc_t identifier, device::cpuid_t hart_id,
         std::vector<device::cpuid_t> target_harts) noexcept {
         if (res.node == nullptr) {
             loggers::INTERRUPT::ERROR("Clint 创建失败: node 为空");
@@ -55,7 +55,7 @@ namespace driver {
     /**
      * @brief 构造一个 CLINT 设备驱动.
      */
-    Clint::Clint(ResPack res, intc_t identifier,
+    Clint::Clint(DevRes res, intc_t identifier,
                  device::cpuid_t hart_id,
                  std::vector<device::cpuid_t> target_harts) noexcept
         : device::IrqChip(std::move(res)),
@@ -65,19 +65,6 @@ namespace driver {
 
     std::string_view Clint::compatible() const noexcept {
         return "riscv,clint0";
-    }
-
-    /**
-     * @brief 获取 MMIO 区域列表.
-     */
-    std::vector<PhyArea> Clint::mmio_regions() const noexcept {
-        std::vector<PhyArea> regions;
-        regions.reserve(mmio_resources().size());
-        for (const auto &resource : mmio_resources()) {
-            assert(resource != nullptr);
-            regions.push_back(resource->region());
-        }
-        return regions;
     }
 
     /**
@@ -175,9 +162,9 @@ namespace driver {
     /**
      * @brief 应答中断.
      */
-    Result<void> Clint::ack_irq(hwirq_t hw_irq) noexcept {
-        loggers::INTERRUPT::DEBUG("Clint[%u] ack_irq hwirq=%u 不支持",
-                                  identifier(), hw_irq);
+    Result<void> Clint::ack(const IrqEvent &event) noexcept {
+        loggers::INTERRUPT::DEBUG("Clint[%u] ack hwirq=%u 不支持",
+                                  identifier(), event.hw_irq);
         unexpect_return(ErrCode::NOT_SUPPORTED);
     }
 

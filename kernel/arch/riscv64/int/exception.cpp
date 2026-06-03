@@ -12,6 +12,7 @@
 #include <arch/riscv64/csr.h>
 #include <arch/riscv64/trait.h>
 #include <device/model.h>
+#include <driver/int/riscv_intc.h>
 #include <env.h>
 #include <logger.h>
 #include <sus/logger.h>
@@ -127,7 +128,8 @@ namespace exception {
      */
     [[nodiscard]]
     bool is_paging_related_exception(umb_t cause) noexcept {
-        return is_page_fault_exception(cause) || is_access_fault_exception(cause);
+        return is_page_fault_exception(cause) ||
+               is_access_fault_exception(cause);
     }
 
     /**
@@ -324,8 +326,7 @@ namespace exception {
                                               const VirAddr &fault_addr,
                                               const Riscv64Context *ctx,
                                               PageMan &pman) {
-            if (!is_paging_related_exception(scause.cause))
-            {
+            if (!is_paging_related_exception(scause.cause)) {
                 return FaultCause::UNKNOWN;
             }
 
@@ -333,7 +334,8 @@ namespace exception {
             if (!query_res.has_value()) {
                 if (is_access_fault_exception(scause.cause)) {
                     loggers::INTERRUPT::DEBUG(
-                        "access fault analysis: addr=%p, page lookup failed err=%s(%d)",
+                        "access fault analysis: addr=%p, page lookup failed "
+                        "err=%s(%d)",
                         fault_addr.addr(), to_cstring(query_res.error()),
                         query_res.error());
                     return FaultCause::ACCESS_FAULT;
@@ -354,7 +356,8 @@ namespace exception {
             if (!PageMan::is_present(*pte)) {
                 if (is_access_fault_exception(scause.cause)) {
                     loggers::INTERRUPT::DEBUG(
-                        "access fault analysis: addr=%p, mapped but not present",
+                        "access fault analysis: addr=%p, mapped but not "
+                        "present",
                         fault_addr.addr());
                     return FaultCause::ACCESS_FAULT;
                 }
@@ -363,7 +366,8 @@ namespace exception {
 
             if (is_access_fault_exception(scause.cause)) {
                 loggers::INTERRUPT::DEBUG(
-                    "access fault analysis: addr=%p, mapped page present, treat as unrecoverable access fault",
+                    "access fault analysis: addr=%p, mapped page present, "
+                    "treat as unrecoverable access fault",
                     fault_addr.addr());
                 return FaultCause::ACCESS_FAULT;
             }
@@ -470,7 +474,7 @@ namespace exception {
                     // 如果是内核地址, 则尝试复制主内核页表的映射
                     if (is_kernel_vaddr(fault_addr)) {
                         auto kernel_pgd = e.main_kernel_pgd();
-                        if (! kernel_pgd.nonnull()) {
+                        if (!kernel_pgd.nonnull()) {
                             loggers::INTERRUPT::ERROR(
                                 "kernel page fault: 主内核页表不可用 addr=%p",
                                 fault_addr.addr());
@@ -482,14 +486,16 @@ namespace exception {
                             pman.clone_mapping_from(kernel_pman, fault_page);
                         if (!clone_res.has_value()) {
                             loggers::INTERRUPT::ERROR(
-                                "kernel page fault: 复制主内核页表映射失败 addr=%p err=%s",
+                                "kernel page fault: 复制主内核页表映射失败 "
+                                "addr=%p err=%s",
                                 fault_addr.addr(),
                                 to_cstring(clone_res.error()));
                             break;
                         }
                         PageMan::flush_tlb();
                         loggers::INTERRUPT::DEBUG(
-                            "kernel page fault: 已复制主内核页表映射 addr=%p page=%p",
+                            "kernel page fault: 已复制主内核页表映射 addr=%p "
+                            "page=%p",
                             fault_addr.addr(), fault_page.addr());
                         processed = true;
                         break;
@@ -541,7 +547,8 @@ namespace exception {
                 }
                 case FaultCause::ACCESS_FAULT: {
                     loggers::INTERRUPT::ERROR(
-                        "access fault is not recoverable: type=%s, addr=%p, sepc=0x%lx",
+                        "access fault is not recoverable: type=%s, addr=%p, "
+                        "sepc=0x%lx",
                         exception_name(scause.cause), fault_addr.addr(), sepc);
                     break;
                 }
@@ -751,8 +758,7 @@ namespace exception {
                                       exception_name(scause.cause),
                                       scause.cause, privilege_name(ctx));
             loggers::INTERRUPT::ERROR("无法处理该异常, 需终止相关进程");
-            if (!is_paging_related_exception(scause.cause))
-            {
+            if (!is_paging_related_exception(scause.cause)) {
                 log_trap_context_error(scause, sepc, stval, ctx);
                 log_current_task_error();
             }
@@ -771,10 +777,12 @@ namespace interrupt {
             return;
         }
 
-        // 把 S-Mode 的 scause.cause 转为 M-Mode 的 mcause.cause,
-        // 以便传递给根中断域
-        // 根据规范, m-mode 下的中断号 = s-mode 下的中断号 | 0x2
-        driver::hwirq_t hwirq = (scause.cause | 0x2);
+        // scause.cause = hwirq
+        driver::hwirq_t hwirq = scause.cause;
+        // 对于时钟中断要做特殊处理:
+        if (hwirq == driver::RiscVIntC::CLOCK_LOCAL_IRQ_S) {
+            hwirq = driver::RiscVIntC::CLOCK_LOCAL_IRQ;
+        }
 
         auto root_domain_res = irq_manager.get_domain(cpu->local_intc());
         if (!root_domain_res.has_value()) {
@@ -783,27 +791,18 @@ namespace interrupt {
             return;
         }
         auto &root_domain = root_domain_res.value().get();
-
-        auto root_virq_res = root_domain.to_virq(hwirq);
-        if (!root_virq_res.has_value()) {
-            loggers::INTERRUPT::ERROR("根中断域解析 virq 失败: %s, hw_irq = %d",
-                                      to_cstring(root_virq_res.error()), hwirq);
+        auto &chip        = root_domain.chip();
+        if (chip.compatible() != driver::RiscVIntC::COMPATIBLE_STRING) {
+            loggers::INTERRUPT::ERROR(
+                "根中断域的中断控制器不兼容: 期望兼容 %s, 实际兼容 %s",
+                driver::RiscVIntC::COMPATIBLE_STRING, chip.compatible().data());
             return;
         }
-        auto virq = root_virq_res.value();
-
-        auto dispatch_res = irq_manager.dispatch(device::IrqEvent{
-            .virq    = virq,
-            .hw_irq  = hwirq,
-            .scause  = scause.value,
-            .sepc    = sepc,
-            .stval   = stval,
-            .context = ctx,
-        });
-        if (!dispatch_res.has_value()) {
-            loggers::INTERRUPT::ERROR(
-                "分发 irq 失败: %s, virq = %lu, hw_irq = %d",
-                to_cstring(dispatch_res.error()), virq, hwirq);
+        auto &riscv_intc = static_cast<driver::RiscVIntC &>(chip);
+        auto post_res    = riscv_intc.post(hwirq);
+        if (!post_res.has_value()) {
+            loggers::INTERRUPT::ERROR("中断分发失败: %s",
+                                      to_cstring(post_res.error()));
         }
         return;
     }

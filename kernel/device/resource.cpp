@@ -37,9 +37,11 @@ namespace device {
     /**
      * @brief 为当前资源对应的 virq 注册处理器.
      */
-    Result<void> VIrqResource::register_handler(driver::IrqHandler handler) const noexcept {
+    Result<void> VIrqResource::register_handler(
+        driver::IrqHandler handler) const noexcept {
         if (!DeviceModel::initialized()) {
-            loggers::DEVICE::ERROR("注册 virq handler 失败: DeviceModel 未初始化");
+            loggers::DEVICE::ERROR(
+                "注册 virq handler 失败: DeviceModel 未初始化");
             unexpect_return(ErrCode::FAILURE);
         }
         loggers::DEVICE::DEBUG("注册设备资源 virq handler: virq=%llu",
@@ -57,7 +59,8 @@ namespace device {
      */
     Result<void> VIrqResource::unregister_handler() const noexcept {
         if (!DeviceModel::initialized()) {
-            loggers::DEVICE::ERROR("注销 virq handler 失败: DeviceModel 未初始化");
+            loggers::DEVICE::ERROR(
+                "注销 virq handler 失败: DeviceModel 未初始化");
             unexpect_return(ErrCode::FAILURE);
         }
         loggers::DEVICE::DEBUG("注销设备资源 virq handler: virq=%llu",
@@ -68,6 +71,38 @@ namespace device {
             _registered = false;
         }
         return unregister_res;
+    }
+
+    Result<void> VIrqResource::enable() const noexcept {
+        if (!DeviceModel::initialized()) {
+            loggers::DEVICE::ERROR("启用 virq 失败: DeviceModel 未初始化");
+            unexpect_return(ErrCode::FAILURE);
+        }
+        loggers::DEVICE::DEBUG("启用 virq: virq=%llu",
+                               static_cast<unsigned long long>(_virq));
+        return DeviceModel::inst().interrupt().enable_irq(_virq);
+    }
+    Result<void> VIrqResource::disable() const noexcept {
+        if (!DeviceModel::initialized()) {
+            loggers::DEVICE::ERROR("禁用 virq 失败: DeviceModel 未初始化");
+            unexpect_return(ErrCode::FAILURE);
+        }
+        loggers::DEVICE::DEBUG("禁用 virq: virq=%llu",
+                               static_cast<unsigned long long>(_virq));
+        return DeviceModel::inst().interrupt().disable_irq(_virq);
+    }
+
+    [[nodiscard]]
+    Result<void> VIrqResource::set_priority(
+        driver::irq_prio_t prio) const noexcept {
+        if (!DeviceModel::initialized()) {
+            loggers::DEVICE::ERROR(
+                "设置 virq 优先级失败: DeviceModel 未初始化");
+            unexpect_return(ErrCode::FAILURE);
+        }
+        loggers::DEVICE::DEBUG("设置 virq 优先级: virq=%llu, prio=%u",
+                               static_cast<unsigned long long>(_virq), prio);
+        return DeviceModel::inst().interrupt().set_priority(_virq, prio);
     }
 
     /**
@@ -116,16 +151,15 @@ namespace device {
         const PhyArea aligned = page_align_area(mmio.region());
         PageMan kernelman(env::inst().main_kernel_pgd());
         VirAddr kva_start = from_mmio_addr(aligned.begin);
-        kernelman.map_range<false>(kva_start, aligned.begin,
-                                  aligned.end - aligned.begin,
-                                  PageMan::rwx(true, true, false), false, false);
+        kernelman.map_range<false>(
+            kva_start, aligned.begin, aligned.end - aligned.begin,
+            PageMan::rwx(true, true, false), false, false);
         PageMan::flush_tlb();
 
         auto mapped = KvaAddr(kva_start.arith());
         loggers::DEVICE::DEBUG("建立 MMIO 映射: pa=[%p,%p) kva=%p",
                                mmio.region().begin.addr(),
-                               mmio.region().end.addr(),
-                               mapped.addr());
+                               mmio.region().end.addr(), mapped.addr());
         mmio._mapped = true;
         return mapped;
     }
@@ -173,8 +207,8 @@ namespace device {
         for (auto virq : virqs.value()) {
             loggers::DEVICE::DEBUG("提取单 virq 资源: virq=%llu",
                                    static_cast<unsigned long long>(virq));
-            resources.push_back(util::owner<VIrqResource *>(
-                new VIrqResource(virq)));
+            resources.push_back(
+                util::owner<VIrqResource *>(new VIrqResource(virq)));
         }
         return resources;
     }
@@ -197,8 +231,8 @@ namespace device {
         for (const auto &region : mmio.value()) {
             loggers::DEVICE::DEBUG("提取单 MMIO 资源: [%p,%p)",
                                    region.begin.addr(), region.end.addr());
-            resources.push_back(util::owner<MMIOResource *>(
-                new MMIOResource(region)));
+            resources.push_back(
+                util::owner<MMIOResource *>(new MMIOResource(region)));
         }
         return resources;
     }

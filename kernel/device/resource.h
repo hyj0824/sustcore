@@ -55,6 +55,15 @@ namespace device {
         bool registered() const noexcept {
             return _registered;
         }
+
+        [[nodiscard]]
+        Result<void> enable() const noexcept;
+        [[nodiscard]]
+        Result<void> disable() const noexcept;
+
+        [[nodiscard]]
+        Result<void> set_priority(driver::irq_prio_t prio) const noexcept;
+
     private:
         /**
          * @brief 用给定 virq 构造资源对象.

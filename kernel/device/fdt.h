@@ -401,18 +401,18 @@ namespace fdt {
          */
         [[nodiscard]]
         Result<void> register_irq_domain(phandle_t phandle,
-                                         const device::IrqDomain &domain) const;
+                                         const driver::IrqDomain &domain) const;
 
         /**
          * @brief 通过 phandle 解析对应的中断域.
          *
          * @param phandle 中断控制器节点的 phandle.
          * @param irqman 全局中断管理器.
-         * @return Result<device::IrqDomain&> 对应的中断域引用.
+         * @return Result<driver::IrqDomain&> 对应的中断域引用.
          */
         [[nodiscard]]
-        Result<device::IrqDomain &> resolve_irq_domain(
-            phandle_t phandle, device::IrqManager &irqman) const;
+        Result<driver::IrqDomain &> resolve_irq_domain(
+            phandle_t phandle, driver::IrqManager &irqman) const;
 
         /**
          * @brief 解析中断控制器的 #interrupt-cells 配置.
@@ -472,7 +472,7 @@ namespace fdt {
         [[nodiscard]]
         Result<std::vector<virq_t>> resolve_interrupt_refs_to_virqs(
             const std::vector<InterruptRef> &refs,
-            device::IrqManager &irqman) const;
+            driver::IrqManager &irqman) const;
 
         /**
          * @brief 优先按 interrupts-extended, 否则按 interrupt-parent +
@@ -486,7 +486,7 @@ namespace fdt {
          */
         [[nodiscard]]
         Result<std::vector<virq_t>> parse_interrupt_virqs(
-            const Node &node, device::IrqManager &irqman) const;
+            const Node &node, driver::IrqManager &irqman) const;
 
         void append_as_regions(std::vector<device::MemRegion> &regions,
                                const RegionCells &cells, const Property &prop,
@@ -535,11 +535,11 @@ namespace fdt {
          *
          * @param phandle 中断控制器 phandle.
          * @param irqman 全局中断管理器.
-         * @return Result<device::IrqDomain&> 对应中断域.
+         * @return Result<driver::IrqDomain&> 对应中断域.
          */
         [[nodiscard]]
-        Result<device::IrqDomain &> resolve_irq_domain_view(
-            phandle_t phandle, device::IrqManager &irqman) const {
+        Result<driver::IrqDomain &> resolve_irq_domain_view(
+            phandle_t phandle, driver::IrqManager &irqman) const {
             return resolve_irq_domain(phandle, irqman);
         }
 
@@ -552,7 +552,7 @@ namespace fdt {
          */
         [[nodiscard]]
         Result<void> register_irq_domain_view(
-            phandle_t phandle, const device::IrqDomain &domain) const {
+            phandle_t phandle, const driver::IrqDomain &domain) const {
             return register_irq_domain(phandle, domain);
         }
 
