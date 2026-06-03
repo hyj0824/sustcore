@@ -82,6 +82,64 @@ namespace units {
     using tick = uint64_t;
 
     constexpr uint64_t NANOSECONDS_PER_MILLIHERTZ = 1'000'000'000'000ULL;
+    struct formatted_time {
+        int64_t year;
+        int64_t month;
+        int64_t day;
+        int64_t hour;
+        int64_t minute;
+        int64_t second;
+    };
+
+    struct time_ymd
+    {
+        int64_t year;
+        int64_t month;
+        int64_t day;
+    };
+
+    // 将纪元天数转换为年月日，算法源自 Howard Hinnant
+    constexpr time_ymd days_to_ymd(int64_t days_since_epoch) {
+        int year, month, day;
+
+        // 算法常量，用于调整闰年周期
+        [[maybe_unused]] const int days_per_400_years = 146097;
+        [[maybe_unused]] const int days_per_100_years = 36524;
+        [[maybe_unused]] const int days_per_4_years   = 1461;
+
+        // 算法偏移量，用于简化计算
+        const int epoch_offset = 719468;  // 1970-03-01 对应的调整天数
+
+        // 1. 算法第一步：转换并适应纪元偏移
+        int z = days_since_epoch + epoch_offset;
+
+        // 2. 确定所在的400年周期 ("纪元")
+        int era =
+            (z >= 0 ? z : z - days_per_400_years + 1) / days_per_400_years;
+
+        // 3. 计算在当前400年周期内的天数 ("年份偏移")
+        int doe = z - era * days_per_400_years;
+
+        // 4. 推算当前周期内的年份 ("年偏移")
+        int yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+
+        // 5. 计算最终的年份
+        year = static_cast<int>(yoe) + era * 400;
+
+        // 6. 计算当前年份内的天数 ("年积日")
+        int doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+
+        // 7. 推算月份和日期
+        int mp = (5 * doy + 2) / 153;
+        day    = doy - (153 * mp + 2) / 5 + 1;
+        month  = mp + (mp < 10 ? 3 : -9);
+
+        // 8. 调整年份 (针对1月和2月)
+        if (month <= 2)
+            year += 1;
+
+        return time_ymd{.year=year, .month=month, .day=day};
+    }
 
     struct time {
     protected:
@@ -151,55 +209,6 @@ namespace units {
         }
     };  // namespace units
 
-    struct formatted_time {
-        int64_t year;
-        int64_t month;
-        int64_t day;
-        int64_t hour;
-        int64_t minute;
-        int64_t second;
-    };
-
-    // 将纪元天数转换为年月日，算法源自 Howard Hinnant
-    inline void days_to_ymd(int64_t days_since_epoch, int64_t &year, int64_t &month,
-                     int64_t &day) {
-        // 算法常量，用于调整闰年周期
-        [[maybe_unused]] const int days_per_400_years = 146097;
-        [[maybe_unused]] const int days_per_100_years = 36524;
-        [[maybe_unused]] const int days_per_4_years   = 1461;
-
-        // 算法偏移量，用于简化计算
-        const int epoch_offset = 719468;  // 1970-03-01 对应的调整天数
-
-        // 1. 算法第一步：转换并适应纪元偏移
-        int z = days_since_epoch + epoch_offset;
-
-        // 2. 确定所在的400年周期 ("纪元")
-        int era =
-            (z >= 0 ? z : z - days_per_400_years + 1) / days_per_400_years;
-
-        // 3. 计算在当前400年周期内的天数 ("年份偏移")
-        int doe = z - era * days_per_400_years;
-
-        // 4. 推算当前周期内的年份 ("年偏移")
-        int yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-
-        // 5. 计算最终的年份
-        year = static_cast<int>(yoe) + era * 400;
-
-        // 6. 计算当前年份内的天数 ("年积日")
-        int doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-
-        // 7. 推算月份和日期
-        int mp = (5 * doy + 2) / 153;
-        day    = doy - (153 * mp + 2) / 5 + 1;
-        month  = mp + (mp < 10 ? 3 : -9);
-
-        // 8. 调整年份 (针对1月和2月)
-        if (month <= 2)
-            year += 1;
-    }
-
     struct rt_time {
     protected:
         int64_t seconds;
@@ -239,12 +248,11 @@ namespace units {
         [[nodiscard]]
         constexpr formatted_time to_formatted_time() const {
             int64_t tot_days = to_days();
-            int64_t year, month, day;
-            days_to_ymd(tot_days, year, month, day);
+            time_ymd ymd = days_to_ymd(tot_days);
             return formatted_time{
-                .year   = year,
-                .month  = month,
-                .day    = day,
+                .year   = ymd.year,
+                .month  = ymd.month,
+                .day    = ymd.day,
                 .hour   = (to_hours() % 24),
                 .minute = (to_minutes() % 60),
                 .second = (seconds % 60),
@@ -270,6 +278,10 @@ namespace units {
 
         static constexpr rt_time from_days(int64_t d) {
             return from_hours(d * 24);
+        }
+
+        static constexpr rt_time from_time(const time &t) {
+            return from_seconds(t.to_seconds());
         }
 
         rt_time operator+(const rt_time &other) const {

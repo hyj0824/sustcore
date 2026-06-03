@@ -477,22 +477,35 @@ void after_init() {
             loggers::SUSTCORE::INFO("已为 google,goldfish-rtc 设备创建驱动");
             auto *driver =
                 static_cast<driver::GoldfishRTC *>(create_res.value());
-            while (true) {
-                auto time    = driver->read_time();
-                auto rt_time = units::rt_time::from_seconds(time.to_seconds());
-                auto ft      = rt_time.to_formatted_time();
+            auto time = driver->read_time();
+            auto ft   = units::rt_time::from_time(time).to_formatted_time();
+            loggers::SUSTCORE::INFO(
+                "当前 RTC 时间: %04lld-%02lld-%02lld %02lld:%02lld:%02lld",
+                static_cast<long long>(ft.year),
+                static_cast<long long>(ft.month),
+                static_cast<long long>(ft.day), static_cast<long long>(ft.hour),
+                static_cast<long long>(ft.minute),
+                static_cast<long long>(ft.second));
+            auto alarm_time = time + units::time::from_seconds(2);
+
+            driver::GoldfishRTC::AlarmHandler ticker;
+
+            ticker = [driver, &ticker](units::time now) {
+                auto alarm_ft = units::rt_time::from_time(now).to_formatted_time();
                 loggers::SUSTCORE::INFO(
-                    "当前 RTC 时间: %04lld-%02lld-%02lld %02lld:%02lld:%02lld",
-                    static_cast<long long>(ft.year),
-                    static_cast<long long>(ft.month),
-                    static_cast<long long>(ft.day),
-                    static_cast<long long>(ft.hour),
-                    static_cast<long long>(ft.minute),
-                    static_cast<long long>(ft.second));
-                size_t status = driver->regs->alarm_status;
-                loggers::SUSTCORE::INFO("RTC alarm_status: %#08x", status);
-                for (volatile size_t i = 0; i < 250000000; i += 1);  // 简单延迟
-            }
+                    "Goldfish RTC alarm 触发: %04lld-%02lld-%02lld %02lld:%02lld:%02lld",
+                    static_cast<long long>(alarm_ft.year),
+                    static_cast<long long>(alarm_ft.month),
+                    static_cast<long long>(alarm_ft.day),
+                    static_cast<long long>(alarm_ft.hour),
+                    static_cast<long long>(alarm_ft.minute),
+                    static_cast<long long>(alarm_ft.second));
+                auto alarm_time = now + units::time::from_seconds(2);
+                driver->set_alarm(alarm_time, ticker);
+            };
+
+            driver->set_alarm(alarm_time, ticker);
+            while (true);
         }
     }
 

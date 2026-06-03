@@ -9,6 +9,7 @@
  *
  */
 
+#include <device/model.h>
 #include <driver/rtc/goldfish.h>
 #include <logger.h>
 #include <mem/userspace.h>
@@ -17,7 +18,9 @@
 namespace driver {
     GoldfishRTC::GoldfishRTC(DevRes res, char *base, virq_t virq) noexcept
         : DriverBase(std::move(res)),
-          regs(reinterpret_cast<volatile Goldfish *>(base))
+          regs(reinterpret_cast<volatile Goldfish *>(base)),
+          _alarm_handler(),
+          _virq(virq)
     {
         // res shouldn't be used after this point cuz it has been moved to the base class
         assert (_mmios.size() >= 1);
@@ -26,48 +29,75 @@ namespace driver {
         // to flush the rtc registers
         [[maybe_unused]] auto t = read_time();
 
-        auto register_res = _virqs[0]->register_handler([](const IrqEvent &e) {
-            loggers::SUSTCORE::INFO("DEBUG MESSAGE HERE!");
-        });
+        auto register_res =
+            _virqs[0]->register_handler(this_call(this,
+                                                  &GoldfishRTC::handle_alarm_irq));
         assert (register_res.has_value());
-
-        // set the alarm to current time + 5s
-        t = read_time();
-        const auto alarm_time = t + units::time::from_seconds(5);
-        const auto formatted_alarm = units::rt_time::from_seconds(alarm_time.to_seconds()).to_formatted_time();
-
-        loggers::SUSTCORE::INFO("设置闹钟时间: %04u-%02u-%02u %02u:%02u:%02u",
-                                  formatted_alarm.year, formatted_alarm.month,
-                                  formatted_alarm.day, formatted_alarm.hour,
-                                  formatted_alarm.minute, formatted_alarm.second);
-        sus_u64 nanos = alarm_time.to_nanoseconds();
-        sus_u32 nanos_hi = static_cast<sus_u32>(nanos >> 32);
-        sus_u32 nanos_lo = static_cast<sus_u32>(nanos & 0xFFFFFFFF);
-        _virqs[0]->set_priority(7);
-
-        regs->irq_enable = 0x0; // disable alarm irq before setting
-        // 清空 irq 状态
-        regs->clear_interrupt = 0x1; // write any value to clear interrupt
-        // 启用irq
-        regs->irq_enable = 0x1; // enable alarm irq
-
-        // 设置 alarm 时间
-        // 设置高位
-        regs->alarm_high = nanos_hi;
-        // 设置低位
-        regs->alarm_low = nanos_lo;
-        auto enable_res = _virqs[0]->enable();
-
-        // read alarm status
-        auto alarm_status = regs->alarm_status;
-        loggers::SUSTCORE::INFO("alarm_status: 0x%08x", alarm_status);
-        assert (enable_res.has_value());
     }
 
     [[nodiscard]]
     units::time GoldfishRTC::read_time() const noexcept {
         sus_u64 time = (static_cast<sus_u64>(regs->time_high) << 32) | regs->time_low;
         return units::time::from_nanoseconds(time);
+    }
+
+    /**
+     * @brief 设置 RTC 闹钟与到期处理函数.
+     *
+     * @param when 闹钟触发时间.
+     * @param handler 到期时调用的处理函数.
+     */
+    void GoldfishRTC::set_alarm(units::time when, AlarmHandler handler) noexcept {
+        _alarm_handler = std::move(handler);
+
+        const auto formatted_alarm =
+            units::rt_time::from_time(when).to_formatted_time();
+        loggers::SUSTCORE::INFO("设置闹钟时间: %04u-%02u-%02u %02u:%02u:%02u",
+                                formatted_alarm.year, formatted_alarm.month,
+                                formatted_alarm.day, formatted_alarm.hour,
+                                formatted_alarm.minute, formatted_alarm.second);
+
+        sus_u64 nanos   = when.to_nanoseconds();
+        sus_u32 nanos_hi = static_cast<sus_u32>(nanos >> 32);
+        sus_u32 nanos_lo = static_cast<sus_u32>(nanos & 0xFFFFFFFF);
+
+        regs->irq_enable      = 0x0;
+        regs->clear_interrupt = 0x1;
+        regs->alarm_high      = nanos_hi;
+        regs->alarm_low       = nanos_lo;
+        regs->irq_enable      = 0x1;
+
+        auto enable_res = _virqs[0]->enable();
+        if (!enable_res.has_value()) {
+            loggers::SUSTCORE::ERROR("Goldfish RTC 启用 alarm virq 失败: %s",
+                                     to_cstring(enable_res.error()));
+            return;
+        }
+
+        loggers::SUSTCORE::DEBUG("Goldfish RTC alarm 已设置: virq=%llu status=0x%08x",
+                                 static_cast<unsigned long long>(_virq),
+                                 regs->alarm_status);
+    }
+
+    /**
+     * @brief 处理 RTC 闹钟中断.
+     *
+     * @param event RTC 对应的中断事件.
+     */
+    void GoldfishRTC::handle_alarm_irq(const IrqEvent &event) noexcept {
+        (void)event;
+        auto now = read_time();
+        regs->clear_interrupt = 0x1;
+        if (_alarm_handler) {
+            _alarm_handler(now);
+        } else {
+            loggers::SUSTCORE::DEBUG("Goldfish RTC 收到 alarm 中断但未设置 handler");
+        }
+        Result<void> ack_res = device::DeviceModel::inst().interrupt().ack(event);
+        if (!ack_res.has_value()) {
+            loggers::SUSTCORE::ERROR("Goldfish RTC 中断确认失败: %s",
+                                     to_cstring(ack_res.error()));
+        }
     }
 
     /**

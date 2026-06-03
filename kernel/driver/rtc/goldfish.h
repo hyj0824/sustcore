@@ -16,6 +16,7 @@
 #include <sus/types.h>
 #include <sus/units.h>
 
+#include <functional>
 #include <string_view>
 
 namespace driver {
@@ -28,6 +29,8 @@ namespace driver {
             "google,goldfish-rtc";
 
     public:
+        using AlarmHandler = std::function<void(units::time)>;
+
         /**
          * @brief 销毁驱动.
          */
@@ -46,7 +49,15 @@ namespace driver {
         [[nodiscard]]
         units::time read_time() const noexcept;
 
-    public:
+        /**
+         * @brief 设置 RTC 闹钟与到期处理函数.
+         *
+         * @param when 闹钟触发时间.
+         * @param handler 到期时调用的处理函数.
+         */
+        void set_alarm(units::time when, AlarmHandler handler) noexcept;
+
+    private:
         /**
          * @brief 构造一个串口驱动.
          *
@@ -101,6 +112,15 @@ namespace driver {
                       "GoldfishRTC register struct size mismatch!");
 
         volatile Goldfish *regs = nullptr;
+        AlarmHandler _alarm_handler;
+        virq_t _virq = 0;
+
+        /**
+         * @brief 处理 RTC 闹钟中断.
+         *
+         * @param event RTC 对应的中断事件.
+         */
+        void handle_alarm_irq(const IrqEvent &event) noexcept;
 
         friend class GoldfishRTCFactory;
     };
