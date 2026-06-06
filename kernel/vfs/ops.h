@@ -11,8 +11,7 @@
 
 #pragma once
 
-#include <bio/buffer.h>
-#include <bio/block.h>
+#include <bio/blk.h>
 #include <sus/owner.h>
 #include <sus/rtti.h>
 #include <sus/types.h>
@@ -31,7 +30,7 @@ enum class INodeCachePolicy {
 enum class FileCachePolicy {
     NONE,  // 绝不缓存，每次 write 立即 sync
     SHARED,
-    PERMANENT, 
+    PERMANENT,
 };
 
 class IFile;
@@ -204,6 +203,12 @@ public:
      */
     [[nodiscard]]
     virtual Result<inode_t> lookup(std::string_view name) = 0;
+    [[nodiscard]]
+    virtual Result<inode_t> mkfile(std::string_view name,
+                                   const char *options) = 0;
+    [[nodiscard]]
+    virtual Result<inode_t> mkdir(std::string_view name,
+                                  const char *options) = 0;
     /**
      * @brief 同步目录数据到存储设备
      *
@@ -245,44 +250,51 @@ public:
      * @return Result<util::owner<INode *>> inode对象
      */
     virtual Result<util::owner<IINode *>> get_inode(inode_t inode_id) = 0;
+    // 分配一个新的 inode（通常由目录的创建操作调用）
+    [[nodiscard]]
+    virtual Result<inode_t> alloc_inode(INodeType type) = 0;
+    // 释放一个 inode（用于删除操作，非本次必需）
+    [[nodiscard]]
+    virtual Result<void> free_inode(inode_t id) = 0;
     /**
      * @brief 获得元数据
      *
      * @return IMetadata& 元数据对象
      */
-    virtual IMetadata &metadata()                                     = 0;
+    virtual IMetadata &metadata()               = 0;
     /**
      * @brief 获得Superblock ID
      *
      * @return size_t Superblock ID
      */
-    virtual size_t sb_id() const                                      = 0;
+    virtual size_t sb_id() const                = 0;
 };
 
 class IFsDriver {
 public:
-    virtual ~IFsDriver()             = default;
+    virtual ~IFsDriver()                            = default;
     /**
      * @brief 获得文件系统名称
      *
      * @return const char* 文件系统名称
      */
-    virtual const char *name() const = 0;
+    virtual const char *name() const                = 0;
     /**
      * @brief 探测文件系统
      *
-     * @param device 设备
+     * @param devno 设备号
      * @param options 选项
      */
-    virtual Result<void> probe(IBlockDeviceOps *device, const char *options) = 0;
+    virtual Result<void> probe(size_t devno,
+                               const char *options) = 0;
     /**
      * @brief 挂载文件系统
      *
-     * @param device 设备
+     * @param devno 设备号
      * @param options 选项
      * @return Result<ISuperblock *> 文件系统超级块
      */
-    virtual Result<util::owner<ISuperblock *>> mount(IBlockDeviceOps *device,
+    virtual Result<util::owner<ISuperblock *>> mount(size_t devno,
                                                      const char *options) = 0;
     /**
      * @brief 解挂文件系统
@@ -306,21 +318,27 @@ class IBlockFsDriver : public IFsDriver {
 public:
     ~IBlockFsDriver() override = default;
 
-    Result<void> probe(IBlockDeviceOps *device, const char *options) final {
-        if (device == nullptr) {
+    Result<void> probe(size_t devno, const char *options) final {
+        auto device_res = blk::BlkManager::inst().lookup(devno);
+        propagate(device_res);
+        auto cache_res = blk::BlkManager::inst().lookup_cache(devno);
+        propagate(cache_res);
+        if (device_res.value() == nullptr || cache_res.value() == nullptr) {
             unexpect_return(ErrCode::NULLPTR);
         }
-        blk::BufferCache cache(device, reinterpret_cast<size_t>(device));
-        return probe(cache, options);
+        return probe(devno, device_res.value(), *cache_res.value(), options);
     }
 
-    Result<util::owner<ISuperblock *>> mount(IBlockDeviceOps *device,
+    Result<util::owner<ISuperblock *>> mount(size_t devno,
                                              const char *options) final {
-        if (device == nullptr) {
+        auto device_res = blk::BlkManager::inst().lookup(devno);
+        propagate(device_res);
+        auto cache_res = blk::BlkManager::inst().lookup_cache(devno);
+        propagate(cache_res);
+        if (device_res.value() == nullptr || cache_res.value() == nullptr) {
             unexpect_return(ErrCode::NULLPTR);
         }
-        blk::BufferCache cache(device, reinterpret_cast<size_t>(device));
-        return mount(cache, options);
+        return mount(devno, device_res.value(), *cache_res.value(), options);
     }
 
     [[nodiscard]]
@@ -328,8 +346,12 @@ public:
         return true;
     }
 
-    virtual Result<void> probe(blk::BufferCache &cache, const char *options) = 0;
-    virtual Result<util::owner<ISuperblock *>> mount(blk::BufferCache &cache,
+    virtual Result<void> probe(size_t devno, IBlockDeviceOps *device,
+                               blk::BufferCache &cache,
+                               const char *options) = 0;
+    virtual Result<util::owner<ISuperblock *>> mount(size_t devno,
+                                                     IBlockDeviceOps *device,
+                                                     blk::BufferCache &cache,
                                                      const char *options) = 0;
 };
 
@@ -337,11 +359,11 @@ class IPesudoFsDriver : public IFsDriver {
 public:
     ~IPesudoFsDriver() = default;
 
-    Result<void> probe(IBlockDeviceOps *device, const char *options) final {
+    Result<void> probe(size_t devno, const char *options) final {
         unexpect_return(ErrCode::NOT_SUPPORTED);
     }
 
-    Result<util::owner<ISuperblock *>> mount(IBlockDeviceOps *device,
+    Result<util::owner<ISuperblock *>> mount(size_t devno,
                                              const char *options) final {
         unexpect_return(ErrCode::NOT_SUPPORTED);
     }

@@ -127,6 +127,17 @@ namespace devfs {
         }
 
         [[nodiscard]]
+        Result<inode_t> mkfile(std::string_view name,
+                               const char *options) override {
+            unexpect_return(ErrCode::NOT_SUPPORTED);
+        }
+        [[nodiscard]]
+        Result<inode_t> mkdir(std::string_view name,
+                              const char *options) override {
+            unexpect_return(ErrCode::NOT_SUPPORTED);
+        }
+
+        [[nodiscard]]
         Result<void> add_entry(std::string name, inode_t inode_id) {
             if (_entries.contains(name)) {
                 unexpect_return(ErrCode::KEY_DUPLICATED);
@@ -202,11 +213,21 @@ namespace devfs {
 
         [[nodiscard]]
         Result<inode_t> ensure_dir(inode_t parent_inode, std::string_view name);
+
+        [[nodiscard]]
+        Result<inode_t> alloc_inode(INodeType type) final {
+            unexpect_return(ErrCode::NOT_SUPPORTED);
+        }
+
+        [[nodiscard]]
+        Result<void> free_inode(inode_t id) final {
+            unexpect_return(ErrCode::NOT_SUPPORTED);
+        }
     };
 
     class DevFSDriver final : public IPesudoFsDriver {
     private:
-        size_t _next_sb_id = 1;
+        size_t _next_sb_id        = 1;
         DevFSSuperblock *_mounted = nullptr;
 
     public:
@@ -309,7 +330,7 @@ namespace devfs {
         }
 
         inode_t inode_id = _next_inode++;
-        auto add_res = parent_it->second->add_entry(name, inode_id);
+        auto add_res     = parent_it->second->add_entry(name, inode_id);
         propagate(add_res);
         _char_factories.insert_or_assign(inode_id, std::move(factory));
         return inode_id;

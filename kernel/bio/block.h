@@ -108,14 +108,23 @@ private:
 public:
     constexpr static BlockDeviceType IDENTIFIER = BlockDeviceType::RAMDISK;
     [[nodiscard]]
-    BlockDeviceType type_id() const override;
+    BlockDeviceType type_id() const override
+    {
+        return IDENTIFIER;
+    }
     ~RamDiskDevice() override = default;
     constexpr RamDiskDevice(void *base, size_t block_size, size_t block_count)
         : D_base(base), D_block_size(block_size), D_block_count(block_count) {}
     [[nodiscard]]
-    Result<size_t> block_sz(void) const override;
+    Result<size_t> block_sz() const override
+    {
+        return D_block_size;
+    }
     [[nodiscard]]
-    Result<size_t> block_cnt(void) const override;
+    Result<size_t> block_cnt() const override
+    {
+        return D_block_count;
+    }
     [[nodiscard]]
     Result<size_t> read_blocks(lba_t lba, void *buf, size_t cnt) override;
     [[nodiscard]]

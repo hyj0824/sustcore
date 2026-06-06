@@ -10,6 +10,7 @@
  */
 
 #include <bio/buffer.h>
+#include <bio/blk.h>
 #include <logger.h>
 #include <mem/alloc.h>
 #include <object/vfile.h>
@@ -26,6 +27,57 @@ namespace test::fs {
 
     static RamDiskDevice* _block_dev = nullptr;
     static void ensure_block_dev();
+    static Result<size_t> register_device(IBlockDeviceOps *device);
+    static Result<void> unregister_device(size_t devno);
+
+    class CaseBlkManagerRegisterLookup : public TestCase {
+    public:
+        CaseBlkManagerRegisterLookup()
+            : TestCase("BlkManager 注册并提供设备与缓存") {}
+
+        void _run(void* env) const noexcept override {
+            auto* data = new char[64];
+            tassert(data != nullptr, "应能分配块设备后端内存");
+            memset(data, 0, 64);
+
+            auto dev = util::owner<IBlockDeviceOps *>(
+                new RamDiskDevice(data, 64, 1));
+            tassert(dev.get() != nullptr, "应能创建测试 RamDisk 设备");
+
+            auto reg_res =
+                blk::BlkManager::inst().register_device(std::move(dev));
+            tassert(reg_res.has_value(), "注册块设备应成功");
+            tassert(dev.get() == nullptr, "注册后所有权应被 BlkManager 接管");
+
+            size_t devno = reg_res.value();
+            auto lookup_res = blk::BlkManager::inst().lookup(devno);
+            tassert(lookup_res.has_value() && lookup_res.value() != nullptr,
+                    "应能按设备号取回块设备");
+
+            auto cache_res = blk::BlkManager::inst().lookup_cache(devno);
+            tassert(cache_res.has_value() && cache_res.value() != nullptr,
+                    "注册时应自动创建 BufferCache");
+
+            auto id_res =
+                blk::BlkManager::inst().find_device_id(lookup_res.value());
+            tassert(id_res.has_value() && id_res.value() == devno,
+                    "应能从设备指针反查 devno");
+
+            auto dup_res = blk::BlkManager::inst().register_device(
+                util::owner<IBlockDeviceOps *>(lookup_res.value()));
+            tassert(!dup_res.has_value() &&
+                        dup_res.error() == ErrCode::KEY_DUPLICATED,
+                    "重复注册同一设备指针应失败");
+
+            auto unreg_res = blk::BlkManager::inst().unregister_device(devno);
+            tassert(unreg_res.has_value(), "注销块设备应成功");
+
+            auto missing_lookup = blk::BlkManager::inst().lookup(devno);
+            tassert(!missing_lookup.has_value() &&
+                        missing_lookup.error() == ErrCode::ENTRY_NOT_FOUND,
+                    "注销后设备查找应失败");
+        }
+    };
 
     class CaseBufferCacheReadWriteSync : public TestCase {
     public:
@@ -127,10 +179,13 @@ namespace test::fs {
 
             RamDiskDevice* initrd = make_initrd();
             tassert(initrd != nullptr, "应能成功创建 initrd RamDisk 设备");
+            auto devno_res = register_device(initrd);
+            tassert(devno_res.has_value(), "应能注册 initrd 块设备");
 
             action("挂载 tarfs 到根目录 /");
             auto mount_res =
-                vfs.mount("tarfs", initrd, "/", MountFlags::NONE, nullptr);
+                vfs.mount("tarfs", devno_res.value(), "/", MountFlags::NONE,
+                          nullptr);
             tassert(mount_res.has_value(), "应能将 tarfs 挂载到根目录 /");
 
             action("打开 initrd 中的 /license 文件");
@@ -160,8 +215,8 @@ namespace test::fs {
 
             auto umount_res = vfs.umount("/");
             tassert(umount_res.has_value(), "卸载根目录 / 应成功");
-
-            delete initrd;
+            auto unreg_res = unregister_device(devno_res.value());
+            tassert(unreg_res.has_value(), "卸载后注销 initrd 设备应成功");
         }
     };
 
@@ -174,9 +229,12 @@ namespace test::fs {
 
             RamDiskDevice* initrd = make_initrd();
             tassert(initrd != nullptr, "应能成功创建 initrd RamDisk 设备");
+            auto devno_res = register_device(initrd);
+            tassert(devno_res.has_value(), "应能注册 initrd 块设备");
 
             auto mount_res =
-                vfs.mount("tarfs", initrd, "/", MountFlags::NONE, nullptr);
+                vfs.mount("tarfs", devno_res.value(), "/", MountFlags::NONE,
+                          nullptr);
             tassert(mount_res.has_value(), "应能将 tarfs 挂载到根目录 /");
 
             auto open_res = vfs.__debug_open("/license");
@@ -209,8 +267,8 @@ namespace test::fs {
 
             auto umount_res = vfs.umount("/");
             tassert(umount_res.has_value(), "释放所有访问器后卸载应成功");
-
-            delete initrd;
+            auto unreg_res = unregister_device(devno_res.value());
+            tassert(unreg_res.has_value(), "卸载后注销 initrd 设备应成功");
         }
     };
 
@@ -223,9 +281,12 @@ namespace test::fs {
 
             RamDiskDevice* initrd = make_initrd();
             tassert(initrd != nullptr, "应能成功创建 initrd RamDisk 设备");
+            auto devno_res = register_device(initrd);
+            tassert(devno_res.has_value(), "应能注册 initrd 块设备");
 
             auto mount_res =
-                vfs.mount("tarfs", initrd, "/", MountFlags::NONE, nullptr);
+                vfs.mount("tarfs", devno_res.value(), "/", MountFlags::NONE,
+                          nullptr);
             tassert(mount_res.has_value(), "应能将 tarfs 挂载到根目录 /");
 
             auto missing_open = vfs.__debug_open("/this_file_should_not_exist");
@@ -233,8 +294,8 @@ namespace test::fs {
 
             auto umount_res = vfs.umount("/");
             tassert(umount_res.has_value(), "卸载根目录 / 应成功");
-
-            delete initrd;
+            auto unreg_res = unregister_device(devno_res.value());
+            tassert(unreg_res.has_value(), "卸载后注销 initrd 设备应成功");
         }
     };
 
@@ -247,30 +308,35 @@ namespace test::fs {
 
             RamDiskDevice* initrd = make_initrd();
             tassert(initrd != nullptr, "应能成功创建 initrd RamDisk 设备");
+            auto devno_res = register_device(initrd);
+            tassert(devno_res.has_value(), "应能注册 initrd 块设备");
 
             action("挂载未注册文件系统应失败");
             auto invalid_mount =
-                vfs.mount("unknownfs", initrd, "/", MountFlags::NONE, nullptr);
+                vfs.mount("unknownfs", devno_res.value(), "/", MountFlags::NONE,
+                          nullptr);
             tassert(!invalid_mount.has_value() &&
                         invalid_mount.error() == ErrCode::INVALID_PARAM,
                     "未注册文件系统的挂载应被拒绝");
 
             auto mount_res =
-                vfs.mount("tarfs", initrd, "/", MountFlags::NONE, nullptr);
+                vfs.mount("tarfs", devno_res.value(), "/", MountFlags::NONE,
+                          nullptr);
             tassert(mount_res.has_value(),
                     "首次将 tarfs 挂载到根目录 / 应成功");
 
             action("同一挂载点重复挂载应失败");
             auto duplicate_mount =
-                vfs.mount("tarfs", initrd, "/", MountFlags::NONE, nullptr);
+                vfs.mount("tarfs", devno_res.value(), "/", MountFlags::NONE,
+                          nullptr);
             tassert(!duplicate_mount.has_value() &&
                         duplicate_mount.error() == ErrCode::INVALID_PARAM,
                     "同一挂载点重复挂载应被拒绝");
 
             auto umount_res = vfs.umount("/");
             tassert(umount_res.has_value(), "卸载根目录 / 应成功");
-
-            delete initrd;
+            auto unreg_res = unregister_device(devno_res.value());
+            tassert(unreg_res.has_value(), "卸载后注销 initrd 设备应成功");
         }
     };
 
@@ -293,8 +359,18 @@ namespace test::fs {
         }
     }
 
+    static Result<size_t> register_device(IBlockDeviceOps *device) {
+        return blk::BlkManager::inst().register_device(
+            util::owner<IBlockDeviceOps *>(device));
+    }
+
+    static Result<void> unregister_device(size_t devno) {
+        return blk::BlkManager::inst().unregister_device(devno);
+    }
+
     void collect_tests(TestFramework& framework) {
         auto cases = util::ArrayList<TestCase*>();
+        cases.push_back(new CaseBlkManagerRegisterLookup());
         cases.push_back(new CaseBufferCacheReadWriteSync());
         cases.push_back(new CaseBufferCacheTidy());
         cases.push_back(new CaseMountOpenRead());

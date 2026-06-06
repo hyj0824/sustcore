@@ -141,8 +141,11 @@ namespace tarfs {
 		return true;
 	}
 
-	Result<void> TarFSDriver::probe(IBlockDeviceOps *device,
+	Result<void> TarFSDriver::probe(size_t devno, IBlockDeviceOps *device,
+									blk::BufferCache &cache,
 									const char *options) {
+		(void)devno;
+		(void)cache;
 		(void)options;
 		auto block_sz_res = device->block_sz();
 		propagate(block_sz_res);
@@ -171,7 +174,9 @@ namespace tarfs {
 	}
 
 	Result<util::owner<ISuperblock *>> TarFSDriver::mount(
-		IBlockDeviceOps *device, const char *options) {
+		size_t devno, IBlockDeviceOps *device, blk::BufferCache &cache,
+		const char *options) {
+		(void)cache;
 		(void)options;
 		auto block_sz_res = device->block_sz();
 		propagate(block_sz_res);
@@ -200,7 +205,7 @@ namespace tarfs {
 		}
 
 		TarSuperblock *sb_impl =
-			new TarSuperblock(data, size, this, device, 0);
+			new TarSuperblock(data, size, this, devno, device, 0);
 		if (!sb_impl) {
 			if (ramdisk == nullptr) {
 				delete[] data;

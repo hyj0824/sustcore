@@ -10,7 +10,7 @@
  */
 
 #include <cap/cholder.h>
-#include <bio/buffer.h>
+#include <bio/blk.h>
 #include <sus/path.h>
 #include <sustcore/errcode.h>
 #include <vfs/ops.h>
@@ -146,12 +146,13 @@ Result<void> VFS::unregister_fs(const char *fs_name) {
     void_return();
 }
 
-Result<void> VFS::mount(const char *fs_name, IBlockDeviceOps *device,
+Result<void> VFS::mount(const char *fs_name, size_t devno,
                         const char *mountpoint, MountFlags flags,
                         const char *options) {
     (void)flags;
-    if (device == nullptr) {
-        unexpect_return(ErrCode::NULLPTR);
+    auto dev_res = blk::BlkManager::inst().lookup(devno);
+    if (!dev_res.has_value()) {
+        propagate_return(dev_res);
     }
     util::Path mnt_path = util::Path::normalize(mountpoint);
     if (mount_table.contains(mnt_path)) {
@@ -167,33 +168,28 @@ Result<void> VFS::mount(const char *fs_name, IBlockDeviceOps *device,
         unexpect_return(ErrCode::NOT_SUPPORTED);
     }
 
-    util::owner<blk::BufferCache *> cache(nullptr);
     IFsDriver *driver = fsd->fsd();
     if (driver->is_block_fs()) {
-        cache = util::owner(new blk::BufferCache(device,
-                                                 reinterpret_cast<size_t>(device)));
-        if (cache.get() == nullptr) {
-            unexpect_return(ErrCode::OUT_OF_MEMORY);
-        }
-        auto *block_driver = static_cast<IBlockFsDriver *>(driver);
-        auto mount_result = block_driver->mount(*cache.get(), options);
+        auto mount_result = driver->mount(devno, options);
         return mount_result.transform(
-            [this, mnt_path, fsd, cache](util::owner<ISuperblock *> isb) mutable {
+            [this, mnt_path, fsd, devno](util::owner<ISuperblock *> isb) {
                 MountRecord record {
                     .superblock = util::owner(new VSuperblock(isb, *fsd)),
-                    .cache = cache,
+                    .devno = devno,
+                    .is_block_mount = true,
                     .active_files = 0,
                 };
                 this->mount_table.insert_or_assign(mnt_path, record);
             });
     }
 
-    auto mount_result = fsd->fsd()->mount(device, options);
+    auto mount_result = fsd->fsd()->mount(devno, options);
     return mount_result.transform(
-        [this, mnt_path, fsd](util::owner<ISuperblock *> isb) {
+        [this, mnt_path, fsd, devno](util::owner<ISuperblock *> isb) {
             MountRecord record {
                 .superblock = util::owner(new VSuperblock(isb, *fsd)),
-                .cache = util::owner<blk::BufferCache *>(nullptr),
+                .devno = devno,
+                .is_block_mount = false,
                 .active_files = 0,
             };
             this->mount_table.insert_or_assign(mnt_path, record);
@@ -222,7 +218,8 @@ Result<void> VFS::mount(const char *fs_name, const char *mountpoint,
         [this, mnt_path, fsd](util::owner<ISuperblock *> isb) {
             MountRecord record {
                 .superblock = util::owner(new VSuperblock(isb, *fsd)),
-                .cache = util::owner<blk::BufferCache *>(nullptr),
+                .devno = 0,
+                .is_block_mount = false,
                 .active_files = 0,
             };
             this->mount_table.insert_or_assign(mnt_path, record);
@@ -246,18 +243,18 @@ Result<void> VFS::umount(const char *mountpoint) {
         super_sync_res.error() != ErrCode::NOT_SUPPORTED) {
         propagate_return(super_sync_res);
     }
-    if (record.cache.get() != nullptr) {
-        auto cache_sync_res = record.cache->sync_all();
+    if (record.is_block_mount) {
+        auto cache_res = blk::BlkManager::inst().lookup_cache(record.devno);
+        propagate(cache_res);
+        auto cache_sync_res = cache_res.value()->sync_all();
         propagate(cache_sync_res);
     }
 
     util::owner<VSuperblock *> vsb = record.superblock;
-    auto *cache = record.cache.get();
     this->mount_table.erase(mnt_path);
 
     Result<void> ret = vsb->vfsd().fsd()->unmount(vsb->sb());
     delete vsb.get();
-    delete cache;
     return ret;
 }
 

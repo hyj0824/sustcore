@@ -13,8 +13,7 @@
 
 #include <cap/capability.h>
 #include <cap/cholder.h>
-#include <bio/buffer.h>
-#include <bio/block.h>
+#include <bio/blk.h>
 #include <logger.h>
 #include <sus/nonnull.h>
 #include <sus/owner.h>
@@ -132,7 +131,8 @@ class VFS {
 private:
     struct MountRecord {
         util::owner<VSuperblock *> superblock;
-        util::owner<blk::BufferCache *> cache;
+        size_t devno = 0;
+        bool is_block_mount = false;
         size_t active_files = 0;
     };
 
@@ -172,7 +172,7 @@ public:
     Result<void> register_fs(util::owner<IFsDriver *> &&driver);
     Result<void> unregister_fs(const char *fs_name);
     // 挂载文件系统
-    Result<void> mount(const char *fs_name, IBlockDeviceOps *device,
+    Result<void> mount(const char *fs_name, size_t devno,
                        const char *mountpoint, MountFlags flags,
                        const char *options);
     Result<void> mount(const char *fs_name, const char *mountpoint,

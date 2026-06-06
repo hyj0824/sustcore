@@ -13,18 +13,6 @@
 
 #include <cstring>
 
-BlockDeviceType RamDiskDevice::type_id() const {
-    return IDENTIFIER;
-}
-
-Result<size_t> RamDiskDevice::block_sz(void) const {
-    return D_block_size;
-}
-
-Result<size_t> RamDiskDevice::block_cnt(void) const {
-    return D_block_count;
-}
-
 Result<size_t> RamDiskDevice::read_blocks(lba_t lba, void *buf, size_t cnt) {
     if (buf == nullptr && cnt != 0) {
         unexpect_return(ErrCode::NULLPTR);

@@ -17,6 +17,7 @@
 #include <cap/capability.h>
 #include <cap/cholder.h>
 #include <cap/permission.h>
+#include <bio/blk.h>
 #include <bio/block.h>
 #include <device/fdt.h>
 #include <device/int.h>
@@ -389,6 +390,7 @@ void kernel_paging_setup() {
 }
 
 Result<void> init_vfs() {
+    blk::BlkManager::init();
     // 构造VFS
     VFS::init();
     auto &vfs = VFS::inst();
@@ -403,7 +405,14 @@ Result<void> init_vfs() {
     propagate(register_res);
 
     auto initrd_device = make_initrd();
-    auto mount_res     = vfs.mount("tarfs", initrd_device.get(), INITRD_PATH,
+    auto devno_res     = blk::BlkManager::inst().register_device(
+        util::owner<IBlockDeviceOps *>(initrd_device.get()));
+    if (!devno_res.has_value()) {
+        propagate_return(devno_res);
+    }
+    initrd_device = util::owner<RamDiskDevice *>(nullptr);
+
+    auto mount_res     = vfs.mount("tarfs", devno_res.value(), INITRD_PATH,
                                    MountFlags::NONE, nullptr);
     propagate(mount_res);
     mount_res = vfs.mount("devfs", "/sys/", nullptr);
