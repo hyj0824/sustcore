@@ -263,16 +263,13 @@ concept ArchPageManTrait = requires(T root, size_t size, VirAddr vaddr,
 };
 
 template <typename T>
-concept ContextTrait = requires(T *ctx, void *kstack) {
+concept ContextTrait = requires(T *ctx, void *context) {
     {
         ctx->pc()
     } -> std::same_as<umb_t &>;
     {
         ctx->sp()
     } -> std::same_as<umb_t &>;
-    {
-        ctx->switch_to(kstack)
-    } -> std::same_as<void>;
 };
 
 // 中断管理器 Trait

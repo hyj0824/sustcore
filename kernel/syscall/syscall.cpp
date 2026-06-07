@@ -640,6 +640,7 @@ namespace syscall {
 
     void handle_user_ecall(util::nonnull<task::TCB *> tcb, const ArgPack &args,
                            const task::SyscallContext &context) noexcept {
+        Interrupt::sti();
         begin_user_syscall(tcb, args, context);
         if (!is_suspendable_syscall(args.syscall_number)) {
             handle_sync_user_syscall(tcb, args);

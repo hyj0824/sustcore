@@ -249,7 +249,7 @@ namespace {
             int64_t integral_part   = error_ppm / 100;
             int64_t fractional_part = error_ppm % 100;
 
-            loggers::SUSTCORE::DEBUG(
+            loggers::TIMER::DEBUG(
                 "TimeKeeper 测试触发: 现在 = %llu ns, 计划间隔 = %llu ns, "
                 "实际间隔 = %llu ns, 相对误差 = %d.%04d%%",
                 static_cast<unsigned long long>(event.now.to_nanoseconds()),
@@ -578,7 +578,7 @@ void after_init() {
 #ifdef __CONF_KERNEL_RUN_MODULES
     loggers::SUSTCORE::INFO("开始运行内核模块");
     // Run kernel modules
-    schd::Scheduler::inst().run_current();
+    schd::Scheduler::inst().bootstrap_tasks();
 #endif
 
     while (true);

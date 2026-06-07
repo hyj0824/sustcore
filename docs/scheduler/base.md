@@ -178,8 +178,8 @@ class BaseSched
 
 - `riscv64_kernel_switch(prev_ctx, next_ctx)`
 - `riscv64_kernel_switch_to_user(prev_ctx, next_kstack)`
-- `isr_restore_user(kstack_top)`
-- `isr_restore_kernel(kstack_top)`
+- `isr_restore_user(kstack_bottom)`
+- `isr_restore_kernel(kstack_bottom)`
 
 内核线程切换会保存 callee-saved 寄存器和恢复目标上下文。用户线程通常通过 trap 返回路径恢复完整上下文。
 

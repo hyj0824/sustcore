@@ -147,7 +147,7 @@ syscall 参数中的用户指针不会直接解引用，而是通过:
 1. 调用 `Scheduler::schedule()`。
 2. 获取新的 current TCB。
 3. 若新线程是内核线程，调用 `isr_restore_kernel()`。
-4. 否则设置 `sscratch = tcb->kstack_top`，让 trap 出口恢复用户线程。
+4. 否则设置 `sscratch = tcb->kstack_bottom`，让 trap 出口恢复用户线程。
 
 因此 syscall 返回、线程切换和用户上下文恢复都在 trap 返回路径中完成闭环。
 

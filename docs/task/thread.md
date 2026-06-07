@@ -22,9 +22,9 @@
 - `KSTACK_PAGES = 4`
 - `KSTACK_SIZE = 16 KiB`
 - `kstack_phy`: 内核栈顶对应物理地址记录。
-- `kstack_top`: 内核栈顶虚拟地址。
+- `kstack_bottom`: 内核栈顶虚拟地址。
 
-`TCB::context()` 通过 `Context::from_kstack(kstack_top)` 得到保存在内核栈上的架构上下文。
+`TCB::context()` 通过 `Context::from_kstack(kstack_bottom)` 得到保存在内核栈上的架构上下文。
 
 ### 调度信息
 
@@ -67,7 +67,7 @@
 2. 设置所属 PCB。
 3. 清空等待、syscall 和链表状态。
 4. 通过 GFP 分配 4 页内核栈。
-5. 计算 `kstack_phy` 和 `kstack_top`。
+5. 计算 `kstack_phy` 和 `kstack_bottom`。
 
 ### `init_ctx`
 

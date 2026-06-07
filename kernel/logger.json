@@ -58,5 +58,10 @@
         "name": "TIMER",
         "channel": "KernelIO",
         "default": "info"
+    },
+    "exception": {
+        "name": "EXCEPTION",
+        "channel": "KernelIO",
+        "default": "info"
     }
 }

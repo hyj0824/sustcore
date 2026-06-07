@@ -11,8 +11,8 @@
 
 #pragma once
 
-#include <arch/riscv64/ctxlayout.h>
 #include <arch/riscv64/csr.h>
+#include <arch/riscv64/ctxlayout.h>
 #include <arch/trait.h>
 #include <sus/types.h>
 #include <syscall/syscall.h>
@@ -66,6 +66,7 @@ struct Riscv64Context {
     constexpr static size_t RA_BASE = CTX_RA_SLOT;
     constexpr static size_t TP_BASE = CTX_TP_SLOT;
     constexpr static size_t A0_BASE = CTX_A0_SLOT;
+    constexpr static size_t S0_BASE = CTX_S0_SLOT;
 
     constexpr umb_t &sp() {
         return this->regs[CTX_SP_SLOT];
@@ -100,18 +101,11 @@ struct Riscv64Context {
         return CTX_SLOT_OFFSET(CTX_SLOT_COUNT);
     }
 
-    static void switch_to(void *kstack);
-    constexpr static size_t CONTEXT_OFFSET = 0;
-    inline static Riscv64Context *from_kstack(void *kstack_top) {
-        auto kstack_addr = reinterpret_cast<size_t>(kstack_top);
-        return reinterpret_cast<Riscv64Context *>(kstack_addr - CONTEXT_OFFSET -
-                                                  sizeof(Riscv64Context));
-    }
-
-    constexpr void setup_regs(bool smode) {
+    constexpr void setup_regs(bool smode, bool sie, bool spie) {
         this->regs[RA_BASE] = 0;      // ra设置为0
-        this->sstatus.spp   = smode;  // 代码运行在 S/U-Mode
-        this->sstatus.spie  = 1;      // 用户进程应该开启中断
+        this->sstatus.spp   = smode;  // 根据 smode 设置 spp 位
+        this->sstatus.sie   = sie;      // 应该开启中断
+        this->sstatus.spie  = spie;      // 应该开启中断
     }
 
     constexpr void write_ret(const syscall::RetPack &pack) {
@@ -137,7 +131,6 @@ struct Riscv64Context {
         read_args(pack);
         return pack;
     }
-
 };
 
 static_assert(ContextTrait<Riscv64Context>);

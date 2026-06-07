@@ -11,6 +11,7 @@
 
 #include <device/int.h>
 #include <device/model.h>
+#include <driver/int/base.h>
 #include <logger.h>
 #include <sbi/sbi.h>
 
@@ -53,5 +54,10 @@ namespace driver {
             _handler(ClockEvent{.last = _last_recorded_time, .now = now});
         }
         _last_recorded_time = now;
+        auto ack_res = device::DeviceModel::inst().interrupt().ack(event);
+        if (!ack_res.has_value()) {
+            loggers::INTERRUPT::ERROR("ClintAlarm 处理 IRQ 时 ack 失败: %s",
+                                       to_cstring(ack_res.error()));
+        }
     }
 }  // namespace driver

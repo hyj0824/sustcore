@@ -170,40 +170,40 @@ namespace exception {
 
     void log_current_task_error() {
         if (!schd::Scheduler::initialized()) {
-            loggers::INTERRUPT::ERROR("task: scheduler not initialized");
+            loggers::EXCEPTION::ERROR("task: scheduler not initialized");
             return;
         }
 
         auto *tcb = schd::Scheduler::inst().current_tcb();
         if (tcb == nullptr) {
-            loggers::INTERRUPT::ERROR("task: none");
+            loggers::EXCEPTION::ERROR("task: none");
             return;
         }
-        loggers::INTERRUPT::ERROR(
-            "task: pid=%lu, tid=%lu, state=%d, kstack_top=%p",
+        loggers::EXCEPTION::ERROR(
+            "task: pid=%lu, tid=%lu, state=%d, kstack_bottom=%p",
             tcb->task != nullptr ? tcb->task->pid : 0, tcb->tid,
-            static_cast<int>(tcb->basic_entity.state), tcb->kstack_top);
+            static_cast<int>(tcb->basic_entity.state), tcb->kstack_bottom);
     }
 
     void log_trap_context_error(csr_scause_t scause, umb_t sepc, umb_t stval,
                                 const Riscv64Context *ctx) {
-        loggers::INTERRUPT::ERROR(
+        loggers::EXCEPTION::ERROR(
             "trap: cause=%s(%lu), scause=0x%lx, sepc=0x%lx, stval=0x%lx",
             exception_name(scause.cause), scause.cause, scause.value, sepc,
             stval);
         if (ctx == nullptr) {
-            loggers::INTERRUPT::ERROR("ctx: null");
+            loggers::EXCEPTION::ERROR("ctx: null");
             return;
         }
-        loggers::INTERRUPT::ERROR(
+        loggers::EXCEPTION::ERROR(
             "ctx: ptr=%p, mode=%s, sstatus=0x%lx, sp=0x%lx, ra=0x%lx", ctx,
             privilege_name(ctx), ctx->sstatus.value,
             ctx->regs[Context::X1_BASE + 1], ctx->regs[Context::RA_BASE]);
-        loggers::INTERRUPT::ERROR(
+        loggers::EXCEPTION::ERROR(
             "args: a0=0x%lx, a1=0x%lx, a2=0x%lx, a3=0x%lx",
             ctx->regs[Context::A0_BASE], ctx->regs[Context::A0_BASE + 1],
             ctx->regs[Context::A0_BASE + 2], ctx->regs[Context::A0_BASE + 3]);
-        loggers::INTERRUPT::ERROR(
+        loggers::EXCEPTION::ERROR(
             "args: a4=0x%lx, a5=0x%lx, a6=0x%lx, a7=0x%lx",
             ctx->regs[Context::A0_BASE + 4], ctx->regs[Context::A0_BASE + 5],
             ctx->regs[Context::A0_BASE + 6], ctx->regs[Context::A0_BASE + 7]);
@@ -218,19 +218,19 @@ namespace exception {
         void log_pte_debug(VirAddr addr, PageMan &pman) {
             auto query_res = pman.query_page(addr);
             if (!query_res.has_value()) {
-                loggers::INTERRUPT::DEBUG(
+                loggers::EXCEPTION::DEBUG(
                     "pte: addr=%p, query_err=%s(%d)", addr.addr(),
                     to_cstring(query_res.error()), query_res.error());
                 return;
             }
             auto qres        = query_res.value();
             PageMan::PTE pte = *qres.pte;
-            loggers::INTERRUPT::DEBUG(
+            loggers::EXCEPTION::DEBUG(
                 "pte: addr=%p, value=0x%lx, pa=%p, size=%s, rwx=0x%lx",
                 addr.addr(), pte.value,
                 PageMan::get_physical_address(pte).addr(),
                 page_size_name(qres.size), pte.rwx);
-            loggers::INTERRUPT::DEBUG(
+            loggers::EXCEPTION::DEBUG(
                 "pte flags: V=%d U=%d G=%d A=%d D=%d NP=%d COW=%d", pte.v,
                 pte.u, pte.g, pte.a, pte.d, pte.np, PageMan::is_cow(pte));
         }
@@ -238,19 +238,19 @@ namespace exception {
         void log_pte_error(VirAddr addr, PageMan &pman) {
             auto query_res = pman.query_page(addr);
             if (!query_res.has_value()) {
-                loggers::INTERRUPT::ERROR(
+                loggers::EXCEPTION::ERROR(
                     "pte: addr=%p, query_err=%s(%d)", addr.addr(),
                     to_cstring(query_res.error()), query_res.error());
                 return;
             }
             auto qres        = query_res.value();
             PageMan::PTE pte = *qres.pte;
-            loggers::INTERRUPT::ERROR(
+            loggers::EXCEPTION::ERROR(
                 "pte: addr=%p, value=0x%lx, pa=%p, size=%s, rwx=0x%lx",
                 addr.addr(), pte.value,
                 PageMan::get_physical_address(pte).addr(),
                 page_size_name(qres.size), pte.rwx);
-            loggers::INTERRUPT::ERROR(
+            loggers::EXCEPTION::ERROR(
                 "pte flags: V=%d U=%d G=%d A=%d D=%d NP=%d COW=%d", pte.v,
                 pte.u, pte.g, pte.a, pte.d, pte.np, PageMan::is_cow(pte));
         }
@@ -304,7 +304,7 @@ namespace exception {
                                            const Riscv64Context *ctx,
                                            FaultCause cause, PageMan &pman) {
             VirAddr fault_addr = VirAddr(stval);
-            loggers::INTERRUPT::ERROR(
+            loggers::EXCEPTION::ERROR(
                 "paging fault: kind=%s, fault_cause=%s, addr=%p, page=%p",
                 page_fault_kind(scause.cause), fault_cause_name(cause),
                 fault_addr.addr(), fault_addr.page_align_down().addr());
@@ -334,7 +334,7 @@ namespace exception {
             auto query_res = pman.query_page(fault_addr);
             if (!query_res.has_value()) {
                 if (is_access_fault_exception(scause.cause)) {
-                    loggers::INTERRUPT::DEBUG(
+                    loggers::EXCEPTION::DEBUG(
                         "access fault analysis: addr=%p, page lookup failed "
                         "err=%s(%d)",
                         fault_addr.addr(), to_cstring(query_res.error()),
@@ -345,7 +345,7 @@ namespace exception {
                 if (query_res.error() == ErrCode::PAGE_NOT_PRESENT) {
                     return FaultCause::NO_PRESENT;
                 }
-                loggers::INTERRUPT::ERROR("查询页表时发生错误: addr=%p, err=%d",
+                loggers::EXCEPTION::ERROR("查询页表时发生错误: addr=%p, err=%d",
                                           fault_addr.addr(), query_res.error());
                 return FaultCause::UNKNOWN;
             }
@@ -356,7 +356,7 @@ namespace exception {
             // 页面不存在
             if (!PageMan::is_present(*pte)) {
                 if (is_access_fault_exception(scause.cause)) {
-                    loggers::INTERRUPT::DEBUG(
+                    loggers::EXCEPTION::DEBUG(
                         "access fault analysis: addr=%p, mapped but not "
                         "present",
                         fault_addr.addr());
@@ -366,7 +366,7 @@ namespace exception {
             }
 
             if (is_access_fault_exception(scause.cause)) {
-                loggers::INTERRUPT::DEBUG(
+                loggers::EXCEPTION::DEBUG(
                     "access fault analysis: addr=%p, mapped page present, "
                     "treat as unrecoverable access fault",
                     fault_addr.addr());
@@ -448,16 +448,16 @@ namespace exception {
             const VirAddr fault_addr = VirAddr(stval);
             const VirAddr fault_page = fault_addr.page_align_down();
             auto &e                  = env::inst();
-            loggers::INTERRUPT::DEBUG(
+            loggers::EXCEPTION::DEBUG(
                 "paging fault: kind=%s, addr=%p, page=%p, sepc=0x%lx",
                 page_fault_kind(scause.cause), fault_addr.addr(),
                 fault_page.addr(), sepc);
-            loggers::INTERRUPT::DEBUG("page fault env: pgd=%p, tm=%p",
+            loggers::EXCEPTION::DEBUG("page fault env: pgd=%p, tm=%p",
                                       e.pgd().addr(), e.tmm());
             PageMan pman(e.pgd());
 
             if (!e.pgd().nonnull()) {
-                loggers::INTERRUPT::ERROR("page fault: 当前页表根为空");
+                loggers::EXCEPTION::ERROR("page fault: 当前页表根为空");
                 log_trap_context_error(scause, sepc, stval, ctx);
                 log_current_task_error();
                 return false;
@@ -476,7 +476,7 @@ namespace exception {
                     if (is_kernel_vaddr(fault_addr)) {
                         auto kernel_pgd = e.main_kernel_pgd();
                         if (!kernel_pgd.nonnull()) {
-                            loggers::INTERRUPT::ERROR(
+                            loggers::EXCEPTION::ERROR(
                                 "kernel page fault: 主内核页表不可用 addr=%p",
                                 fault_addr.addr());
                             break;
@@ -486,7 +486,7 @@ namespace exception {
                         auto clone_res =
                             pman.clone_mapping_from(kernel_pman, fault_page);
                         if (!clone_res.has_value()) {
-                            loggers::INTERRUPT::ERROR(
+                            loggers::EXCEPTION::ERROR(
                                 "kernel page fault: 复制主内核页表映射失败 "
                                 "addr=%p err=%s",
                                 fault_addr.addr(),
@@ -494,7 +494,7 @@ namespace exception {
                             break;
                         }
                         PageMan::flush_tlb();
-                        loggers::INTERRUPT::DEBUG(
+                        loggers::EXCEPTION::DEBUG(
                             "kernel page fault: 已复制主内核页表映射 addr=%p "
                             "page=%p",
                             fault_addr.addr(), fault_page.addr());
@@ -505,7 +505,7 @@ namespace exception {
                     // 使用缺页异常处理程序处理缺页异常
                     auto *tm = e.tmm();
                     if (tm != nullptr) {
-                        loggers::INTERRUPT::DEBUG(
+                        loggers::EXCEPTION::DEBUG(
                             "缺页异常可尝试处理: addr=%p, page=%p, tm_pgd=%p",
                             fault_addr.addr(), fault_page.addr(),
                             tm->pgd().addr());
@@ -519,14 +519,14 @@ namespace exception {
                             auto verify_res =
                                 verify_pman.query_page(fault_addr);
                             if (!verify_res.has_value()) {
-                                loggers::INTERRUPT::ERROR(
+                                loggers::EXCEPTION::ERROR(
                                     "TM::on_np 返回成功但页面仍不存在: "
                                     "addr=%p, "
                                     "err=%d, hw_root_after=%p",
                                     fault_addr.addr(), verify_res.error(),
                                     hw_root_after.addr());
                             } else {
-                                loggers::INTERRUPT::DEBUG(
+                                loggers::EXCEPTION::DEBUG(
                                     "缺页异常已处理: addr=%p, page=%p, "
                                     "hw_root_after=%p",
                                     fault_addr.addr(), fault_page.addr(),
@@ -547,7 +547,7 @@ namespace exception {
                     break;
                 }
                 case FaultCause::ACCESS_FAULT: {
-                    loggers::INTERRUPT::ERROR(
+                    loggers::EXCEPTION::ERROR(
                         "access fault is not recoverable: type=%s, addr=%p, "
                         "sepc=0x%lx",
                         exception_name(scause.cause), fault_addr.addr(), sepc);
@@ -556,7 +556,7 @@ namespace exception {
                 case FaultCause::INVALID_AD: {
                     auto query_res = pman.query_page(fault_addr);
                     if (!query_res.has_value()) {
-                        loggers::INTERRUPT::ERROR(
+                        loggers::EXCEPTION::ERROR(
                             "处理 A/D 位错误时查询页表失败: addr=%p, err=%d",
                             fault_addr.addr(), query_res.error());
                         break;
@@ -564,7 +564,7 @@ namespace exception {
                     PageMan::PTE *pte = query_res.value().pte;
                     bool present      = PageMan::is_present(*pte);
                     if (!present) {
-                        loggers::INTERRUPT::ERROR(
+                        loggers::EXCEPTION::ERROR(
                             "处理 A/D 位错误时页面不存在: addr=%p, pte=%p",
                             fault_addr.addr(), pte);
                         break;
@@ -586,7 +586,7 @@ namespace exception {
                     processed |= updated;
                     if (updated) {
                         PageMan::flush_tlb();
-                        loggers::INTERRUPT::DEBUG(
+                        loggers::EXCEPTION::DEBUG(
                             "修复 A/D 位后重试: addr=%p, A=%d, D=%d",
                             fault_addr.addr(), pte->a, pte->d);
                     }
@@ -598,7 +598,7 @@ namespace exception {
                         processed |= tm->on_wp(fault_addr);
                     }
                     if (processed) {
-                        loggers::INTERRUPT::DEBUG(
+                        loggers::EXCEPTION::DEBUG(
                             "写保护页异常已处理: addr=%p, page=%p",
                             fault_addr.addr(), fault_page.addr());
                         log_pte_debug(fault_addr, pman);
@@ -642,7 +642,7 @@ namespace exception {
     [[nodiscard]]
     bool illegal_instruction(csr_scause_t scause, umb_t sepc, umb_t stval,
                              Riscv64Context *ctx) {
-        loggers::INTERRUPT::DEBUG(
+        loggers::EXCEPTION::DEBUG(
             "进入非法指令异常处理程序: sepc=0x%016lx, stval=0x%016lx", sepc,
             stval);
         return false;  // 无法处理该异常
@@ -654,15 +654,15 @@ namespace exception {
         auto *current_tcb = schd::Scheduler::inst().current_tcb();
         assert(current_tcb != nullptr);
         syscall::ArgPack args = ctx->read_args();
-        loggers::INTERRUPT::DEBUG(
+        loggers::SYSCALL::DEBUG(
             "系统调用触发: name=%s, no=0x%lx, pid=%lu, tid=%lu",
             syscall::name_of(args.syscall_number), args.syscall_number,
             current_tcb->task != nullptr ? current_tcb->task->pid : 0,
             current_tcb->tid);
-        loggers::INTERRUPT::DEBUG(
+        loggers::SYSCALL::DEBUG(
             "系统调用参数: capidx=0x%lx, arg0=0x%lx, arg1=0x%lx, arg2=0x%lx",
             args.capidx, args.args[0], args.args[1], args.args[2]);
-        loggers::INTERRUPT::DEBUG(
+        loggers::SYSCALL::DEBUG(
             "系统调用参数: arg3=0x%lx, arg4=0x%lx, sepc=0x%lx", args.args[3],
             args.args[4], sepc);
 
@@ -704,16 +704,16 @@ namespace exception {
                 processed = paging::paging_fault(scause, sepc, stval, ctx);
                 break;
             default:
-                loggers::INTERRUPT::ERROR("无异常处理程序!");
+                loggers::EXCEPTION::ERROR("无异常处理程序!");
                 processed = false;
                 break;
         }
 
         if (!processed) {
-            loggers::INTERRUPT::ERROR("发生异常: %s (%lu), mode=%s",
+            loggers::EXCEPTION::ERROR("发生异常: %s (%lu), mode=%s",
                                       exception_name(scause.cause),
                                       scause.cause, privilege_name(ctx));
-            loggers::INTERRUPT::ERROR("无法处理该异常, 需终止相关进程");
+            loggers::EXCEPTION::ERROR("无法处理该异常, 需终止相关进程");
             if (!is_paging_related_exception(scause.cause)) {
                 log_trap_context_error(scause, sepc, stval, ctx);
                 log_current_task_error();
@@ -764,13 +764,19 @@ namespace interrupt {
     }
 }  // namespace interrupt
 
-extern "C" [[noreturn]] void isr_restore_kernel(void *kstack_top);
-
 extern "C" void handle_trap(csr_scause_t scause, umb_t sepc, umb_t stval,
                             Riscv64Context *ctx) {
     if (!scause.interrupt) {
-        loggers::INTERRUPT::DEBUG(
+        loggers::EXCEPTION::DEBUG(
             "trap: cause=%llu sepc=%p stval=%p ctx=%p sp(before fault)=%p "
+            "kstack_sp=%p from_%s",
+            static_cast<unsigned long long>(scause.cause), (void *)sepc,
+            (void *)stval, ctx, (void *)ctx->sp(), (void *)ctx->kstack_sp,
+            ctx->sstatus.spp ? "smode" : "umode");
+    }
+    else {
+        loggers::INTERRUPT::DEBUG(
+            "interrupt: cause=%llu sepc=%p stval=%p ctx=%p sp(before irq)=%p "
             "kstack_sp=%p from_%s",
             static_cast<unsigned long long>(scause.cause), (void *)sepc,
             (void *)stval, ctx, (void *)ctx->sp(), (void *)ctx->kstack_sp,
@@ -786,15 +792,17 @@ extern "C" void handle_trap(csr_scause_t scause, umb_t sepc, umb_t stval,
         // 异常
         exception::exception(scause, sepc, stval, ctx);
     }
+    
+    Riscv64Interrupt::sti();
+    schd::Scheduler::inst().schedule();
+
+    Riscv64Interrupt::cli();
     if (from_umode) {
-        auto &scheduler = schd::Scheduler::inst();
-        scheduler.schedule();
-        auto *tcb = scheduler.current_tcb();
+        auto *tcb = schd::Scheduler::inst().current_tcb();
         if (tcb != nullptr) {
-            if (tcb->is_kernel) {
-                isr_restore_kernel(tcb->kstack_top);
-            }
-            csr_set_sscratch(reinterpret_cast<csr_sscratch_t>(tcb->kstack_top));
+            auto new_sscratch =
+                reinterpret_cast<csr_sscratch_t>(tcb->kstack_bottom);
+            csr_set_sscratch(new_sscratch);
         }
     }
 }
@@ -836,5 +844,3 @@ void Riscv64Interrupt::cli() {
     sstatus.sie           = 0;
     csr_set_sstatus(sstatus);
 }
-
-void Riscv64Context::switch_to([[maybe_unused]] void *kstack_top) {}

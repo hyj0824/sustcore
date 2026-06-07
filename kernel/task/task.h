@@ -59,7 +59,8 @@ namespace task {
             tcb->kentry                = nullptr;
             tcb->karg                  = nullptr;
             tcb->list_head             = {};
-            tcb->kstack_top            = nullptr;
+            tcb->kstack_bottom         = nullptr;
+            tcb->ksp                   = nullptr;
             tcb->kstack_phy            = PhyAddr::null;
             tcb->schd_class            = schd::ClassType::BOT;
             tcb->basic_entity          = {};
@@ -95,17 +96,6 @@ namespace task {
                               util::nonnull<PCB *> task /* ... args*/);
         Result<void> recycle_tcb(util::nonnull<TCB *> tcb);
         /**
-         * @brief 初始化任务上下文寄存器与栈, 使 TCB 可用于首次调度.
-         *
-         * @param tcb 目标 TCB, 必须为非空指针.
-         * @param entrypoint 线程入口地址.
-         * @param stack_top 线程栈顶地址.
-         * @return Result<void> 成功返回 SUCCESS, 失败返回相应错误码.
-         * @note entrypoint 与 stack_top 必须满足架构对对齐和可访问性的要求.
-         */
-        Result<void> init_ctx(util::nonnull<TCB *> tcb, void *entrypoint,
-                              void *stack_top, bool smode = false);
-        /**
          * @brief 初始化一个空 PCB, 只填入生命周期与进程基础状态.
          *
          * @param pcb 要初始化的 PCB, 必须为非空指针.
@@ -129,20 +119,6 @@ namespace task {
         Result<util::nonnull<TCB *>> construct_thread(
             util::nonnull<PCB *> pcb, void *entrypoint, void *stack_top,
             schd::ClassType schd_class, bool kernel_thread = false);
-        /**
-         * @brief 为 PCB 构造主线程, 并根据 StartupInfo 执行额外的启动配置.
-         *
-         * @param pcb 目标 PCB, 必须为非空指针.
-         * @param schd_class 调度器类别.
-         * @param startup_info 启动时需要的附加信息.
-         * @return Result<util::nonnull<TCB *>> 成功返回主线程的 TCB 非空指针,
-         * 失败返回错误码.
-         * @note 主线程通常承担进程初始化逻辑, 应在创建后尽快加入调度.
-         */
-        Result<util::nonnull<TCB *>> construct_main_thread(
-            util::nonnull<PCB *> pcb, schd::ClassType schd_class,
-            task::StartupInfo startup_info, const void *startup_blob = nullptr,
-            size_t startup_blob_size = 0);
         /**
          * @brief 将启动参数块写入用户主栈并返回新的初始栈顶.
          *
@@ -171,6 +147,18 @@ namespace task {
         Result<util::nonnull<TCB *>> populate_task(
             util::nonnull<PCB *> pcb, TaskSpec spec, schd::ClassType schd_class,
             TCB *reuse_main_tcb = nullptr);
+        /**
+         * @brief 为给定用户线程补齐主线程共享资源并完成首次用户态切入准备.
+         */
+        Result<util::nonnull<TCB *>> setup_user_main_thread(
+            util::nonnull<PCB *> pcb, util::nonnull<TCB *> tcb, TaskSpec &spec,
+            task::StartupInfo startup_info, bool link_into_pcb,
+            const char *log_tag);
+        /**
+         * @brief 创建一个已完成装载的用户进程, 可选择是否立即唤醒主线程.
+         */
+        Result<util::nonnull<PCB *>> create_loaded_user_task(
+            TaskSpec spec, schd::ClassType schd_class, bool wakeup);
 
         /**
          * @brief 使用 fork 语义填充已初始化的子 PCB.
@@ -232,6 +220,20 @@ namespace task {
          */
         Result<CapIdx> preload_into(const char *path, cap::CHolder *holder,
                                     TaskSpec &spec, LoadPrm &prm);
+        /**
+         * @brief 复制启动缓冲区、预加载并装载 ELF 到 TaskSpec.
+         */
+        Result<void> load_task_spec(const char *path, cap::CHolder *holder,
+                                    const void *startup_blob,
+                                    size_t startup_blob_size, TaskSpec &spec,
+                                    LoadPrm &prm);
+        /**
+         * @brief 装载 ELF 并直接构造对应的用户进程.
+         */
+        Result<util::nonnull<PCB *>> load_task_image(
+            const char *path, cap::CHolder *holder, schd::ClassType schd_class,
+            bool wakeup, const void *startup_blob = nullptr,
+            size_t startup_blob_size = 0);
 
     public:
         /**

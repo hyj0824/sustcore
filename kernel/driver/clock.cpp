@@ -194,13 +194,13 @@ namespace driver {
 
         units::time now = _source->to_ns(_source->now());
         auto due        = _queue.pop_due(now);
-        rearm_timer();
         for (auto &entry : due) {
             if (entry.action == nullptr) {
                 continue;
             }
             run_action(*entry.action, event);
         }
+        rearm_timer();
     }
 
     void TimeKeeper::rearm_timer() noexcept {

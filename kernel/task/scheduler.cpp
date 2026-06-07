@@ -37,11 +37,8 @@ namespace key {
     };
 }  // namespace key
 
-extern "C" [[noreturn]] void isr_restore_user(void *kstack_top);
-extern "C" [[noreturn]] void isr_restore_kernel(void *kstack_top);
-extern "C" void riscv64_kernel_switch(void *prev_ctx, void *next_ctx);
-extern "C" void riscv64_kernel_switch_to_user(void *prev_ctx,
-                                              void *next_kstack);
+extern "C"
+void __switch_to(Context *prev_ctx, Context *next_ctx);
 
 namespace schd {
     using namespace task;
@@ -84,11 +81,20 @@ namespace schd {
         env::inst().tmm(key::schd()) = tmm;
     }
 
-    void Scheduler::switch_to(TCB *tcb) {
+    void Scheduler::prepare_switch(TCB *tcb) {
         // 切换页表
         switch_pgd(tcb->task->tmm);
         env::hart_ctx->current_tcb() = tcb;
         env::hart_ctx->current_pcb() = tcb->task;
+    }
+
+    void Scheduler::switch_to(TCB *prev, TCB *next) {
+        assert(prev != nullptr);
+        assert(next != nullptr);
+        if (!Interrupt::enabled()) {
+            loggers::SUSTCORE::FATAL("禁止在关中断临界区内调用 switch_to");
+        }
+        __switch_to(prev->kernel_context_ptr(), next->kernel_context_ptr());
     }
 
     bool Scheduler::try_wakeup(TCB *tcb, int flags) {
@@ -148,6 +154,22 @@ namespace schd {
         void_return();
     }
 
+    Result<void> Scheduler::prepare_prev_task(TCB *tcb) noexcept {
+        if (tcb == nullptr || tcb->basic_entity.state == ThreadState::WAITING) {
+            void_return();
+        }
+        if (!can_schedule_tcb(tcb)) {
+            tcb->basic_entity.state = ThreadState::WAITING;
+            void_return();
+        }
+
+        auto schd_res = schd(tcb->schd_class);
+        if (!schd_res.has_value()) {
+            unexpect_return(schd_res.error());
+        }
+        return schd_res.value()->put_prev(rq(), util::nnullforce(tcb));
+    }
+
     bool Scheduler::can_schedule_tcb(TCB *tcb) noexcept {
         if (tcb == nullptr) {
             return false;
@@ -177,7 +199,7 @@ namespace schd {
             auto next_res = pick_next_task();
             propagate(next_res);
             TCB *next = next_res.value();
-            switch_to(next);
+            prepare_switch(next);
 
             if (!task::wait::resume_deferred_syscall(next)) {
                 next->basic_entity
@@ -226,7 +248,7 @@ namespace schd {
         }
     }
 
-    void Scheduler::schedule(bool switch_kernel_context) {
+    void Scheduler::schedule() {
         // 首先获得当前正在运行的线程
         auto *current = current_tcb();
         if (current == nullptr) {
@@ -253,28 +275,13 @@ namespace schd {
         current->basic_entity
             .template flags_reset<SchedMeta::FLAGS_NEED_RESCHED>();
 
-        // 如果当前线程仍然可运行, 将其放回就绪队列; 等待线程不再入队. 
-        if (current->basic_entity.state != ThreadState::WAITING) {
-            if (!can_schedule_tcb(current)) {
-                current->basic_entity.state = ThreadState::WAITING;
-            } else {
-            auto schd_res = schd(current->schd_class);
-            if (!schd_res.has_value()) {
-                loggers::SUSTCORE::ERROR("未知的调度类! 错误码: %s",
-                                         to_cstring(schd_res.error()));
-                panic("调度器崩溃!");
-            }
-            auto schdclass = schd_res.value();
-            auto put_prev_res =
-                schdclass->put_prev(rq(), util::nnullforce(current));
-            if (!put_prev_res.has_value()) {
-                loggers::SUSTCORE::ERROR(
-                    "调度器处理put_prev失败! 错误码: %s 对应调度类: %s",
-                    to_cstring(put_prev_res.error()),
-                    to_cstring(current->schd_class));
-                panic("调度器崩溃!");
-            }
-            }
+        auto put_prev_res = prepare_prev_task(current);
+        if (!put_prev_res.has_value()) {
+            loggers::SUSTCORE::ERROR(
+                "调度器处理put_prev失败! 错误码: %s 对应调度类: %s",
+                to_cstring(put_prev_res.error()),
+                to_cstring(current->schd_class));
+            panic("调度器崩溃!");
         }
 
         // 选择下一个要运行的线程
@@ -286,15 +293,8 @@ namespace schd {
             panic("调度器崩溃!");
         }
         TCB *next = next_res.value();
-        if (switch_kernel_context && prev != next && prev != nullptr &&
-            prev->is_kernel)
-        {
-            if (next->is_kernel) {
-                riscv64_kernel_switch(prev->context(), next->context());
-            } else {
-                riscv64_kernel_switch_to_user(prev->context(),
-                                              next->kstack_top);
-            }
+        if (prev != next && prev != nullptr) {
+            switch_to(prev, next);
         }
     }
 
@@ -405,21 +405,30 @@ namespace schd {
     }
 
     [[noreturn]]
-    void Scheduler::run_current() {
-        if (current_tcb() == nullptr) {
-            loggers::SUSTCORE::ERROR("没有可运行线程, 无法进入用户态");
-            panic("调度器崩溃!");
-        }
-
-        schedule(false);
+    void Scheduler::bootstrap_tasks() {
         auto *current = current_tcb();
         if (current == nullptr) {
-            loggers::SUSTCORE::ERROR("调度后没有可运行线程");
+            loggers::SUSTCORE::ERROR("没有当前线程, 无法启动调度");
             panic("调度器崩溃!");
         }
-        if (current->is_kernel) {
-            isr_restore_kernel(current->kstack_top);
+        auto put_prev_res = prepare_prev_task(current);
+        if (!put_prev_res.has_value()) {
+            loggers::SUSTCORE::ERROR(
+                "bootstrap_tasks 准备当前线程失败: %s",
+                to_cstring(put_prev_res.error()));
+            panic("调度器崩溃!");
         }
-        isr_restore_user(current->kstack_top);
+        auto next_res = prepare_next_task();
+        if (!next_res.has_value()) {
+            loggers::SUSTCORE::ERROR("没有可运行线程, 无法启动调度: %s",
+                                     to_cstring(next_res.error()));
+            panic("调度器崩溃!");
+        }
+        auto next = next_res.value();
+        prepare_switch(next);
+        Context bootstrap_prev{};
+        bootstrap_prev.sp() = 0;
+        __switch_to(&bootstrap_prev, next->kernel_context_ptr());
+        panic("bootstrap_tasks 不应返回");
     }
 }  // namespace schd

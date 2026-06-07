@@ -98,7 +98,7 @@ void Riscv64Initialization::promote_dtb_to_kpa(void) {
 
 void Riscv64Idle::idle()
 {
-    asm volatile("wfi");
+    while(true);
 }
 
 void Riscv64Initialization::post_init(void) {

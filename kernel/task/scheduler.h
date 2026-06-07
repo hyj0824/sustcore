@@ -129,11 +129,13 @@ namespace schd {
         Result<util::nonnull<TCB *>> pick_next_task();
         Result<util::nonnull<TCB *>> prepare_next_task();
         Result<void> commit_completed_syscall(TCB *tcb) noexcept;
+        Result<void> prepare_prev_task(TCB *tcb) noexcept;
         [[nodiscard]]
         bool can_schedule_tcb(TCB *tcb) noexcept;
         void check_preempt_curr(TCB *new_tcb);
 
-        void switch_to(TCB *tcb);
+        void prepare_switch(TCB *tcb);
+        void switch_to(TCB *prev, TCB *next);
 
         bool try_wakeup(TCB *tcb, int flags);
         bool wakeup(TCB *tcb);
@@ -144,7 +146,7 @@ namespace schd {
         void init();
 
         [[noreturn]]
-        void run_current();
+        void bootstrap_tasks();
 
         /**
          * @brief 调度入口
@@ -156,7 +158,7 @@ namespace schd {
          * 这样调度器就会在没有其他可运行线程时调度到这个 IDLE 线程上
          *
          */
-        void schedule(bool switch_kernel_context = true);
+        void schedule();
 
         // 任务入队/唤醒
         Result<void> enqueue(util::nonnull<TCB *> tcb);

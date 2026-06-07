@@ -38,6 +38,57 @@
 #include <cassert>
 
 namespace task {
+    namespace {
+        extern "C" [[noreturn]] void new_utask_trampoline();
+
+        void init_user_context(Context *ctx, void *entrypoint, void *stack_top,
+                               void *kstack_top) noexcept {
+            assert(ctx != nullptr);
+            *ctx = {};
+            ctx->setup_regs(false, false, true);
+            ctx->pc()      = reinterpret_cast<umb_t>(entrypoint);
+            ctx->sp()      = reinterpret_cast<umb_t>(stack_top);
+            ctx->kstack_sp = reinterpret_cast<umb_t>(kstack_top);
+        }
+
+        void init_kernel_context(Context *ctx, void *entrypoint, void *arg0,
+                                 void *stack_top, bool sie,
+                                 bool spie) noexcept {
+            assert(ctx != nullptr);
+            *ctx = {};
+            ctx->setup_regs(true, sie, spie);
+            ctx->sp()                   = reinterpret_cast<umb_t>(stack_top);
+            ctx->regs[Context::RA_BASE] = reinterpret_cast<umb_t>(entrypoint);
+            ctx->regs[Context::S0_BASE] = reinterpret_cast<umb_t>(arg0);
+            ctx->kstack_sp              = reinterpret_cast<umb_t>(stack_top);
+        }
+
+        void reset_thread_runtime(util::nonnull<TCB *> tcb) noexcept {
+            tcb->basic_entity = {};
+            tcb->rr_entity    = {};
+            tcb->syscall_info.reset();
+        }
+
+        void build_user_contexts(util::nonnull<TCB *> tcb, void *entrypoint,
+                                 void *user_stack_top) noexcept {
+            tcb->reset_kstack();
+            auto *user_ctx           = tcb->push<Context>();
+            init_user_context(user_ctx, entrypoint, user_stack_top,
+                              tcb->kstack_top());
+            init_kernel_context(
+                tcb->kernel_context_ptr(),
+                reinterpret_cast<void *>(&new_utask_trampoline), user_ctx,
+                tcb->kstack_top(), false, true);
+        }
+
+        void build_kernel_context(util::nonnull<TCB *> tcb, void *entrypoint,
+                                  void *arg0) noexcept {
+            tcb->reset_kstack();
+            init_kernel_context(tcb->kernel_context_ptr(), entrypoint, arg0,
+                                tcb->kstack_top(), true, false);
+        }
+    }  // namespace
+
     void TCB::SyscallInfo::reset() noexcept {
         syscall_args   = {};
         syscall_number = 0;
@@ -177,9 +228,9 @@ namespace task {
          */
         TaskSpec empty_task_spec() {
             return TaskSpec{
-                .tmm        = util::owner<TaskMemoryManager *>(nullptr),
-                .holder     = nullptr,
-                .entrypoint = VirAddr(static_cast<addr_t>(0)),
+                .tmm          = util::owner<TaskMemoryManager *>(nullptr),
+                .holder       = nullptr,
+                .entrypoint   = VirAddr(static_cast<addr_t>(0)),
                 .startup_blob = util::owner<char *>(nullptr),
             };
         }
@@ -193,7 +244,7 @@ namespace task {
             if (spec.tmm.get() == nullptr) {
                 if (spec.startup_blob != nullptr) {
                     delete[] spec.startup_blob.get();
-                    spec.startup_blob = util::owner<char *>(nullptr);
+                    spec.startup_blob      = util::owner<char *>(nullptr);
                     spec.startup_blob_size = 0;
                 }
                 return;
@@ -204,7 +255,7 @@ namespace task {
             spec.tmm = util::owner<TaskMemoryManager *>(nullptr);
             if (spec.startup_blob != nullptr) {
                 delete[] spec.startup_blob.get();
-                spec.startup_blob = util::owner<char *>(nullptr);
+                spec.startup_blob      = util::owner<char *>(nullptr);
                 spec.startup_blob_size = 0;
             }
         }
@@ -233,8 +284,7 @@ namespace task {
         }
 
         // 内核 idle 线程
-        void kthread_idle()
-        {
+        void kthread_idle() {
             while (true) {
                 Riscv64Idle::idle();
             }
@@ -306,24 +356,11 @@ namespace task {
         propagate(gfp_res);
 
         // calculate the top of the kernel stack
-        tcb->kstack_phy = gfp_res.value() + TCB::KSTACK_PAGES * PAGESIZE;
-        tcb->kstack_top = convert<KpaAddr>(tcb->kstack_phy).addr();
+        tcb->kstack_phy    = gfp_res.value() + TCB::KSTACK_PAGES * PAGESIZE;
+        tcb->kstack_bottom = convert<KpaAddr>(tcb->kstack_phy).addr();
+        tcb->ksp           = (char *)tcb->kstack_bottom;
 
         // initialization the kstack and context
-        void_return();
-    }
-
-    Result<void> TaskManager::init_ctx(util::nonnull<TCB *> tcb,
-                                       void *entrypoint, void *stack_top,
-                                       bool smode) {
-        *tcb->context() = {};
-        tcb->context()->setup_regs(smode);
-        tcb->context()->pc() = reinterpret_cast<umb_t>(entrypoint);
-        tcb->context()->sp() = reinterpret_cast<umb_t>(stack_top);
-        tcb->basic_entity    = {};
-        tcb->rr_entity       = {};
-        tcb->syscall_info.reset();
-
         void_return();
     }
 
@@ -357,11 +394,11 @@ namespace task {
         }
 
         tcb->is_kernel = kernel_thread;
-        auto ctx_res   = init_ctx(tcb, entrypoint, stack_top, kernel_thread);
-        if (!ctx_res.has_value()) {
-            loggers::SUSTCORE::ERROR("初始化线程上下文失败! 错误码: %s",
-                                     to_cstring(ctx_res.error()));
-            propagate_return(ctx_res);
+        reset_thread_runtime(tcb);
+        if (kernel_thread) {
+            build_kernel_context(tcb, entrypoint, nullptr);
+        } else {
+            build_user_contexts(tcb, entrypoint, stack_top);
         }
 
         tcb->schd_class = schd_class;
@@ -369,50 +406,6 @@ namespace task {
         // 将线程加入进程的线程列表
         pcb->threads.push_back(*tcb);
         tcb_guard.release();  // 线程已成功构造, 释放TCB的自动释放机制
-        return tcb;
-    }
-
-    Result<util::nonnull<TCB *>> TaskManager::construct_main_thread(
-        util::nonnull<PCB *> pcb, schd::ClassType schd_class,
-        task::StartupInfo startup_info, const void *startup_blob,
-        size_t startup_blob_size) {
-        // 为主线程分配初始栈空间, 并将其加入Task Memory的VMA中
-        // 此处无需通过GFP分配物理页, 由缺页中断自动处理即可
-        auto *stack_mem = new cap::MemoryPayload(MAX_INITIAL_STACK_SIZE, false,
-                                                 false, VMA::Growth::GROW_DOWN);
-        auto stack_cap_res = pcb->cholder->insert_to_free(stack_mem);
-        if (!stack_cap_res.has_value()) {
-            delete stack_mem;
-            propagate_return(stack_cap_res);
-        }
-        auto vma_res =
-            pcb->tmm->add_vma(VMA::Type::STACK, VMA::Growth::GROW_DOWN,
-                              VirArea(USER_STACK_BOTTOM, USER_STACK_TOP),
-                              stack_mem, PageMan::RWX::RW);
-        propagate(vma_res);
-        auto con_res = construct_thread(pcb, pcb->entrypoint.addr(),
-                                        USER_STACK_TOP.addr(), schd_class);
-        propagate(con_res);
-        util::nonnull<TCB *> tcb = con_res.value();
-        auto tcb_guard = util::Guard([this, tcb]() { (void)recycle_tcb(tcb); });
-
-        auto tcb_cap_res = pcb->cholder->create<cap::TCBPayload>(tcb.get());
-        propagate(tcb_cap_res);
-
-        pcb->main_tcb_cap          = tcb_cap_res.value();
-        startup_info.pcb_cap       = pcb->pcb_cap;
-        startup_info.main_tcb_cap  = pcb->main_tcb_cap;
-        startup_info.stack_mem_cap = stack_cap_res.value();
-        auto stack_top_res =
-            build_user_stack(*stack_mem, USER_STACK_TOP, startup_info,
-                             startup_blob, startup_blob_size);
-        propagate(stack_top_res);
-        tcb->context()->sp() = reinterpret_cast<umb_t>(stack_top_res.value().addr());
-        loggers::TASK::INFO(
-            "构造用户主线程: pid=%lu entry=%p sp=%p", pcb->pid,
-            pcb->entrypoint.addr(), stack_top_res.value().addr());
-
-        tcb_guard.release();
         return tcb;
     }
 
@@ -429,8 +422,8 @@ namespace task {
 
         constexpr size_t STACK_ALIGN = 16;
         addr_t stack_arith           = stack_top.arith();
-        size_t total_size = sizeof(size_t) + sizeof(task::StartupInfo) +
-                            startup_blob_size;
+        size_t total_size =
+            sizeof(size_t) + sizeof(task::StartupInfo) + startup_blob_size;
         if (stack_arith < total_size) {
             unexpect_return(ErrCode::OUT_OF_BOUNDARY);
         }
@@ -443,12 +436,11 @@ namespace task {
 
         VirAddr user_sp(aligned_sp);
         size_t mem_offset = user_sp - USER_STACK_BOTTOM;
-        auto size_write_res = stack_mem.write(mem_offset, &total_size,
-                                              sizeof(total_size));
+        auto size_write_res =
+            stack_mem.write(mem_offset, &total_size, sizeof(total_size));
         propagate(size_write_res);
-        auto info_write_res =
-            stack_mem.write(mem_offset + sizeof(size_t), &startup_info,
-                            sizeof(startup_info));
+        auto info_write_res = stack_mem.write(
+            mem_offset + sizeof(size_t), &startup_info, sizeof(startup_info));
         propagate(info_write_res);
         if (startup_blob_size != 0) {
             auto blob_write_res = stack_mem.write(
@@ -462,6 +454,58 @@ namespace task {
             stack_top.addr(), reinterpret_cast<void *>(raw_sp), user_sp.addr(),
             mem_offset, total_size, startup_blob_size);
         return user_sp;
+    }
+
+    Result<util::nonnull<TCB *>> TaskManager::setup_user_main_thread(
+        util::nonnull<PCB *> pcb, util::nonnull<TCB *> tcb, TaskSpec &spec,
+        task::StartupInfo startup_info, bool link_into_pcb, const char *log_tag) {
+        if (pcb->cholder == nullptr || pcb->tmm.get() == nullptr) {
+            unexpect_return(ErrCode::NULLPTR);
+        }
+
+        auto *stack_mem = new cap::MemoryPayload(MAX_INITIAL_STACK_SIZE, false,
+                                                 false, VMA::Growth::GROW_DOWN);
+        if (stack_mem == nullptr) {
+            unexpect_return(ErrCode::OUT_OF_MEMORY);
+        }
+        auto stack_cap_res = pcb->cholder->insert_to_free(stack_mem);
+        if (!stack_cap_res.has_value()) {
+            delete stack_mem;
+            propagate_return(stack_cap_res);
+        }
+        auto vma_res =
+            pcb->tmm->add_vma(VMA::Type::STACK, VMA::Growth::GROW_DOWN,
+                              VirArea(USER_STACK_BOTTOM, USER_STACK_TOP),
+                              stack_mem, PageMan::RWX::RW);
+        propagate(vma_res);
+
+        auto tcb_cap_res = pcb->cholder->create<cap::TCBPayload>(tcb.get());
+        propagate(tcb_cap_res);
+
+        pcb->main_tcb_cap          = tcb_cap_res.value();
+        startup_info.pcb_cap       = pcb->pcb_cap;
+        startup_info.main_tcb_cap  = pcb->main_tcb_cap;
+        startup_info.stack_mem_cap = stack_cap_res.value();
+        auto stack_top_res =
+            build_user_stack(*stack_mem, USER_STACK_TOP, startup_info,
+                             spec.startup_blob.get(), spec.startup_blob_size);
+        propagate(stack_top_res);
+        reset_thread_runtime(tcb);
+        build_user_contexts(tcb, pcb->entrypoint.addr(),
+                            stack_top_res.value().addr());
+        if (link_into_pcb) {
+            pcb->threads.push_back(*tcb);
+        }
+        loggers::TASK::INFO("%s: pid=%lu entry=%p sp=%p", log_tag, pcb->pid,
+                            pcb->entrypoint.addr(),
+                            stack_top_res.value().addr());
+
+        if (spec.startup_blob != nullptr) {
+            delete[] spec.startup_blob.get();
+            spec.startup_blob      = util::owner<char *>(nullptr);
+            spec.startup_blob_size = 0;
+        }
+        return tcb;
     }
 
     Result<util::nonnull<TCB *>> TaskManager::populate_task(
@@ -498,62 +542,25 @@ namespace task {
         };
 
         if (reuse_main_tcb == nullptr) {
-            auto main_thread_res =
-                construct_main_thread(pcb, schd_class, startup_info,
-                                      spec.startup_blob.get(),
-                                      spec.startup_blob_size);
-            if (spec.startup_blob != nullptr) {
-                delete[] spec.startup_blob.get();
-                spec.startup_blob = util::owner<char *>(nullptr);
-                spec.startup_blob_size = 0;
-            }
-            propagate(main_thread_res);
-            return main_thread_res.value();
+            auto con_res = construct_thread(pcb, pcb->entrypoint.addr(),
+                                            USER_STACK_TOP.addr(), schd_class);
+            propagate(con_res);
+            auto tcb = con_res.value();
+            auto tcb_guard =
+                util::Guard([this, tcb]() { (void)recycle_tcb(tcb); });
+            auto setup_res = setup_user_main_thread(
+                pcb, tcb, spec, startup_info, false, "构造用户主线程");
+            propagate(setup_res);
+            tcb_guard.release();
+            return setup_res.value();
         }
-
-        auto *stack_mem = new cap::MemoryPayload(MAX_INITIAL_STACK_SIZE, false,
-                                                 false, VMA::Growth::GROW_DOWN);
-        auto stack_cap_res = pcb->cholder->insert_to_free(stack_mem);
-        if (!stack_cap_res.has_value()) {
-            delete stack_mem;
-            propagate_return(stack_cap_res);
-        }
-        auto vma_res =
-            pcb->tmm->add_vma(VMA::Type::STACK, VMA::Growth::GROW_DOWN,
-                              VirArea(USER_STACK_BOTTOM, USER_STACK_TOP),
-                              stack_mem, PageMan::RWX::RW);
-        propagate(vma_res);
 
         auto tcb = util::nnullforce(reuse_main_tcb);
-        auto ctx_res =
-            init_ctx(tcb, pcb->entrypoint.addr(), USER_STACK_TOP.addr());
-        propagate(ctx_res);
         tcb->task       = pcb;
         tcb->is_kernel  = false;
         tcb->schd_class = schd_class;
-
-        auto tcb_cap_res = pcb->cholder->create<cap::TCBPayload>(tcb.get());
-        propagate(tcb_cap_res);
-
-        pcb->main_tcb_cap          = tcb_cap_res.value();
-        startup_info.main_tcb_cap  = pcb->main_tcb_cap;
-        startup_info.stack_mem_cap = stack_cap_res.value();
-        auto stack_top_res =
-            build_user_stack(*stack_mem, USER_STACK_TOP, startup_info,
-                             spec.startup_blob.get(),
-                             spec.startup_blob_size);
-        propagate(stack_top_res);
-        tcb->context()->sp() = reinterpret_cast<umb_t>(stack_top_res.value().addr());
-        pcb->threads.push_back(*tcb);
-        loggers::TASK::INFO(
-            "复用主线程上下文: pid=%lu entry=%p sp=%p", pcb->pid,
-            pcb->entrypoint.addr(), stack_top_res.value().addr());
-        if (spec.startup_blob != nullptr) {
-            delete[] spec.startup_blob.get();
-            spec.startup_blob = util::owner<char *>(nullptr);
-            spec.startup_blob_size = 0;
-        }
-        return tcb;
+        return setup_user_main_thread(pcb, tcb, spec, startup_info, true,
+                                      "复用主线程上下文");
     }
 
     Result<void> TaskManager::recycle_tcb(util::nonnull<TCB *> tcb) {
@@ -587,9 +594,9 @@ namespace task {
             GFP::put_page(tcb->kstack_phy - TCB::KSTACK_SIZE,
                           TCB::KSTACK_PAGES);
         }
-        tcb->task       = nullptr;
-        tcb->kstack_phy = PhyAddr::null;
-        tcb->kstack_top = nullptr;
+        tcb->task          = nullptr;
+        tcb->kstack_phy    = PhyAddr::null;
+        tcb->kstack_bottom = nullptr;
         delete tcb.get();
         void_return();
     }
@@ -669,18 +676,19 @@ namespace task {
         auto init_res            = init_pcb(pcb);
         propagate(init_res);
 
-        pcb->is_kernel    = true;
+        pcb->is_kernel = true;
 
-        auto tmm_res = TaskMemoryManager::from_existing_pgd(env::inst().main_kernel_pgd());
+        auto tmm_res =
+            TaskMemoryManager::from_existing_pgd(env::inst().main_kernel_pgd());
         if (!tmm_res.has_value()) {
             loggers::SUSTCORE::FATAL("无法绑定主内核页表: %s",
                                      to_cstring(tmm_res.error()));
             propagate_return(tmm_res);
         }
-        auto tmm_guard           = delete_guard(tmm_res.value());
+        auto tmm_guard    = delete_guard(tmm_res.value());
         pcb->tmm          = tmm_res.value();
         pcb->cholder      = nullptr;
-        pcb->entrypoint   = VirAddr(reinterpret_cast<addr_t>(&kthread_idle));
+        pcb->entrypoint   = VirAddr(nullptr);
         pcb->pcb_cap      = cap::null;
         pcb->main_tcb_cap = cap::null;
 
@@ -693,9 +701,8 @@ namespace task {
 
     Result<util::nonnull<TCB *>> TaskManager::create_kernel_thread(
         void (*entry)(), schd::ClassType schd_class) {
-        return create_kernel_thread(&kthread_noarg_entry,
-                                    reinterpret_cast<void *>(entry),
-                                    schd_class);
+        return create_kernel_thread(
+            &kthread_noarg_entry, reinterpret_cast<void *>(entry), schd_class);
     }
 
     Result<util::nonnull<TCB *>> TaskManager::create_kernel_thread(
@@ -718,7 +725,9 @@ namespace task {
         util::nonnull<TCB *> tcb = tcb_res.value();
         tcb->kentry              = entry;
         tcb->karg                = arg;
-        tcb->context()->sp()     = reinterpret_cast<umb_t>(tcb->context());
+        reset_thread_runtime(tcb);
+        build_kernel_context(tcb, reinterpret_cast<void *>(&kthread_trampoline),
+                             nullptr);
         return tcb;
     }
 
@@ -729,26 +738,7 @@ namespace task {
     Result<util::nonnull<PCB *>> TaskManager::create_init_task(
         TaskSpec spec /* ... args*/) {
         constexpr schd::ClassType INIT_SCHED_CLASS = schd::ClassType::INIT;
-        util::nonnull<PCB *> pcb                   = alloc_pcb();
-        auto pcb_guard = delete_guard(util::owner(pcb.get()));
-
-        auto init_res = init_pcb(pcb);
-        if (!init_res.has_value()) {
-            loggers::SUSTCORE::ERROR("初始化PCB失败! 错误码: %s",
-                                     to_cstring(init_res.error()));
-            propagate_return(init_res);
-        }
-
-        auto main_thread_res = populate_task(pcb, spec, INIT_SCHED_CLASS);
-        if (!main_thread_res.has_value()) {
-            loggers::SUSTCORE::ERROR("构造主线程失败! 错误码: %s",
-                                     to_cstring(main_thread_res.error()));
-            propagate_return(main_thread_res);
-        }
-
-        _pid_map[pcb->pid] = pcb;
-        pcb_guard.release();  // 进程已成功构造, 释放PCB的自动释放机制
-        return pcb;
+        return create_loaded_user_task(spec, INIT_SCHED_CLASS, false);
     }
 
     Result<util::nonnull<PCB *>> TaskManager::create_task(
@@ -759,7 +749,11 @@ namespace task {
         {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
+        return create_loaded_user_task(spec, schd_class, true);
+    }
 
+    Result<util::nonnull<PCB *>> TaskManager::create_loaded_user_task(
+        TaskSpec spec, schd::ClassType schd_class, bool wakeup) {
         util::nonnull<PCB *> pcb = alloc_pcb();
         auto pcb_guard           = delete_guard(util::owner(pcb.get()));
 
@@ -777,13 +771,15 @@ namespace task {
             propagate_return(main_thread_res);
         }
 
-        TCB *main_tcb = main_thread_res.value();
-        if (!schd::Scheduler::inst().wakeup_new(main_tcb)) {
-            loggers::SUSTCORE::ERROR("唤醒新进程失败");
-            unexpect_return(ErrCode::CREATION_FAILED);
+        if (wakeup) {
+            TCB *main_tcb = main_thread_res.value();
+            if (!schd::Scheduler::inst().wakeup_new(main_tcb)) {
+                loggers::SUSTCORE::ERROR("唤醒新进程失败");
+                unexpect_return(ErrCode::CREATION_FAILED);
+            }
         }
 
-        _pid_map[pcb->pid] = pcb;
+        _pid_map[pcb->pid] = pcb.get();
         pcb_guard.release();  // 进程已成功构造并加入调度队列
         return pcb;
     }
@@ -838,48 +834,54 @@ namespace task {
         return insert_res.value();
     }
 
-    Result<util::nonnull<PCB *>> TaskManager::load_elf(
-        const char *path, schd::ClassType schd_class) {
-        TaskSpec spec = empty_task_spec();
-        LoadPrm load_prm{};
-        auto preload_res = preload(path, spec, load_prm);
-        if (!preload_res.has_value()) {
-            loggers::SUSTCORE::ERROR("预加载程序资源失败! 错误码: %s",
-                                     to_cstring(preload_res.error()));
-            propagate_return(preload_res);
-        }
-
-        // 开始加载程序
-        auto load_res = loader::elf::load(spec, load_prm);
-        if (!load_res.has_value()) {
-            loggers::SUSTCORE::ERROR("加载ELF程序失败! 错误码: %s",
-                                     to_cstring(load_res.error()));
-            unexpect_return(ErrCode::CREATION_FAILED);
-        }
-
-        return create_task(spec, schd_class);
-    }
-
-    Result<util::nonnull<PCB *>> TaskManager::load_elf_into(
-        const char *path, cap::CHolder *holder, schd::ClassType schd_class,
-        const void *startup_blob, size_t startup_blob_size) {
-        TaskSpec spec = empty_task_spec();
+    Result<void> TaskManager::load_task_spec(const char *path,
+                                             cap::CHolder *holder,
+                                             const void *startup_blob,
+                                             size_t startup_blob_size,
+                                             TaskSpec &spec, LoadPrm &prm) {
         if (startup_blob_size != 0) {
             if (startup_blob == nullptr) {
                 unexpect_return(ErrCode::NULLPTR);
             }
             auto copied = util::owner(new char[startup_blob_size]);
+            if (copied.get() == nullptr) {
+                unexpect_return(ErrCode::OUT_OF_MEMORY);
+            }
             memcpy(copied.get(), startup_blob, startup_blob_size);
             spec.startup_blob      = std::move(copied);
             spec.startup_blob_size = startup_blob_size;
         }
-        LoadPrm load_prm{};
-        auto preload_res = preload_into(path, holder, spec, load_prm);
+
+        auto preload_res = holder == nullptr ? preload(path, spec, prm)
+                                             : preload_into(path, holder, spec,
+                                                            prm);
         if (!preload_res.has_value()) {
             loggers::SUSTCORE::ERROR("预加载程序资源失败! 错误码: %s",
                                      to_cstring(preload_res.error()));
             propagate_return(preload_res);
         }
+
+        auto load_res = loader::elf::load(spec, prm);
+        if (!load_res.has_value()) {
+            loggers::SUSTCORE::ERROR("加载ELF程序失败! 错误码: %s",
+                                     to_cstring(load_res.error()));
+            unexpect_return(ErrCode::CREATION_FAILED);
+        }
+        void_return();
+    }
+
+    Result<util::nonnull<PCB *>> TaskManager::load_task_image(
+        const char *path, cap::CHolder *holder, schd::ClassType schd_class,
+        bool wakeup, const void *startup_blob, size_t startup_blob_size) {
+        TaskSpec spec = empty_task_spec();
+        LoadPrm load_prm{};
+        auto load_spec_res = load_task_spec(path, holder, startup_blob,
+                                            startup_blob_size, spec, load_prm);
+        if (!load_spec_res.has_value()) {
+            destroy_unowned_task_memory(spec);
+            propagate_return(load_spec_res);
+        }
+
         bool spec_owned = true;
         auto spec_guard = util::Guard([&]() {
             if (spec_owned) {
@@ -887,38 +889,27 @@ namespace task {
             }
         });
 
-        auto load_res = loader::elf::load(spec, load_prm);
-        if (!load_res.has_value()) {
-            loggers::SUSTCORE::ERROR("加载ELF程序失败! 错误码: %s",
-                                     to_cstring(load_res.error()));
-            unexpect_return(ErrCode::CREATION_FAILED);
-        }
-
-        auto task_res = create_task(spec, schd_class);
+        auto task_res = create_loaded_user_task(spec, schd_class, wakeup);
         propagate(task_res);
         spec_owned = false;
         return task_res.value();
     }
 
+    Result<util::nonnull<PCB *>> TaskManager::load_elf(
+        const char *path, schd::ClassType schd_class) {
+        return load_task_image(path, nullptr, schd_class, true);
+    }
+
+    Result<util::nonnull<PCB *>> TaskManager::load_elf_into(
+        const char *path, cap::CHolder *holder, schd::ClassType schd_class,
+        const void *startup_blob, size_t startup_blob_size) {
+        return load_task_image(path, holder, schd_class, true, startup_blob,
+                               startup_blob_size);
+    }
+
     Result<util::nonnull<PCB *>> TaskManager::load_init(const char *path) {
-        TaskSpec spec = empty_task_spec();
-        LoadPrm load_prm{};
-        auto preload_res = preload(path, spec, load_prm);
-        if (!preload_res.has_value()) {
-            loggers::SUSTCORE::ERROR("预加载程序资源失败! 错误码: %s",
-                                     to_cstring(preload_res.error()));
-            propagate_return(preload_res);
-        }
-
-        // 开始加载程序
-        auto load_res = loader::elf::load(spec, load_prm);
-        if (!load_res.has_value()) {
-            loggers::SUSTCORE::ERROR("加载ELF程序失败! 错误码: %s",
-                                     to_cstring(load_res.error()));
-            unexpect_return(ErrCode::CREATION_FAILED);
-        }
-
-        return create_init_task(spec);
+        constexpr schd::ClassType INIT_SCHED_CLASS = schd::ClassType::INIT;
+        return load_task_image(path, nullptr, INIT_SCHED_CLASS, false);
     }
 
     Result<size_t> TaskManager::lookup_holder_id(pid_t pid) {
@@ -969,28 +960,28 @@ namespace task {
 
         // 2) 克隆 capability 空间, 并把 COW 后的内存 payload 绑定到子 TMM.
         ErrCode clone_caps_err = ErrCode::SUCCESS;
-        parent_pcb->cholder->space().foreach ([&](CapIdx idx,
-                                                  cap::Capability *parent_cap) {
-            if (clone_caps_err != ErrCode::SUCCESS) {
-                return;
-            }
-            cap::Payload *payload = parent_cap->payload();
-            auto *memory = parent_cap->payload_as<cap::MemoryPayload>();
-            if (memory != nullptr) {
-                auto child_memory_res =
-                    parent_pcb->tmm->cloned_memory_for(memory, *child_tmm);
-                if (child_memory_res.has_value()) {
-                    payload = child_memory_res.value();
-                } else {
-                    payload = memory->clone_payload();
+        parent_pcb->cholder->space().foreach (
+            [&](CapIdx idx, cap::Capability *parent_cap) {
+                if (clone_caps_err != ErrCode::SUCCESS) {
+                    return;
                 }
-            }
-            auto insert_res =
-                child_holder->insert(idx, payload, parent_cap->perm());
-            if (!insert_res.has_value()) {
-                clone_caps_err = insert_res.error();
-            }
-        });
+                cap::Payload *payload = parent_cap->payload();
+                auto *memory = parent_cap->payload_as<cap::MemoryPayload>();
+                if (memory != nullptr) {
+                    auto child_memory_res =
+                        parent_pcb->tmm->cloned_memory_for(memory, *child_tmm);
+                    if (child_memory_res.has_value()) {
+                        payload = child_memory_res.value();
+                    } else {
+                        payload = memory->clone_payload();
+                    }
+                }
+                auto insert_res =
+                    child_holder->insert(idx, payload, parent_cap->perm());
+                if (!insert_res.has_value()) {
+                    clone_caps_err = insert_res.error();
+                }
+            });
         if (clone_caps_err != ErrCode::SUCCESS) {
             unexpect_return(clone_caps_err);
         }
@@ -1008,16 +999,21 @@ namespace task {
         auto init_tcb_res = init_tcb(child_tcb, child_pcb);
         propagate(init_tcb_res);
 
-        *child_tcb->context()                         = *parent_ctx;
-        child_tcb->context()->sepc                   += 4;
-        child_tcb->context()->regs[Context::A0_BASE]  = 0;
-        child_tcb->context()->regs[Context::A0_BASE + 1] =
+        reset_thread_runtime(child_tcb);
+        child_tcb->reset_kstack();
+        auto *child_user_ctx       = child_tcb->push<Context>();
+        *child_user_ctx                         = *parent_ctx;
+        child_user_ctx->sepc                   += 4;
+        child_user_ctx->regs[Context::A0_BASE]  = 0;
+        child_user_ctx->regs[Context::A0_BASE + 1] =
             static_cast<b64>(ErrCode::SUCCESS);
+        init_kernel_context(
+            child_tcb->kernel_context_ptr(),
+            reinterpret_cast<void *>(&new_utask_trampoline), child_user_ctx,
+            child_tcb->kstack_top(), false, true);
         child_tcb->schd_class = parent_tcb->schd_class == schd::ClassType::INIT
                                     ? schd::ClassType::FCFS
                                     : parent_tcb->schd_class;
-        child_tcb->basic_entity = {};
-        child_tcb->rr_entity    = {};
         child_pcb->threads.push_back(*child_tcb);
         tcb_guard.release();
 
@@ -1026,14 +1022,14 @@ namespace task {
         if (pcb_payload == nullptr) {
             unexpect_return(ErrCode::OUT_OF_MEMORY);
         }
-        auto insert_parent_res = parent_pcb->cholder->insert(
-            ret_slot, pcb_payload, perm::allperm());
+        auto insert_parent_res =
+            parent_pcb->cholder->insert(ret_slot, pcb_payload, perm::allperm());
         if (!insert_parent_res.has_value()) {
             delete pcb_payload;
             propagate_return(insert_parent_res);
         }
-        auto insert_child_res = child_holder->insert(
-            ret_slot, pcb_payload, perm::allperm());
+        auto insert_child_res =
+            child_holder->insert(ret_slot, pcb_payload, perm::allperm());
         if (!insert_child_res.has_value()) {
             auto remove_res = parent_pcb->cholder->remove(ret_slot);
             assert(remove_res.has_value());
@@ -1170,25 +1166,17 @@ namespace task {
         propagate(reserved_res);
 
         TaskSpec spec = empty_task_spec();
-        if (startup_blob_size != 0) {
-            auto copied = util::owner(new char[startup_blob_size]);
-            memcpy(copied.get(), startup_blob, startup_blob_size);
-            spec.startup_blob      = std::move(copied);
-            spec.startup_blob_size = startup_blob_size;
-        }
         LoadPrm load_prm{};
-        auto preload_res = preload_into(path, pcb->cholder, spec, load_prm);
-        propagate(preload_res);
+        auto load_spec_res = load_task_spec(path, pcb->cholder, startup_blob,
+                                            startup_blob_size, spec, load_prm);
+        propagate(load_spec_res);
         bool spec_owned  = true;
         auto spec_guard  = util::Guard([&]() {
             if (spec_owned) {
                 destroy_unowned_task_memory(spec);
             }
         });
-        auto image_guard = remove_guard(pcb->cholder, preload_res.value());
-
-        auto load_res = loader::elf::load(spec, load_prm);
-        propagate(load_res);
+        auto image_guard = remove_guard(pcb->cholder, load_prm.image_file_cap);
 
         // TODO: 接下来的操作会对当前进程的内存空间和能力空间进行大幅修改,
         // 应妥善处理执行失败的情况

@@ -21,44 +21,6 @@ STACK_SIZE = CTX_SLOT_OFFSET(CTX_SLOT_COUNT)
     ld \reg, CTX_SLOT_OFFSET(\slot)(\base)
 .endm
 
-.macro save_kernel_switch_context ctx, resume
-    ctx_store \ctx, CTX_RA_SLOT, ra
-    ctx_store \ctx, CTX_SP_SLOT, sp
-    ctx_store \ctx, CTX_S0_SLOT, s0
-    ctx_store \ctx, CTX_S1_SLOT, s1
-    ctx_store \ctx, CTX_S2_SLOT, s2
-    ctx_store \ctx, CTX_S3_SLOT, s3
-    ctx_store \ctx, CTX_S4_SLOT, s4
-    ctx_store \ctx, CTX_S5_SLOT, s5
-    ctx_store \ctx, CTX_S6_SLOT, s6
-    ctx_store \ctx, CTX_S7_SLOT, s7
-    ctx_store \ctx, CTX_S8_SLOT, s8
-    ctx_store \ctx, CTX_S9_SLOT, s9
-    ctx_store \ctx, CTX_S10_SLOT, s10
-    ctx_store \ctx, CTX_S11_SLOT, s11
-    la t0, \resume
-    ctx_store \ctx, CTX_SEPC_SLOT, t0
-.endm
-
-.macro restore_kernel_switch_context ctx
-    ctx_load ra, \ctx, CTX_RA_SLOT
-    ctx_load sp, \ctx, CTX_SP_SLOT
-    ctx_load s0, \ctx, CTX_S0_SLOT
-    ctx_load s1, \ctx, CTX_S1_SLOT
-    ctx_load s2, \ctx, CTX_S2_SLOT
-    ctx_load s3, \ctx, CTX_S3_SLOT
-    ctx_load s4, \ctx, CTX_S4_SLOT
-    ctx_load s5, \ctx, CTX_S5_SLOT
-    ctx_load s6, \ctx, CTX_S6_SLOT
-    ctx_load s7, \ctx, CTX_S7_SLOT
-    ctx_load s8, \ctx, CTX_S8_SLOT
-    ctx_load s9, \ctx, CTX_S9_SLOT
-    ctx_load s10, \ctx, CTX_S10_SLOT
-    ctx_load s11, \ctx, CTX_S11_SLOT
-    ctx_load t0, \ctx, CTX_SEPC_SLOT
-    jr t0
-.endm
-
 .section .text
 .globl isr_entry
 .extern handle_trap
@@ -99,6 +61,7 @@ isr_ustks:
 /* 通用寄存器保存(除了x1, x2) */
 isr_sregs:
     ctx_store sp, CTX_GP_SLOT, gp
+    ctx_store sp, CTX_TP_SLOT, tp
     ctx_store sp, CTX_T0_SLOT, t0
     ctx_store sp, CTX_T1_SLOT, t1
     ctx_store sp, CTX_T2_SLOT, t2
@@ -155,29 +118,23 @@ __handle_trap:
 
 isr_exit:
 restore_context:
-    /* 理论上, 此时的sp就是我们的内核栈sp了 */
-    /* 然而, 此时的sp可能并非sscratch中保存的内核栈顶地址 */
-    /* 我们将再次从sscratch中恢复sp. 这样, 内核就可以通过操纵sscratch来控制sp */
-    csrrw sp, sscratch, sp
-    /* 然而, 若此时sp为0, 则sscratch原先即为0, 即原先并不存在所谓内核栈 */
-    /* 因此, 如果sp为0, 我们要从sscratch中恢复sp */
-    /* 否则, sp = sscratch - STACK_SIZE */
-    bnez sp, isr_ustkr
+    /* 当前 sp 自然指向本线程 trap 时保存在内核栈中的 context */
+    /* 根据保存的特权级决定如何恢复辅助寄存器 */
+    ctx_load t0, sp, CTX_SSTATUS_SLOT
+    andi t0, t0, (1 << 8)
+    beqz t0, isr_ustkr
+    j isr_sstkr
 /* S-Mode Stack Restore */
 isr_sstkr:
-    /* 此时, sp = 0, sscratch中保存的就是原sp, 直接交换即可恢复sp */
-    csrrw sp, sscratch, sp
-    /* 恢复通用寄存器 */
+    csrw sscratch, zero
+    ctx_load tp, sp, CTX_TP_SLOT
     j isr_rcsrs
 /* U-Mode Stack Restore */
 isr_ustkr:
-    /* 此时, sp = 内核栈顶地址 */
-    /* 我们需要恢复sscratch, 使其依然指向内核栈顶地址 */
-    csrw sscratch, sp
-    /* sp 减去STACK_SIZE就是保存寄存器的栈底地址 */
-    addi sp, sp, -STACK_SIZE
-    /* 用户态才需要恢复tp */
+    ctx_load t0, sp, CTX_KSTACK_SP_SLOT
+    csrw sscratch, t0
     ctx_load tp, sp, CTX_TP_SLOT
+    j isr_rcsrs
 /* CSR恢复 */
 isr_rcsrs:
     ctx_load t0, sp, CTX_SSTATUS_SLOT
@@ -222,35 +179,56 @@ isr_rtn:
     /* 上下文此时已彻底恢复 */
     sret
 
-.globl isr_restore_user
-.type isr_restore_user, @function
-isr_restore_user:
-    /* 从指定线程的内核栈恢复上下文, 用于第一次进入用户态 */
-    mv sp, a0
+.globl new_utask_trampoline
+.type new_utask_trampoline, @function
+new_utask_trampoline:
+    mv sp, s0
     j isr_ustkr
 
-.globl isr_restore_kernel
-.type isr_restore_kernel, @function
-isr_restore_kernel:
-    /* 从指定线程的内核栈恢复S-Mode上下文, 运行时sscratch必须为0 */
-    csrw sscratch, zero
-    mv sp, a0
-    addi sp, sp, -STACK_SIZE
-    j isr_rcsrs
+.globl __switch_to
+.type __switch_to, @function
+__switch_to:
+    csrr t0, sstatus
+    li   t1, ~0x2
+    and  t0, t0, t1
+    csrw sstatus, t0
+    // store the context of the current thread into its kernel stack
+    // ra refers to the return address of the caller
+    ctx_store a0, CTX_RA_SLOT,  ra
+    ctx_store a0, CTX_SP_SLOT,  sp
+    ctx_store a0, CTX_S0_SLOT,  s0
+    ctx_store a0, CTX_S1_SLOT,  s1
+    ctx_store a0, CTX_S2_SLOT,  s2
+    ctx_store a0, CTX_S3_SLOT,  s3
+    ctx_store a0, CTX_S4_SLOT,  s4
+    ctx_store a0, CTX_S5_SLOT,  s5
+    ctx_store a0, CTX_S6_SLOT,  s6
+    ctx_store a0, CTX_S7_SLOT,  s7
+    ctx_store a0, CTX_S8_SLOT,  s8
+    ctx_store a0, CTX_S9_SLOT,  s9
+    ctx_store a0, CTX_S10_SLOT, s10
+    ctx_store a0, CTX_S11_SLOT, s11
 
-.globl riscv64_kernel_switch
-.type riscv64_kernel_switch, @function
-riscv64_kernel_switch:
-    save_kernel_switch_context a0, 1f
-    restore_kernel_switch_context a1
-1:
-    ret
-
-.globl riscv64_kernel_switch_to_user
-.type riscv64_kernel_switch_to_user, @function
-riscv64_kernel_switch_to_user:
-    save_kernel_switch_context a0, 1f
-    mv a0, a1
-    j isr_restore_user
-1:
+    // now, load the context of the next thread from its kernel stack
+    ctx_load ra,  a1, CTX_RA_SLOT
+    ctx_load sp,  a1, CTX_SP_SLOT
+    ctx_load s0,  a1, CTX_S0_SLOT
+    ctx_load s1,  a1, CTX_S1_SLOT
+    ctx_load s2,  a1, CTX_S2_SLOT
+    ctx_load s3,  a1, CTX_S3_SLOT
+    ctx_load s4,  a1, CTX_S4_SLOT
+    ctx_load s5,  a1, CTX_S5_SLOT
+    ctx_load s6,  a1, CTX_S6_SLOT
+    ctx_load s7,  a1, CTX_S7_SLOT
+    ctx_load s8,  a1, CTX_S8_SLOT
+    ctx_load s9,  a1, CTX_S9_SLOT
+    ctx_load s10, a1, CTX_S10_SLOT
+    ctx_load s11, a1, CTX_S11_SLOT
+    // after loading the context of the next thread
+    // ra has been resumed, and after switch function will return
+    // to the caller of __switch_to, which is the next thread
+__after_switch:
+    csrr t0, sstatus
+    ori  t0, t0, 0x2
+    csrw sstatus, t0
     ret

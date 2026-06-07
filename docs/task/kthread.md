@@ -103,8 +103,8 @@ while (true) {
 
 `run_current()` 会先调度一次，然后:
 
-- 当前是内核线程时调用 `isr_restore_kernel(kstack_top)`。
-- 当前是用户线程时调用 `isr_restore_user(kstack_top)`。
+- 当前是内核线程时调用 `isr_restore_kernel(kstack_bottom)`。
+- 当前是用户线程时调用 `isr_restore_user(kstack_bottom)`。
 
 ## 与 capability 系统的关系
 

@@ -24,6 +24,7 @@
 #include <syscall/syscall.h>
 
 #include <coroutine>
+#include <cstddef>
 #include <functional>
 
 using tid_t        = size_t;
@@ -131,12 +132,54 @@ namespace task {
         constexpr static size_t KSTACK_PAGES =
             4;  // 16KB(4 pages) for kernel stack
         constexpr static size_t KSTACK_SIZE = KSTACK_PAGES * PAGESIZE;
-        void *kstack_top;
+        void *kstack_bottom;
+        char *ksp;
         PhyAddr kstack_phy;
+        Context kernel_ctx;
 
-        // get the pointer to the context of this thread
-        Context *context() {
-            return Context::from_kstack(kstack_top);
+        [[nodiscard]]
+        void *kstack_top() const noexcept {
+            return kstack_bottom;
+        }
+
+        void reset_kstack() noexcept {
+            ksp             = (char *)kstack_bottom;
+        }
+
+        template <typename T>
+        [[nodiscard]]
+        T *push() noexcept {
+            auto next = ksp - sizeof(T);
+            ksp       = next;
+            return reinterpret_cast<T *>(next);
+        }
+
+        [[nodiscard]]
+        Context *kernel_context_ptr() noexcept {
+            return &kernel_ctx;
+        }
+
+        [[nodiscard]]
+        const Context *kernel_context_ptr() const noexcept {
+            return &kernel_ctx;
+        }
+
+        [[nodiscard]]
+        Context *context() noexcept {
+            if (is_kernel) {
+                return kernel_context_ptr();
+            }
+            auto *top = reinterpret_cast<char *>(kstack_bottom);
+            return reinterpret_cast<Context *>(top - sizeof(Context));
+        }
+
+        [[nodiscard]]
+        const Context *context() const noexcept {
+            if (is_kernel) {
+                return kernel_context_ptr();
+            }
+            auto *top = reinterpret_cast<const char *>(kstack_bottom);
+            return reinterpret_cast<const Context *>(top - sizeof(Context));
         }
 
         //  schedule data
