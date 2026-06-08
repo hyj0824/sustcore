@@ -140,7 +140,7 @@
 
 核心结构:
 
-- `WaitReasonId`: 等待原因编号。
+- `size_t`: 等待原因编号。
 - `WaitQueue`: 单个等待原因对应的 TCB 队列。
 - `WaitPredicate`: 唤醒时针对 TCB 的谓词。
 - `WaitReadyPredicate`: syscall awaiter 挂起前的就绪判断。

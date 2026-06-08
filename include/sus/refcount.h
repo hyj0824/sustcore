@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <type_traits>
 
@@ -18,26 +19,28 @@ namespace util {
     template <typename T>
     class refc {
     protected:
-        size_t __refcnt;
-        constexpr T *_this(void) {
+        std::atomic<size_t> __refcnt;
+        constexpr T *_this() {
             return static_cast<T *>(this);
         }
     public:
         constexpr refc() : __refcnt(0) {}
 
-        constexpr size_t ref_count(void) const {
+        [[nodiscard]]
+        constexpr size_t ref_count() const {
             return __refcnt;
         }
 
-        constexpr bool alive(void) const {
+        [[nodiscard]]
+        constexpr bool alive() const {
             return __refcnt > 0;
         }
 
-        constexpr void keep(void) {
+        constexpr void keep() {
             __refcnt++;
         }
 
-        constexpr void release(void) {
+        constexpr void release() {
             if (!alive()) {
                 return;
             }

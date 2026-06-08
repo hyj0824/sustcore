@@ -17,6 +17,7 @@
 #include <sustcore/errcode.h>
 #include <task/task_struct.h>
 
+#include <atomic>
 #include <concepts>
 #include <coroutine>
 #include <type_traits>
@@ -37,7 +38,7 @@ namespace task::wait {
 
     struct promise_base;
 
-    WaitReasonId alloc_reason();
+    size_t alloc_reason();
 
     enum class FutureState {
         PENDING,
@@ -49,7 +50,7 @@ namespace task::wait {
 
     struct WaitContext {
         FutureState state                      = FutureState::COMPLETE;
-        WaitReasonId wait_reason               = 0;
+        size_t wait_reason               = 0;
         WaitPredicate wait_predicate           = {};
         WaitReadyPredicate ready_predicate     = {};
         std::coroutine_handle<> suspended_leaf = nullptr;
@@ -254,16 +255,16 @@ namespace task::wait {
 
         template <typename T>
         struct AsyncState {
-            FutureState state = FutureState::PENDING;
-            WaitReasonId wait_reason = 0;
-            size_t ref_count = 0;
+            std::atomic<FutureState> state = FutureState::PENDING;
+            size_t wait_reason = 0;
+            std::atomic<size_t> ref_count = 0;
             ErrCode error = ErrCode::FUTURE_ERROR;
             future_value_storage_t<T> value{};
             std::function<Result<void>()> cancel_callback{};
 
             AsyncState() = default;
 
-            explicit AsyncState(WaitReasonId reason) noexcept
+            explicit AsyncState(size_t reason) noexcept
                 : state(FutureState::PENDING),
                   wait_reason(reason),
                   ref_count(0),
@@ -735,7 +736,7 @@ namespace task::wait {
         }
 
         [[nodiscard]]
-        WaitReasonId wait_reason() const noexcept {
+        size_t wait_reason() const noexcept {
             return _state != nullptr ? _state->wait_reason : 0;
         }
 
@@ -841,7 +842,7 @@ namespace task::wait {
         }
 
         [[nodiscard]]
-        WaitReasonId wait_reason() const noexcept {
+        size_t wait_reason() const noexcept {
             return _state != nullptr ? _state->wait_reason : 0;
         }
 
@@ -928,7 +929,7 @@ namespace task::wait {
         }
 
         [[nodiscard]]
-        WaitReasonId wait_reason() const noexcept {
+        size_t wait_reason() const noexcept {
             return _state != nullptr ? _state->wait_reason : 0;
         }
 
@@ -1026,13 +1027,13 @@ namespace task::wait {
      */
     class FutureAwaiter {
     private:
-        WaitReasonId _reason = 0;
+        size_t _reason = 0;
         WaitPredicate _predicate;
         WaitReadyPredicate _ready_predicate;
         Result<void> _result{};
 
     public:
-        explicit FutureAwaiter(WaitReasonId reason,
+        explicit FutureAwaiter(size_t reason,
                                WaitPredicate predicate            = {},
                                WaitReadyPredicate ready_predicate = {}) noexcept
             : _reason(reason),
@@ -1119,43 +1120,43 @@ namespace task::wait {
     // 等待队列
     struct WaitQueue {
         // 等待队列对应的等待id
-        WaitReasonId id;
+        size_t id;
         util::IntrusiveList<TCB, &TCB::wait_head> threads;
 
         // 从wait id中创建一个等待队列
-        explicit WaitQueue(WaitReasonId id) : id(id), threads() {}
+        explicit WaitQueue(size_t id) : id(id), threads() {}
     };
 
     // 等待原因管理器, 负责管理所有的等待队列
     class WaitReasonManager {
     private:
         // 编号分配
-        WaitReasonId _next_reason = 1;
+        std::atomic<size_t> _next_reason = 1;
         // wait_id -> wait_queue
-        std::unordered_map<WaitReasonId, WaitQueue *> _queues;
+        std::unordered_map<size_t, WaitQueue *> _queues;
 
         // 获取等待队列, 如果不存在则创建一个新的
-        Result<WaitQueue *> queue_for_wait(WaitReasonId id);
+        Result<WaitQueue *> queue_for_wait(size_t id);
         // 获取等待队列, 如果不存在则返回错误
-        Result<WaitQueue *> queue_if_exists(WaitReasonId id);
+        Result<WaitQueue *> queue_if_exists(size_t id);
 
     public:
         // 分配一个 wait reason 号
-        WaitReasonId alloc_reason();
+        size_t alloc_reason();
         // 将当前线程加入等待队列
-        Result<void> enqueue(WaitReasonId id, TCB *tcb);
-        Result<void> enqueue(WaitReasonId id, TCB *tcb,
+        Result<void> enqueue(size_t id, TCB *tcb);
+        Result<void> enqueue(size_t id, TCB *tcb,
                              WaitPredicate predicate);
-        Result<TCB *> peek_one(WaitReasonId id);
+        Result<TCB *> peek_one(size_t id);
         // 从等待队列中弹出一个线程
-        Result<TCB *> pop_one(WaitReasonId id);
+        Result<TCB *> pop_one(size_t id);
         Result<void> remove(TCB *tcb);
         // 从等待队列中唤醒一个线程, 返回被唤醒线程的数量(0或1)
-        Result<size_t> wake_one(WaitReasonId id);
+        Result<size_t> wake_one(size_t id);
         // 从等待队列中唤醒所有线程, 返回被唤醒线程的数量
-        Result<size_t> wake_all(WaitReasonId id);
+        Result<size_t> wake_all(size_t id);
         // 判断是否有线程在等待队列中
-        bool has_waiting(WaitReasonId id);
+        bool has_waiting(size_t id);
 
         // 初始化等待原因管理器的单例实例
         static void init();
@@ -1164,11 +1165,11 @@ namespace task::wait {
         static WaitReasonManager &inst();
     };
 
-    WaitReasonId alloc_reason();
+    size_t alloc_reason();
     [[deprecated("use co_await wait_current(...) in syscall coroutine paths")]]
-    Result<void> deprecated_wait_current(WaitReasonId id);
+    Result<void> deprecated_wait_current(size_t id);
     [[deprecated("use co_await wait_current(...) in syscall coroutine paths")]]
-    Result<void> deprecated_wait_current(WaitReasonId id,
+    Result<void> deprecated_wait_current(size_t id,
                                          WaitPredicate predicate);
     /**
      * @brief 等待指定事件变为就绪.
@@ -1180,12 +1181,12 @@ namespace task::wait {
      * @param ready_predicate 事件就绪判断函数, 必须非空.
      * @return Result<void> 成功返回空结果, 失败返回错误码.
      */
-    Result<void> wait_event(WaitReasonId id,
+    Result<void> wait_event(size_t id,
                             WaitReadyPredicate ready_predicate) noexcept;
-    Result<TCB *> peek_one(WaitReasonId id);
-    Result<size_t> wake_one(WaitReasonId id);
-    Result<size_t> wake_all(WaitReasonId id);
-    bool has_waiting(WaitReasonId id);
+    Result<TCB *> peek_one(size_t id);
+    Result<size_t> wake_one(size_t id);
+    Result<size_t> wake_all(size_t id);
+    bool has_waiting(size_t id);
 
     template <typename T>
     typename detail::future_wait_result_t<T> wait_for(Future<T> &future);

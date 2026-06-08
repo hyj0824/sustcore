@@ -136,7 +136,7 @@ namespace test::coroutine {
             co_return value + 9;
         }
 
-        task::wait::cotask<int> wait_leaf(WaitReasonId reason) {
+        task::wait::cotask<int> wait_leaf(size_t reason) {
             auto wait_res = co_await task::wait::FutureAwaiter(
                 reason, {}, []() { return false; });
             if (!wait_res.has_value()) {
@@ -145,7 +145,7 @@ namespace test::coroutine {
             co_return 11;
         }
 
-        task::wait::cotask<int> wait_parent(WaitReasonId reason) {
+        task::wait::cotask<int> wait_parent(size_t reason) {
             auto value = co_await wait_leaf(reason);
             co_return value + 1;
         }
@@ -269,7 +269,7 @@ namespace test::coroutine {
                 : TestCase("wait::cotask 向父协程传播 wait_reason") {}
 
             void _run(void* env [[maybe_unused]]) const noexcept override {
-                constexpr WaitReasonId WAIT_REASON = 17;
+                constexpr size_t WAIT_REASON = 17;
                 auto task                          = wait_parent(WAIT_REASON);
                 ttest(task.valid());
                 ttest(!task.done());

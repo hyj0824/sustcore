@@ -28,7 +28,6 @@
 
 using tid_t        = size_t;
 using pid_t        = size_t;
-using WaitReasonId = size_t;
 
 namespace task {
     struct TCB;
@@ -171,7 +170,7 @@ namespace task {
 
         // wait data
         util::ListHead<TCB> wait_head;
-        WaitReasonId wait_reason;
+        size_t wait_reason;
         // 等待谓词, 由等待的线程在进入等待时设置,
         // 由被等待的事件在满足条件时检查, 决定是否可以唤醒线程
         wait::WaitPredicate wait_predicate;
@@ -187,9 +186,9 @@ namespace task {
         pid_t pid;
         bool is_kernel;
         int exit_code;
-        bool exiting;
+        std::atomic<bool> exiting;
         // 是否已被加入回收队列
-        bool recycle_queued;
+        std::atomic<bool> recycle_queued;
 
         // the threads in this process
         util::IntrusiveList<TCB, &TCB::list_head> threads;

@@ -266,11 +266,11 @@ namespace schd {
         return schd_res.value()->dequeue(rq(), tcb);
     }
 
-    Result<void> Scheduler::block_current(WaitReasonId reason) {
+    Result<void> Scheduler::block_current(size_t reason) {
         return block_current(reason, {});
     }
 
-    Result<void> Scheduler::block_current(WaitReasonId reason,
+    Result<void> Scheduler::block_current(size_t reason,
                                           task::wait::WaitPredicate predicate) {
         auto *current = current_tcb();
         if (current == nullptr) {

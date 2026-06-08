@@ -22,8 +22,9 @@ char LinearGrowAllocator::LGA_HEAP[LinearGrowAllocator::SIZE];
 size_t LinearGrowAllocator::lga_offset = 0;
 
 void* LinearGrowAllocator::malloc(size_t size) {
-    if (size >= 4096) {
-        size_t pages = page_align_up(size) / PAGESIZE;
+    size_t rdsz = (size + 7) & ~7;
+    if (rdsz >= 4096) {
+        size_t pages = page_align_up(rdsz) / PAGESIZE;
         Result<PhyAddr> gfp_res = GFP::get_free_page(pages);
         if (! gfp_res.has_value()) {
             loggers::MEMORY::ERROR("无法分配大对象内存");
@@ -32,12 +33,12 @@ void* LinearGrowAllocator::malloc(size_t size) {
         PhyAddr paddr = gfp_res.value();
         return convert<KpaAddr>(paddr).addr();
     }
-    if (lga_offset + size > SIZE) {
+    if (lga_offset + rdsz > SIZE) {
         loggers::MEMORY::FATAL("%s", "内存不足");
         return nullptr;  // 内存不足
     }
     void* ptr   = &LGA_HEAP[lga_offset];
-    lga_offset += size;
+    lga_offset += rdsz;
     return ptr;
 }
 

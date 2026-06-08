@@ -12,6 +12,7 @@
 #include <device/int.h>
 #include <logger.h>
 #include <object/notif.h>
+#include <spinlock.h>
 #include <task/wait.h>
 
 namespace cap {
@@ -64,8 +65,8 @@ namespace cap {
         propagate(check_idx(idx));
         propagate(check_signal_perm(_cap, idx));
 
-        InterruptGuard guard;
-        guard.enter();
+        GuardedLock lock(_obj->spinlock);
+
         _obj->signalbits |= (static_cast<b32>(1U) << idx);
         auto resolve_res = resolve_waiters(_obj->waiters[idx], true);
         propagate(resolve_res);
@@ -76,8 +77,8 @@ namespace cap {
         propagate(check_idx(idx));
         propagate(check_signal_perm(_cap, idx));
 
-        InterruptGuard guard;
-        guard.enter();
+        GuardedLock lock(_obj->spinlock);
+
         _obj->signalbits &= ~(static_cast<b32>(1U) << idx);
         return false;
     }
@@ -86,8 +87,8 @@ namespace cap {
         propagate(check_idx(idx));
         propagate(check_signal_perm(_cap, idx));
 
-        InterruptGuard guard;
-        guard.enter();
+        GuardedLock lock(_obj->spinlock);
+        
         if (state) {
             _obj->signalbits |= (static_cast<b32>(1U) << idx);
             auto resolve_res = resolve_waiters(_obj->waiters[idx], true);
@@ -102,8 +103,8 @@ namespace cap {
         propagate(check_idx(idx));
         propagate(check_query_perm(_cap, idx));
 
-        InterruptGuard guard;
-        guard.enter();
+        GuardedLock lock(_obj->spinlock);
+        
         return (_obj->signalbits & (static_cast<b32>(1U) << idx)) != 0;
     }
 
@@ -111,8 +112,8 @@ namespace cap {
         propagate(check_idx(idx));
         propagate(check_query_perm(_cap, idx));
 
-        InterruptGuard guard;
-        guard.enter();
+        GuardedLock lock(_obj->spinlock);
+        
         if ((_obj->signalbits & (static_cast<b32>(1U) << idx)) != 0) {
             task::wait::Promise<bool> promise;
             auto future  = promise.future();

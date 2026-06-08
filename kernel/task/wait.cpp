@@ -130,7 +130,7 @@ namespace task::wait {
         }
     }  // namespace
 
-    Result<void> wait_event(WaitReasonId id,
+    Result<void> wait_event(size_t id,
                             WaitReadyPredicate ready_predicate) noexcept {
         if (id == 0 || !ready_predicate) {
             unexpect_return(ErrCode::INVALID_PARAM);
@@ -381,11 +381,11 @@ namespace task::wait {
         return inst_wait_reason_manager_initialized;
     }
 
-    WaitReasonId WaitReasonManager::alloc_reason() {
+    size_t WaitReasonManager::alloc_reason() {
         return _next_reason++;
     }
 
-    Result<WaitQueue *> WaitReasonManager::queue_for_wait(WaitReasonId id) {
+    Result<WaitQueue *> WaitReasonManager::queue_for_wait(size_t id) {
         if (id == 0) {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
@@ -403,7 +403,7 @@ namespace task::wait {
         return queue;
     }
 
-    Result<WaitQueue *> WaitReasonManager::queue_if_exists(WaitReasonId id) {
+    Result<WaitQueue *> WaitReasonManager::queue_if_exists(size_t id) {
         if (id == 0) {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
@@ -413,11 +413,11 @@ namespace task::wait {
             .value_or(nullptr);
     }
 
-    Result<void> WaitReasonManager::enqueue(WaitReasonId id, TCB *tcb) {
+    Result<void> WaitReasonManager::enqueue(size_t id, TCB *tcb) {
         return enqueue(id, tcb, {});
     }
 
-    Result<void> WaitReasonManager::enqueue(WaitReasonId id, TCB *tcb,
+    Result<void> WaitReasonManager::enqueue(size_t id, TCB *tcb,
                                             WaitPredicate predicate) {
         if (tcb == nullptr) {
             unexpect_return(ErrCode::NULLPTR);
@@ -436,7 +436,7 @@ namespace task::wait {
         void_return();
     }
 
-    Result<TCB *> WaitReasonManager::peek_one(WaitReasonId id) {
+    Result<TCB *> WaitReasonManager::peek_one(size_t id) {
         auto qres = queue_if_exists(id);
         propagate(qres);
 
@@ -447,7 +447,7 @@ namespace task::wait {
         return &queue->threads.front();
     }
 
-    Result<TCB *> WaitReasonManager::pop_one(WaitReasonId id) {
+    Result<TCB *> WaitReasonManager::pop_one(size_t id) {
         auto qres = queue_if_exists(id);
         propagate(qres);
 
@@ -480,7 +480,7 @@ namespace task::wait {
         void_return();
     }
 
-    Result<size_t> WaitReasonManager::wake_one(WaitReasonId id) {
+    Result<size_t> WaitReasonManager::wake_one(size_t id) {
         auto qres = queue_if_exists(id);
         propagate(qres);
 
@@ -515,7 +515,7 @@ namespace task::wait {
         return size_t(0);
     }
 
-    Result<size_t> WaitReasonManager::wake_all(WaitReasonId id) {
+    Result<size_t> WaitReasonManager::wake_all(size_t id) {
         size_t count = 0;
         auto qres    = queue_if_exists(id);
         propagate(qres);
@@ -543,7 +543,7 @@ namespace task::wait {
         return count;
     }
 
-    bool WaitReasonManager::has_waiting(WaitReasonId id) {
+    bool WaitReasonManager::has_waiting(size_t id) {
         auto qres = queue_if_exists(id);
         if (!qres.has_value()) {
             return false;
@@ -552,32 +552,32 @@ namespace task::wait {
         return queue != nullptr && !queue->threads.empty();
     }
 
-    WaitReasonId alloc_reason() {
+    size_t alloc_reason() {
         return WaitReasonManager::inst().alloc_reason();
     }
 
-    Result<void> deprecated_wait_current(WaitReasonId id) {
+    Result<void> deprecated_wait_current(size_t id) {
         return schd::Scheduler::inst().block_current(id);
     }
 
-    Result<void> deprecated_wait_current(WaitReasonId id,
+    Result<void> deprecated_wait_current(size_t id,
                                          WaitPredicate predicate) {
         return schd::Scheduler::inst().block_current(id, std::move(predicate));
     }
 
-    Result<TCB *> peek_one(WaitReasonId id) {
+    Result<TCB *> peek_one(size_t id) {
         return WaitReasonManager::inst().peek_one(id);
     }
 
-    Result<size_t> wake_one(WaitReasonId id) {
+    Result<size_t> wake_one(size_t id) {
         return WaitReasonManager::inst().wake_one(id);
     }
 
-    Result<size_t> wake_all(WaitReasonId id) {
+    Result<size_t> wake_all(size_t id) {
         return WaitReasonManager::inst().wake_all(id);
     }
 
-    bool has_waiting(WaitReasonId id) {
+    bool has_waiting(size_t id) {
         return WaitReasonManager::inst().has_waiting(id);
     }
 

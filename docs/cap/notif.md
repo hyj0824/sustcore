@@ -18,7 +18,7 @@
 它包含两个核心字段:
 
 - `b32 signalbits`
-- `WaitReasonId wait_reasons[perm::notif::MAX_SIGNALS]`
+- `size_t wait_reasons[perm::notif::MAX_SIGNALS]`
 
 ### `signalbits`
 

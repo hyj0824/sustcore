@@ -64,7 +64,9 @@ namespace task {
         }
 
         void reset_thread_runtime(util::nonnull<TCB *> tcb) noexcept {
-            tcb->basic_entity = {};
+            tcb->basic_entity.state = ThreadState::EMPTY;
+            tcb->basic_entity.rq_head = {};
+            tcb->basic_entity.flags = 0;
             tcb->rr_entity    = {};
             tcb->syscall_info.reset();
         }

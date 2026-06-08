@@ -14,6 +14,7 @@
 #include <arch/riscv64/description.h>
 #include <cap/capability.h>
 #include <object/perm.h>
+#include <spinlock.h>
 #include <task/wait.h>
 
 #include <vector>
@@ -21,8 +22,9 @@
 namespace cap {
     struct NotificationPayload : public _PayloadHelper<PayloadType::NOTIF> {
         // 信号位图, 实际长 24 位
-        b32 signalbits = 0;
+        std::atomic<b32> signalbits = 0;
         std::vector<task::wait::Promise<bool>> waiters[perm::notif::MAX_SIGNALS];
+        SpinLocker spinlock;
 
         NotificationPayload();
 

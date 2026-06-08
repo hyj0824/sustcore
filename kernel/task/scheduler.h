@@ -161,8 +161,8 @@ namespace schd {
         // 任务出队/阻塞
         Result<void> dequeue(util::nonnull<TCB *> tcb);
 
-        Result<void> block_current(WaitReasonId reason);
-        Result<void> block_current(WaitReasonId reason,
+        Result<void> block_current(size_t reason);
+        Result<void> block_current(size_t reason,
                                    task::wait::WaitPredicate predicate);
         bool wakeup_waiting(TCB *tcb);
 

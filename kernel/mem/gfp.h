@@ -14,6 +14,7 @@
 #include <mem/buddy.h>
 #include <mem/gfp_def.h>
 #include <sustcore/addr.h>
+#include <atomic>
 
 /**
  * @brief 当前 GFP 使用的底层裸页框分配器. 
@@ -44,7 +45,7 @@ private:
      *
      * TODO: 使用根据当前设备动态决定的refcounts表, 或是使用哈希表
      */
-    inline static size_t refcounts[MAX_TRACKED_PAGES] = {};
+    inline static std::atomic<size_t> refcounts[MAX_TRACKED_PAGES] = {};
 
     /**
      * @brief 将物理地址转换为引用计数表下标. 

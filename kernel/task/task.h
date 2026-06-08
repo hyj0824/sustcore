@@ -19,6 +19,7 @@
 #include <sus/nonnull.h>
 #include <sus/queue.h>
 #include <task/task_struct.h>
+
 #include <atomic>
 #include <unordered_map>
 
@@ -53,23 +54,24 @@ namespace task {
          * 调用者负责在合适时机释放或移交所有权.
          */
         util::nonnull<TCB *> alloc_tcb() {
-            TCB *tcb                   = new TCB();
-            tcb->tid                   = 0;
-            tcb->task                  = nullptr;
-            tcb->is_kernel             = false;
-            tcb->kentry                = nullptr;
-            tcb->karg                  = nullptr;
-            tcb->list_head             = {};
-            tcb->kstack_bottom         = nullptr;
-            tcb->ksp                   = nullptr;
-            tcb->kstack_phy            = PhyAddr::null;
-            tcb->schd_class            = schd::ClassType::BOT;
-            tcb->basic_entity          = {};
-            tcb->rr_entity             = {};
-            tcb->wait_reason           = 0;
-            tcb->wait_predicate        = {};
+            TCB *tcb                  = new TCB();
+            tcb->tid                  = 0;
+            tcb->task                 = nullptr;
+            tcb->is_kernel            = false;
+            tcb->kentry               = nullptr;
+            tcb->karg                 = nullptr;
+            tcb->list_head            = {};
+            tcb->kstack_bottom        = nullptr;
+            tcb->ksp                  = nullptr;
+            tcb->kstack_phy           = PhyAddr::null;
+            tcb->schd_class           = schd::ClassType::BOT;
+            tcb->basic_entity.state   = ThreadState::EMPTY;
+            tcb->basic_entity.rq_head = {};
+            tcb->rr_entity            = {};
+            tcb->wait_reason          = 0;
+            tcb->wait_predicate       = {};
             tcb->syscall_info.reset();
-            tcb->wait_head             = {};
+            tcb->wait_head = {};
             return util::nnullforce(tcb);
         }
 
@@ -232,8 +234,7 @@ namespace task {
          * @brief 装载 ELF 并直接构造对应的用户进程.
          */
         Result<util::nonnull<PCB *>> load_task_image(
-            CapIdx image_cap, cap::CHolder *holder,
-            schd::ClassType schd_class,
+            CapIdx image_cap, cap::CHolder *holder, schd::ClassType schd_class,
             bool wakeup, const void *startup_blob = nullptr,
             size_t startup_blob_size = 0);
 
@@ -321,12 +322,12 @@ namespace task {
         Result<CapIdx> create_thread_current(VirAddr entry, VirAddr stack_addr,
                                              size_t stack_size);
         /**
-         * @brief 用指定ELF替换当前进程镜像, 并保留指定能力. 
+         * @brief 用指定ELF替换当前进程镜像, 并保留指定能力.
          *
-         * @param image_cap 新程序文件能力. 
-         * @param reserved_caps 需要保留的能力槽位列表, 可为空. 
-         * @param reserved_count reserved_caps 中的元素数量. 
-         * @return Result<void> 成功不返回旧用户镜像, 失败保持当前进程不变. 
+         * @param image_cap 新程序文件能力.
+         * @param reserved_caps 需要保留的能力槽位列表, 可为空.
+         * @param reserved_count reserved_caps 中的元素数量.
+         * @return Result<void> 成功不返回旧用户镜像, 失败保持当前进程不变.
          */
         Result<void> exec_current(CapIdx image_cap, const CapIdx *reserved_caps,
                                   size_t reserved_count);
@@ -367,20 +368,19 @@ namespace task {
         Result<util::nonnull<PCB *>> load_elf(CapIdx image_cap,
                                               schd::ClassType schd_class);
         /**
-         * @brief 使用调用方提供的 CHolder 加载 ELF 并创建进程. 
+         * @brief 使用调用方提供的 CHolder 加载 ELF 并创建进程.
          *
          * 该接口不会创建新的 CHolder; 调用方应先完成需要继承或注入的
          * capability 配置, 再把 holder 传入. ELF image、heap/stack Memory、
-         * PCB/TCB capability 会在该 holder 的空闲槽中继续创建. 
+         * PCB/TCB capability 会在该 holder 的空闲槽中继续创建.
          *
-         * @param image_cap 可执行文件能力. 
-         * @param holder 预先构造并配置好的进程 CHolder. 
-         * @param schd_class 调度类别. 
-         * @return 创建成功的 PCB. 
+         * @param image_cap 可执行文件能力.
+         * @param holder 预先构造并配置好的进程 CHolder.
+         * @param schd_class 调度类别.
+         * @return 创建成功的 PCB.
          */
         Result<util::nonnull<PCB *>> load_elf_into(
-            CapIdx image_cap, cap::CHolder *holder,
-            schd::ClassType schd_class,
+            CapIdx image_cap, cap::CHolder *holder, schd::ClassType schd_class,
             const void *startup_blob = nullptr, size_t startup_blob_size = 0);
         /**
          * @brief 加载并创建 init 进程的 PCB, 路径通常指向系统初始化程序.

@@ -16,6 +16,7 @@
 #include <sus/types.h>
 #include <sustcore/errcode.h>
 
+#include <atomic>
 #include <concepts>
 
 enum class ThreadState {
@@ -67,7 +68,7 @@ namespace schd {
     struct SchedMeta {
         ThreadState state;
         util::ListHead<SchedMeta> rq_head;
-        b64 flags;
+        std::atomic<b64> flags = 0;
 
         constexpr static b64 FLAGS_NEED_RESCHED = 0x1;
 

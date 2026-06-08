@@ -13,7 +13,7 @@
 namespace test::kthread {
     namespace {
         constexpr size_t LOGGER_ROUNDS = 5;
-        constexpr WaitReasonId WAIT_EVENT_REASON = 0x57414954;
+        constexpr size_t WAIT_EVENT_REASON = 0x57414954;
 
         struct LoggerThreadArgs {
             const char *name;
