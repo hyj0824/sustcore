@@ -106,6 +106,7 @@ namespace test::schd_test::fcfs {
 
         struct FakeThread {
             task::PCB *task = nullptr;
+            task::BootThreadRole boot_role = task::BootThreadRole::NONE;
             schd::ClassType schd_class = schd::ClassType::BOT;
             task::TCB::SyscallInfo syscall_info{};
             schd::SchedMeta basic_entity{};
@@ -134,9 +135,10 @@ namespace test::schd_test::fcfs {
             idle.basic_entity.state = ThreadState::READY;
             idle.schd_class         = schd::ClassType::IDLE;
             init.basic_entity.state = ThreadState::READY;
+            init.boot_role          = task::BootThreadRole::KINIT;
             init.schd_class         = schd::ClassType::INIT;
-            fake_scheduler.idle_schd.ready = &idle.basic_entity;
-            fake_scheduler.init_schd.ready = &init.basic_entity;
+            fake_scheduler.idle_schd.ready       = &idle.basic_entity;
+            fake_scheduler.init_schd.kinit_ready = &init.basic_entity;
 
             hart_ctx.current_tcb() = nullptr;
             hart_ctx.current_pcb() = nullptr;

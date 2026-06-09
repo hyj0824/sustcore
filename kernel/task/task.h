@@ -294,6 +294,11 @@ namespace task {
         Result<util::nonnull<TCB *>> create_idle_thread();
 
         /**
+         * @brief 创建启动期 kinit 内核线程.
+         */
+        Result<util::nonnull<TCB *>> create_kinit_thread();
+
+        /**
          * @brief 查找指定 pid 的 holder id, 用于能力索引或权限校验.
          *
          * @param pid 要查找的进程 id.

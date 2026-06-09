@@ -8,6 +8,7 @@
 #include <schd/schdbase.h>
 #include <sus/nonnull.h>
 #include <sustcore/errcode.h>
+#include <task/task_struct.h>
 
 namespace schd::init {
     template <typename SU>
@@ -15,34 +16,57 @@ namespace schd::init {
     public:
         using SUType                          = SU;
         constexpr static ClassType CLASS_TYPE = ClassType::INIT;
-        SchedMeta *ready = nullptr;
+        SchedMeta *kinit_ready = nullptr;
+        SchedMeta *init_ready  = nullptr;
+
+    private:
+        [[nodiscard]]
+        Result<SchedMeta **> ready_slot(util::nonnull<SUType *> unit) noexcept {
+            switch (unit->boot_role) {
+                case task::BootThreadRole::KINIT:     return &kinit_ready;
+                case task::BootThreadRole::INIT_USER: return &init_ready;
+                case task::BootThreadRole::NONE:
+                default: unexpect_return(ErrCode::INVALID_PARAM);
+            }
+        }
+
+    public:
 
         Result<void> enqueue(util::nonnull<RQ *> rq,
                              util::nonnull<SUType *> unit) override {
+            auto slot_res = ready_slot(unit);
+            propagate(slot_res);
             auto meta   = this->asmeta(unit);
             meta->state = ThreadState::READY;
-            ready       = meta.get();
+            *slot_res.value() = meta.get();
             void_return();
         }
 
         Result<void> dequeue(util::nonnull<RQ *> rq,
                              util::nonnull<SUType *> unit) override {
+            auto slot_res = ready_slot(unit);
+            propagate(slot_res);
             auto meta = this->asmeta(unit);
-            if (ready != meta.get()) {
+            if (*slot_res.value() != meta.get()) {
                 unexpect_return(ErrCode::INVALID_PARAM);
             }
-            ready       = nullptr;
+            *slot_res.value() = nullptr;
             meta->state = ThreadState::EMPTY;
             void_return();
         }
 
         Result<util::nonnull<SUType *>> pick_next(
             util::nonnull<RQ *> rq) override {
+            SchedMeta *ready = kinit_ready != nullptr ? kinit_ready : init_ready;
             if (ready == nullptr) {
                 unexpect_return(ErrCode::NO_RUNNABLE_THREAD);
             }
             SchedMeta *meta = ready;
-            ready           = nullptr;
+            if (meta == kinit_ready) {
+                kinit_ready = nullptr;
+            } else {
+                init_ready = nullptr;
+            }
             meta->state     = ThreadState::RUNNING;
             this->cursched  = meta;
             return this->asunit(util::nnullforce(meta));
@@ -50,9 +74,11 @@ namespace schd::init {
 
         Result<void> put_prev(util::nonnull<RQ *> rq,
                               util::nonnull<SUType *> unit) override {
+            auto slot_res = ready_slot(unit);
+            propagate(slot_res);
             auto meta   = this->asmeta(unit);
             meta->state = ThreadState::READY;
-            ready       = meta.get();
+            *slot_res.value() = meta.get();
             void_return();
         }
 

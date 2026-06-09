@@ -30,6 +30,12 @@ using tid_t        = size_t;
 using pid_t        = size_t;
 
 namespace task {
+    enum class BootThreadRole {
+        NONE,
+        KINIT,
+        INIT_USER,
+    };
+
     struct TCB;
     struct PCB;
     using KThreadEntry = void (*)(void *);
@@ -164,6 +170,7 @@ namespace task {
         }
 
         //  schedule data
+        BootThreadRole boot_role;
         schd::ClassType schd_class;
         schd::SchedMeta basic_entity;
         schd::rr::Entity rr_entity;

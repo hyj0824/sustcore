@@ -43,8 +43,8 @@ void __switch_to(Context *prev_ctx, Context *next_ctx);
 namespace schd {
     using namespace task;
     void Scheduler::init(util::nonnull<TCB *> idle_tcb,
-                         util::nonnull<TCB *> init_tcb) {
-        inst_scheduler = new (scheduler_storage) Scheduler(idle_tcb, init_tcb);
+                         util::nonnull<TCB *> kinit_tcb) {
+        inst_scheduler = new (scheduler_storage) Scheduler(idle_tcb, kinit_tcb);
         inst_scheduler_initialized = true;
     }
 
@@ -347,7 +347,7 @@ namespace schd {
     }
 
     void Scheduler::init() {
-        if (_idle_schd.ready == nullptr || _init_schd.ready == nullptr) {
+        if (_idle_schd.ready == nullptr || _init_schd.kinit_ready == nullptr) {
             loggers::SUSTCORE::ERROR("调度器启动前实体无效");
             panic("调度器崩溃!");
         }

@@ -35,16 +35,16 @@ namespace schd {
 
     public:
         static void init(util::nonnull<TCB *> idle_tcb,
-                         util::nonnull<TCB *> init_tcb);
+                         util::nonnull<TCB *> kinit_tcb);
         static bool initialized();
         static Scheduler &inst();
 
         constexpr Scheduler(util::nonnull<TCB *> idle_tcb,
-                            util::nonnull<TCB *> init_tcb) {
+                            util::nonnull<TCB *> kinit_tcb) {
             idle_tcb->basic_entity.state = ThreadState::READY;
             _idle_schd.ready             = &idle_tcb->basic_entity;
-            init_tcb->basic_entity.state = ThreadState::READY;
-            _init_schd.ready             = &init_tcb->basic_entity;
+            kinit_tcb->basic_entity.state = ThreadState::READY;
+            _init_schd.kinit_ready        = &kinit_tcb->basic_entity;
         }
 
         util::nonnull<RQ *> rq();

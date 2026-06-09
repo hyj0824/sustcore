@@ -15,6 +15,7 @@
 #include <exe/elfloader.h>
 #include <exe/task.h>
 #include <guard.h>
+#include <kinit.h>
 #include <kio.h>
 #include <logger.h>
 #include <mem/alloc.h>
@@ -346,6 +347,7 @@ namespace task {
         tcb->kentry         = nullptr;
         tcb->karg           = nullptr;
         tcb->list_head      = {};
+        tcb->boot_role      = BootThreadRole::NONE;
         tcb->wait_reason    = 0;
         tcb->wait_predicate = {};
         tcb->wait_head      = {};
@@ -401,6 +403,7 @@ namespace task {
             build_user_contexts(tcb, entrypoint, stack_top);
         }
 
+        tcb->boot_role  = BootThreadRole::NONE;
         tcb->schd_class = schd_class;
 
         // 将线程加入进程的线程列表
@@ -558,6 +561,7 @@ namespace task {
         auto tcb = util::nnullforce(reuse_main_tcb);
         tcb->task       = pcb;
         tcb->is_kernel  = false;
+        tcb->boot_role  = BootThreadRole::NONE;
         tcb->schd_class = schd_class;
         return setup_user_main_thread(pcb, tcb, spec, startup_info, true,
                                       "复用主线程上下文");
@@ -710,8 +714,7 @@ namespace task {
         if (entry == nullptr) {
             unexpect_return(ErrCode::NULLPTR);
         }
-        if (schd_class == schd::ClassType::INIT ||
-            schd_class == schd::ClassType::BOT)
+        if (schd_class == schd::ClassType::BOT)
         {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
@@ -733,6 +736,14 @@ namespace task {
 
     Result<util::nonnull<TCB *>> TaskManager::create_idle_thread() {
         return create_kernel_thread(&kthread_idle, schd::ClassType::IDLE);
+    }
+
+    Result<util::nonnull<TCB *>> TaskManager::create_kinit_thread() {
+        auto tcb_res =
+            create_kernel_thread(&kinit_runtime_entry, schd::ClassType::INIT);
+        propagate(tcb_res);
+        tcb_res.value()->boot_role = BootThreadRole::KINIT;
+        return tcb_res.value();
     }
 
     Result<util::nonnull<PCB *>> TaskManager::create_init_task(
@@ -769,6 +780,9 @@ namespace task {
             loggers::SUSTCORE::ERROR("构造主线程失败! 错误码: %s",
                                      to_cstring(main_thread_res.error()));
             propagate_return(main_thread_res);
+        }
+        if (schd_class == schd::ClassType::INIT) {
+            main_thread_res.value()->boot_role = BootThreadRole::INIT_USER;
         }
 
         if (wakeup) {
@@ -1037,6 +1051,10 @@ namespace task {
             child_tcb->kernel_context_ptr(),
             reinterpret_cast<void *>(&new_utask_trampoline), child_user_ctx,
             child_tcb->kstack_top(), false, true);
+        child_tcb->boot_role =
+            parent_tcb->schd_class == schd::ClassType::INIT
+                ? BootThreadRole::NONE
+                : parent_tcb->boot_role;
         child_tcb->schd_class = parent_tcb->schd_class == schd::ClassType::INIT
                                     ? schd::ClassType::FCFS
                                     : parent_tcb->schd_class;

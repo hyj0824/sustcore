@@ -14,21 +14,13 @@
 #include <arch/riscv64/device/fdt_helper.h>
 #include <arch/riscv64/mem/sv39.h>
 #include <arch/trait.h>
-#include <cap/capability.h>
-#include <cap/cholder.h>
-#include <cap/permission.h>
-#include <bio/blk.h>
-#include <bio/block.h>
 #include <device/fdt.h>
 #include <device/int.h>
 #include <device/model.h>
 #include <device/resource.h>
 #include <driver/int/clint.h>
-#include <driver/model.h>
-#include <driver/rtc/goldfish.h>
 #include <env.h>
-#include <exe/elfloader.h>
-#include <exe/task.h>
+#include <kinit.h>
 #include <logger.h>
 #include <mem/alloc.h>
 #include <mem/gfp.h>
@@ -43,21 +35,14 @@
 #include <sus/types.h>
 #include <sus/units.h>
 #include <sustcore/addr.h>
-#include <symbols.h>
 #include <task/scheduler.h>
 #include <task/task.h>
 #include <task/wait.h>
 #include <test/framework.h>
 #include <test/kthread.h>
-#include <vfs/device.h>
-#include <vfs/ops.h>
-#include <vfs/tarfs.h>
-#include <vfs/vfs.h>
 
 #include <cassert>
 #include <cstddef>
-#include <cstdio>
-#include <cstring>
 
 env::PaddedHartContext __hart_context[MAX_HARTS] = {};
 
@@ -341,26 +326,6 @@ namespace key {
     };
 }  // namespace key
 
-// path
-constexpr const char *INITRD_PATH     = "/initrd/";
-constexpr const char *INITMOD_PATH    = "/initrd/init.mod";
-constexpr const char *SETUPMOD_PATH   = "/initrd/setup.mod";
-constexpr const char *DEFAULTMOD_PATH = "/initrd/default.mod";
-
-namespace {
-    devfs::DevFSDriver *g_devfs_driver = nullptr;
-}
-
-util::owner<RamDiskDevice *> make_initrd() {
-    auto e_initrd_ptr = reinterpret_cast<char *>(&e_initrd);
-    auto s_initrd_ptr = reinterpret_cast<char *>(&s_initrd);
-    size_t sz         = e_initrd_ptr - s_initrd_ptr;
-    auto device       = util::owner(new RamDiskDevice(&s_initrd, sz, 1));
-    loggers::SUSTCORE::INFO("initrd大小为 %u KB =  %u MB", sz / 1024,
-                            sz / 1024 / 1024);
-    return device;
-}
-
 void kernel_paging_setup() {
     [[maybe_unused]]
     constexpr KernelStage STAGE = KernelStage::PRE_INIT;
@@ -389,37 +354,6 @@ void kernel_paging_setup() {
     kernelman.flush_tlb();
 }
 
-Result<void> init_vfs() {
-    blk::BlkManager::init();
-    // 构造VFS
-    VFS::init();
-    auto &vfs = VFS::inst();
-
-    // 加载驱动程序
-    auto tarfs        = util::owner(new tarfs::TarFSDriver());
-    auto register_res = vfs.register_fs(tarfs);
-    propagate(register_res);
-    auto devfs_driver = util::owner(new devfs::DevFSDriver());
-    g_devfs_driver    = devfs_driver.get();
-    register_res      = vfs.register_fs(std::move(devfs_driver));
-    propagate(register_res);
-
-    auto initrd_device = make_initrd();
-    auto devno_res     = blk::BlkManager::inst().register_device(
-        util::owner<IBlockDeviceOps *>(initrd_device.get()));
-    if (!devno_res.has_value()) {
-        propagate_return(devno_res);
-    }
-    initrd_device = util::owner<RamDiskDevice *>(nullptr);
-
-    auto mount_res     = vfs.mount("tarfs", devno_res.value(), INITRD_PATH,
-                                   MountFlags::NONE, nullptr);
-    propagate(mount_res);
-    mount_res = vfs.mount("devfs", "/sys/", nullptr);
-    propagate(mount_res);
-    void_return();
-}
-
 Result<void> init_scheduler() {
     auto kernel_res = task::TaskManager::inst().create_kernel_task();
     if (!kernel_res.has_value()) {
@@ -435,138 +369,31 @@ Result<void> init_scheduler() {
         propagate_return(idle_res);
     }
 
-    auto load_res = task::TaskManager::inst().load_init(INITMOD_PATH);
-    if (!load_res.has_value()) {
-        loggers::SUSTCORE::ERROR("加载初始进程失败! 错误码: %s",
-                                 to_cstring(load_res.error()));
-        propagate_return(load_res);
+    auto kinit_res = task::TaskManager::inst().create_kinit_thread();
+    if (!kinit_res.has_value()) {
+        loggers::SUSTCORE::ERROR("创建 kinit 内核线程失败! 错误码: %s",
+                                 to_cstring(kinit_res.error()));
+        propagate_return(kinit_res);
     }
 
-    auto task = load_res.value();
-    assert(task->threads.size() == 1);
     env::hart_ctx->current_tcb() = nullptr;
     env::hart_ctx->current_pcb() = nullptr;
-    schd::Scheduler::init(idle_res.value(), task->threads.front());
+    schd::Scheduler::init(idle_res.value(), kinit_res.value());
     schd::Scheduler::inst().init();
     register_scheduler_tick_action();
     void_return();
 }
 
-static driver::GoldfishRTC::AlarmHandler ticker;
-
-void after_init() {
-    // 打开中断
-    Interrupt::sti();
-
-    auto devices1 =
-        device::DeviceModel::inst().find_devices_by_compatible("ns16550a");
-    loggers::SUSTCORE::INFO("兼容 ns16550a 的设备数量: %u",
-                            static_cast<unsigned>(devices1.size()));
-    if (devices1.size() > 0) {
-        auto *serial_device = devices1[0];
-        // 注册其驱动
-        auto create_res =
-            driver::DriverModel::inst().create_driver(serial_device);
-        if (!create_res.has_value()) {
-            loggers::SUSTCORE::ERROR("为 ns16550a 设备创建驱动失败: %s",
-                                     to_cstring(create_res.error()));
-        } else {
-            loggers::SUSTCORE::INFO("已为 ns16550a 设备创建驱动");
-            auto *driver =
-                static_cast<driver::SerialDevice *>(create_res.value());
-            driver->write("Hello, Sustcore!\n", strlen("Hello, Sustcore!\n"));
-            if (g_devfs_driver != nullptr) {
-                auto devfs_res = g_devfs_driver->mounted_superblock();
-                if (!devfs_res.has_value()) {
-                    loggers::SUSTCORE::ERROR("获取 DevFS 超级块失败: %s",
-                                             to_cstring(devfs_res.error()));
-                } else {
-                    auto mount_res = driver->mount(*devfs_res.value(), nullptr);
-                    if (!mount_res.has_value()) {
-                        loggers::SUSTCORE::ERROR("挂载串口设备文件失败: %s",
-                                                 to_cstring(mount_res.error()));
-                    }
-                }
-
-                auto serial_file =
-                    VFS::inst().__debug_open("/sys/serial/serial");
-                if (!serial_file.has_value()) {
-                    loggers::SUSTCORE::ERROR("调试打开串口设备文件失败: %s",
-                                             to_cstring(serial_file.error()));
-                } else {
-                    auto write_res = VFS::inst().write(
-                        *serial_file.value(), 0, "Debug Hello!\n",
-                        strlen("Debug Hello!\n"));
-                    if (!write_res.has_value()) {
-                        loggers::SUSTCORE::ERROR("调试写入串口设备文件失败: %s",
-                                                 to_cstring(write_res.error()));
-                    }
-                }
-            }
-        }
-    }
-
-    auto devices2 = device::DeviceModel::inst().find_devices_by_compatible(
-        "google,goldfish-rtc");
-    loggers::SUSTCORE::INFO("兼容 google,goldfish-rtc 的设备数量: %u",
-                            static_cast<unsigned>(devices2.size()));
-
-    if (devices2.size() > 0) {
-        auto *rtc_device = devices2[0];
-        // 注册其驱动
-        auto create_res = driver::DriverModel::inst().create_driver(rtc_device);
-        if (!create_res.has_value()) {
-            loggers::SUSTCORE::ERROR(
-                "为 google,goldfish-rtc 设备创建驱动失败: %s",
-                to_cstring(create_res.error()));
-        } else {
-            loggers::SUSTCORE::INFO("已为 google,goldfish-rtc 设备创建驱动");
-            auto *driver =
-                static_cast<driver::GoldfishRTC *>(create_res.value());
-            auto time = driver->read_time();
-            auto ft   = units::rt_time::from_time(time).to_formatted_time();
-            loggers::SUSTCORE::INFO(
-                "当前 RTC 时间: %04lld-%02lld-%02lld %02lld:%02lld:%02lld",
-                static_cast<long long>(ft.year),
-                static_cast<long long>(ft.month),
-                static_cast<long long>(ft.day), static_cast<long long>(ft.hour),
-                static_cast<long long>(ft.minute),
-                static_cast<long long>(ft.second));
-            auto alarm_time = time + units::time::from_seconds(2);
-
-            ticker = [driver](units::time now) {
-                auto alarm_ft =
-                    units::rt_time::from_time(now).to_formatted_time();
-                loggers::SUSTCORE::INFO(
-                    "Goldfish RTC alarm 触发: %04lld-%02lld-%02lld "
-                    "%02lld:%02lld:%02lld",
-                    static_cast<long long>(alarm_ft.year),
-                    static_cast<long long>(alarm_ft.month),
-                    static_cast<long long>(alarm_ft.day),
-                    static_cast<long long>(alarm_ft.hour),
-                    static_cast<long long>(alarm_ft.minute),
-                    static_cast<long long>(alarm_ft.second));
-                auto alarm_time = now + units::time::from_seconds(2);
-                driver->set_alarm(alarm_time, ticker);
-            };
-
-            driver->set_alarm(alarm_time, ticker);
-        }
-    }
-
-#ifdef __CONF_KERNEL_TIMEKEEPER_TEST
-    register_timekeeper_log_test();
-#endif
-
+Result<void> run_pre_bootstrap_tests() {
 #ifdef __CONF_KERNEL_TESTS
     auto wait_event_test_res = test::kthread::start_wait_event_test();
     if (!wait_event_test_res.has_value()) {
         loggers::SUSTCORE::ERROR("启动 wait_event kthread 测试失败: %s",
                                  to_cstring(wait_event_test_res.error()));
+        propagate_return(wait_event_test_res);
     }
 #endif
 
-    // Kernel tests
 #ifdef __CONF_KERNEL_TESTS
     loggers::SUSTCORE::INFO("开始运行内核测试");
     TestFramework framework;
@@ -574,14 +401,7 @@ void after_init() {
     framework.run_all();
     loggers::SUSTCORE::INFO("内核测试完成");
 #endif
-
-#ifdef __CONF_KERNEL_RUN_MODULES
-    loggers::SUSTCORE::INFO("开始运行内核模块");
-    // Run kernel modules
-    schd::Scheduler::inst().bootstrap_tasks();
-#endif
-
-    while (true);
+    void_return();
 }
 
 void init_kop();
@@ -658,14 +478,6 @@ extern "C" void post_init(void) {
 
     Initialization::post_init();
 
-    loggers::SUSTCORE::INFO("初始化VFS");
-    auto init_res = init_vfs();
-    if (!init_res.has_value()) {
-        loggers::SUSTCORE::ERROR("初始化VFS失败! 错误码: %s",
-                                 to_cstring(init_res.error()));
-        while (true);
-    }
-
     loggers::SUSTCORE::INFO("初始化任务管理器");
     task::TaskManager::init();
 
@@ -673,7 +485,7 @@ extern "C" void post_init(void) {
     task::wait::WaitReasonManager::init();
 
     loggers::SUSTCORE::INFO("初始化调度器");
-    init_res = init_scheduler();
+    auto init_res = init_scheduler();
     if (!init_res.has_value()) {
         loggers::SUSTCORE::ERROR("初始化Scheduler失败! 错误码: %s",
                                  to_cstring(init_res.error()));
@@ -682,7 +494,19 @@ extern "C" void post_init(void) {
 
     loggers::SUSTCORE::INFO("测试输出ErrCode::BUSY", to_cstring(ErrCode::BUSY));
 
-    after_init();
+    auto test_res = run_pre_bootstrap_tests();
+    if (!test_res.has_value()) {
+        loggers::SUSTCORE::ERROR("前置测试失败! 错误码: %s",
+                                 to_cstring(test_res.error()));
+        while (true);
+    }
+
+#ifdef __CONF_KERNEL_RUN_MODULES
+    loggers::SUSTCORE::INFO("开始切入调度器");
+    schd::Scheduler::inst().bootstrap_tasks();
+#endif
+
+    while (true);
 }
 
 extern "C" void redive(void);
