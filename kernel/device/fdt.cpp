@@ -18,6 +18,8 @@
 #include <driver/model.h>
 #include <driver/rtc/goldfish.h>
 #include <driver/serial.h>
+#include <driver/virtio/virtio-blk.h>
+#include <driver/virtio/virtio.h>
 #include <libfdt.h>
 #include <logger.h>
 
@@ -1278,6 +1280,8 @@ namespace fdt {
             return;
         }
 
+        virtio::init_virtio_blk_factory();
+
         [[maybe_unused]] auto serial_res =
             driver::DriverModel::inst().register_factory(
                 util::owner<driver::IDeviceFactory *>(
@@ -1286,6 +1290,10 @@ namespace fdt {
             driver::DriverModel::inst().register_factory(
                 util::owner<driver::IDeviceFactory *>(
                     new driver::GoldfishRTCFactory()));
+        [[maybe_unused]] auto virtio_res =
+            driver::DriverModel::inst().register_factory(
+                util::owner<driver::IDeviceFactory *>(
+                    new virtio::VirtioMmioFactory()));
     }
 
     /**

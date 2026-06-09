@@ -12,12 +12,16 @@
 #include <driver/factory.h>
 #include <logger.h>
 
+#include <device/model.h>
+#include <type_traits>
+
 namespace {
     template <typename FactoryT>
     [[nodiscard]]
     const FactoryT *find_best_factory(
         const std::unordered_map<std::string_view, const FactoryT *> &factories,
-        const device::DeviceNode &node) noexcept {
+        const device::DeviceNode &node,
+        device::DeviceModel *model = nullptr) noexcept {
         // foreach the compatibles nodes
         for (const auto &compatible : node.compatibles()) {
             // try to find a factory for the compatible
@@ -25,6 +29,23 @@ namespace {
             if (it != factories.end()) {
                 loggers::DEVICE::DEBUG("找到匹配的工厂: compatible=%s",
                                        std::string(compatible).c_str());
+                if constexpr (std::is_same_v<FactoryT, driver::IDeviceFactory>) {
+                    if (model == nullptr) {
+                        loggers::DEVICE::WARN(
+                            "普通设备工厂二次探测缺少 DeviceModel: compatible=%s",
+                            std::string(compatible).c_str());
+                        continue;
+                    }
+                    if (!it->second->probe(node, *model)) {
+                        loggers::DEVICE::DEBUG(
+                            "工厂 probe 拒绝接管节点: compatible=%s",
+                            std::string(compatible).c_str());
+                        continue;
+                    }
+                    loggers::DEVICE::DEBUG(
+                        "工厂 probe 接受接管节点: compatible=%s",
+                        std::string(compatible).c_str());
+                }
                 return it->second;
             }
         }
@@ -33,6 +54,13 @@ namespace {
 }  // namespace
 
 namespace driver {
+    bool IDeviceFactory::probe(const device::DeviceNode &node,
+                               device::DeviceModel &model) const noexcept {
+        (void)node;
+        (void)model;
+        return true;
+    }
+
     /**
      * @brief 向普通设备工厂注册表登记工厂.
      */
@@ -55,7 +83,10 @@ namespace driver {
      */
     const IDeviceFactory *DeviceFactoryRegistry::find(
         const device::DeviceNode &node) const noexcept {
-        return find_best_factory(_factories, node);
+        auto *model =
+            device::DeviceModel::initialized() ? &device::DeviceModel::inst()
+                                               : nullptr;
+        return find_best_factory(_factories, node, model);
     }
 
     /**

@@ -41,6 +41,19 @@ namespace driver {
         virtual std::string_view compatible() const noexcept = 0;
 
         /**
+         * @brief 在 compatible 命中后再次裁决是否由当前工厂接管该节点.
+         *
+         * 默认实现直接接受, 便于现有工厂保持兼容.
+         *
+         * @param node 统一设备节点.
+         * @param model 设备模型.
+         * @return bool 是否接受该节点.
+         */
+        [[nodiscard]]
+        virtual bool probe(const device::DeviceNode &node,
+                           device::DeviceModel &model) const noexcept;
+
+        /**
          * @brief 基于统一设备节点创建 driver 设备包装对象.
          *
          * @param node 统一设备节点.

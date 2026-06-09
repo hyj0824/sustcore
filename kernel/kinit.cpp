@@ -17,6 +17,8 @@
 #include <driver/model.h>
 #include <driver/rtc/goldfish.h>
 #include <driver/serial.h>
+#include <driver/virtio/virtio-blk.h>
+#include <driver/virtio/virtio.h>
 #include <env.h>
 #include <exe/task.h>
 #include <kinit.h>
@@ -184,6 +186,36 @@ namespace {
                 };
 
                 driver->set_alarm(alarm_time, ticker);
+            }
+        }
+
+        auto virtio_devices =
+            device::DeviceModel::inst().find_devices_by_compatible(
+                virtio::VIRTIO_MMIO_COMPATIBLE);
+        loggers::SUSTCORE::INFO("兼容 virtio,mmio 的设备数量: %u",
+                                static_cast<unsigned>(virtio_devices.size()));
+        for (auto *virtio_device : virtio_devices) {
+            auto create_res =
+                driver::DriverModel::inst().create_driver(virtio_device);
+            if (!create_res.has_value()) {
+                if (create_res.error() == ErrCode::ENTRY_NOT_FOUND) {
+                    loggers::SUSTCORE::DEBUG(
+                        "virtio 设备暂未绑定具体驱动: name=%s",
+                        virtio_device->name());
+                    continue;
+                }
+                loggers::SUSTCORE::ERROR("为 virtio,mmio 设备创建驱动失败: %s",
+                                         to_cstring(create_res.error()));
+                continue;
+            }
+            loggers::SUSTCORE::INFO("已为 virtio,mmio 设备创建驱动: %s",
+                                    virtio_device->name());
+            auto *blk_driver =
+                static_cast<virtio::VirtioBlkDriver *>(create_res.value());
+            auto dump_res = blk_driver->__debug_print_blocks();
+            if (!dump_res.has_value()) {
+                loggers::SUSTCORE::ERROR("virtio-blk 调试读块失败: %s",
+                                         to_cstring(dump_res.error()));
             }
         }
         void_return();

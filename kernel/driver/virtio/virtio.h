@@ -1,9 +1,9 @@
 /**
  * @file virtio.h
  * @author theflysong (song_of_the_fly@163.com)
- * @brief virtio 规范
+ * @brief virtio MMIO 通用探测、初始化与队列管理
  * @version alpha-1.0.0
- * @date 2026-06-07
+ * @date 2026-06-10
  *
  * @copyright Copyright (c) 2026
  *
@@ -11,18 +11,20 @@
 
 #pragma once
 
+#include <device/device.h>
+#include <device/resource.h>
+#include <driver/base.h>
+#include <driver/factory.h>
 #include <sus/types.h>
+#include <sustcore/addr.h>
+#include <sustcore/errcode.h>
+
+#include <cstddef>
+#include <cstdint>
+#include <string_view>
+#include <vector>
 
 namespace virtio {
-    enum class Type {
-        NETWORK           = 0x1001,
-        BLOCK             = 0x1002,
-        MEMORY_BALLOONING = 0x1002,
-        CONSOLE           = 0x1003,
-        SCSI_HOST         = 0x1004,
-        ENTROPY           = 0x1005,
-        TRANSPORT_9P      = 0x1009
-    };
     using u8   = uint8_t;
     using u16  = uint16_t;
     using u32  = uint32_t;
@@ -34,197 +36,577 @@ namespace virtio {
     using be32 = uint32_t;
     using be64 = uint64_t;
 
+    constexpr std::string_view VIRTIO_MMIO_COMPATIBLE = "virtio,mmio";
+    constexpr u32 MAGIC_VALUE                         = 0x74726976;
+    constexpr u32 VERSION_LEGACY                     = 0x1;
+    constexpr u32 VERSION_MODERN                     = 0x2;
+
+    /**
+     * @brief virtio 设备状态寄存器位定义.
+     *
+     * 这些标志共同描述通用初始化状态机的推进阶段.
+     */
+    namespace device_status {
+        constexpr u32 ACKNOWLEDGE = 1u << 0;
+        constexpr u32 DRIVER      = 1u << 1;
+        constexpr u32 DRIVER_OK   = 1u << 2;
+        constexpr u32 FEATURES_OK = 1u << 3;
+        constexpr u32 NEEDS_RESET = 1u << 6;
+        constexpr u32 FAILED      = 1u << 7;
+    }  // namespace device_status
+
+    /**
+     * @brief virtio 通用 feature 位定义.
+     *
+     * 这里只保留当前通用初始化与队列路径会使用到的公共特性.
+     */
+    namespace common_feature {
+        constexpr u64 RING_INDIRECT_DESC = 1ull << 28;
+        constexpr u64 RING_EVENT_IDX     = 1ull << 29;
+        constexpr u64 VERSION_1          = 1ull << 32;
+    }  // namespace common_feature
+
+    /**
+     * @brief virtio 设备类型编号.
+     *
+     * 取值与 virtio MMIO 的 `device_id` 一致.
+     */
+    enum class DeviceType : u32 {
+        INVALID           = 0,
+        NETWORK           = 1,
+        BLOCK             = 2,
+        CONSOLE           = 3,
+        ENTROPY           = 4,
+        MEMORY_BALLOON    = 5,
+        IOMEM             = 6,
+        RPMSG             = 7,
+        SCSI_HOST         = 8,
+        TRANSPORT_9P      = 9
+    };
+
+    /**
+     * @brief virtio MMIO 公共寄存器偏移定义.
+     *
+     * 驱动应优先复用这些命名偏移, 避免在实现中散落裸常量.
+     */
     namespace offset {
-        constexpr size_t MAGIC_VALUE        = 0x000;  // r
-        constexpr size_t VERSION            = 0x004;  // r
-        constexpr size_t DEVICE_ID          = 0x008;  // r
-        constexpr size_t VENDOR_ID          = 0x00C;  // r
-        constexpr size_t DEVICE_FEATURE     = 0x010;  // r
-        constexpr size_t DEVICE_FEATURE_SEL = 0x014;  // w
-        constexpr size_t DRIVER_FEATURE     = 0x020;  // r
-        constexpr size_t DRIVER_FEATURE_SEL = 0x024;  // w
-        constexpr size_t QUEUE_SEL          = 0x030;  // w
-        constexpr size_t QUEUE_NUM_MAX      = 0x034;  // r
-        constexpr size_t QUEUE_NUM          = 0x038;  // w
-        constexpr size_t QUEUE_READY        = 0x044;  // rw
-        constexpr size_t QUEUE_NOTIFY       = 0x050;  // w
-        constexpr size_t INTERRUPT_STATUS   = 0x060;  // r
-        constexpr size_t INTERRUPT_ACK      = 0x064;  // w
-        constexpr size_t STATUS             = 0x070;  // rw
+        constexpr size_t MAGIC_VALUE        = 0x000;
+        constexpr size_t VERSION            = 0x004;
+        constexpr size_t DEVICE_ID          = 0x008;
+        constexpr size_t VENDOR_ID          = 0x00C;
+        constexpr size_t DEVICE_FEATURE     = 0x010;
+        constexpr size_t DEVICE_FEATURE_SEL = 0x014;
+        constexpr size_t DRIVER_FEATURE     = 0x020;
+        constexpr size_t DRIVER_FEATURE_SEL = 0x024;
+        constexpr size_t GUEST_PAGE_SIZE    = 0x028;
+        constexpr size_t QUEUE_SEL          = 0x030;
+        constexpr size_t QUEUE_NUM_MAX      = 0x034;
+        constexpr size_t QUEUE_NUM          = 0x038;
+        constexpr size_t QUEUE_ALIGN        = 0x03C;
+        constexpr size_t QUEUE_PFN          = 0x040;
+        constexpr size_t QUEUE_READY        = 0x044;
+        constexpr size_t QUEUE_NOTIFY       = 0x050;
+        constexpr size_t INTERRUPT_STATUS   = 0x060;
+        constexpr size_t INTERRUPT_ACK      = 0x064;
+        constexpr size_t STATUS             = 0x070;
         constexpr size_t QUEUE_DESC_LO      = 0x080;
-        constexpr size_t QUEUE_DESC_HI      = 0x084;  // w
+        constexpr size_t QUEUE_DESC_HI      = 0x084;
         constexpr size_t QUEUE_DRIVER_LO    = 0x090;
-        constexpr size_t QUEUE_DRIVER_HI    = 0x094;  // w
+        constexpr size_t QUEUE_DRIVER_HI    = 0x094;
         constexpr size_t QUEUE_DEVICE_LO    = 0x0A0;
-        constexpr size_t QUEUE_DEVICE_HI    = 0x0A4;  // w
-        constexpr size_t SHM_SEL            = 0x0AC;  // w
+        constexpr size_t QUEUE_DEVICE_HI    = 0x0A4;
+        constexpr size_t SHM_SEL            = 0x0AC;
         constexpr size_t SHM_LEN_LO         = 0x0B0;
-        constexpr size_t SHM_LEN_HI         = 0x0B4;  // r
+        constexpr size_t SHM_LEN_HI         = 0x0B4;
         constexpr size_t SHM_BASE_LO        = 0x0B8;
-        constexpr size_t SHM_BASE_HI        = 0x0BC;  // r
-        constexpr size_t QUEUE_RESET        = 0x0C0;  // w
-        constexpr size_t CONFIG_GENERATION  = 0x0FC;  // r
-        constexpr size_t CONFIG_SPACE       = 0x100;  // rw
-        constexpr size_t TOTAL_SIZE         = 0x100;  // 256 bytes
+        constexpr size_t SHM_BASE_HI        = 0x0BC;
+        constexpr size_t QUEUE_RESET        = 0x0C0;
+        constexpr size_t CONFIG_GENERATION  = 0x0FC;
+        constexpr size_t CONFIG_SPACE       = 0x100;
+        constexpr size_t TOTAL_SIZE         = 0x100;
     }  // namespace offset
 
-    // ------------------------------------------------------------------------
-    // MMIO 通用寄存器布局（与 offset 命名空间的偏移量严格对应）
-    // 基于 Virtio 1.2 规范 Table 4.1，所有寄存器 32 位宽
-    // ------------------------------------------------------------------------
+    /**
+     * @brief virtio MMIO 通用寄存器布局.
+     *
+     * 该结构只覆盖公共寄存器窗口, 不包含设备私有配置空间内容.
+     */
     struct CommonConfig {
-        // 0x000 : Magic value (R)
         le32 magic_value;
-        // 0x004 : Version (R)
         le32 version;
-        // 0x008 : Device ID (R)
         le32 device_id;
-        // 0x00C : Vendor ID (R)
         le32 vendor_id;
-        // 0x010 : Device Features (R)
         le32 device_features;
-        // 0x014 : Device Features Select (W)
         le32 device_features_sel;
-        // 0x018 - 0x01C : Reserved
         le32 reserved_0x018;
         le32 reserved_0x01C;
-        // 0x020 : Driver Features (W)
         le32 driver_features;
-        // 0x024 : Driver Features Select (W)
         le32 driver_features_sel;
-        // 0x028 - 0x02C : Reserved
-        le32 reserved_0x028;
+        le32 guest_page_size;
         le32 reserved_0x02C;
-        // 0x030 : Queue Select (W)
         le32 queue_sel;
-        // 0x034 : Queue Num Max (R)
         le32 queue_num_max;
-        // 0x038 : Queue Num (W)
         le32 queue_num;
-        // 0x03C - 0x040 : Reserved
-        le32 reserved_0x03C;
-        le32 reserved_0x040;
-        // 0x044 : Queue Ready (RW)
+        le32 queue_align;
+        le32 queue_pfn;
         le32 queue_ready;
-        // 0x048 - 0x04C : Reserved
         le32 reserved_0x048;
         le32 reserved_0x04C;
-        // 0x050 : Queue Notify (W)
         le32 queue_notify;
-        // 0x054 - 0x05C : Reserved
         le32 reserved_0x054;
         le32 reserved_0x058;
         le32 reserved_0x05C;
-        // 0x060 : Interrupt Status (R)
         le32 interrupt_status;
-        // 0x064 : Interrupt Acknowledge (W)
         le32 interrupt_ack;
-        // 0x068 - 0x06C : Reserved
         le32 reserved_0x068;
         le32 reserved_0x06C;
-        // 0x070 : Device Status (RW)
         le32 status;
-        // 0x074 - 0x07C : Reserved
         le32 reserved_0x074;
         le32 reserved_0x078;
         le32 reserved_0x07C;
-        // 0x080 : Queue Descriptor Low (W)
         le32 queue_desc_low;
-        // 0x084 : Queue Descriptor High (W)
         le32 queue_desc_high;
-        // 0x088 - 0x08C : Reserved
         le32 reserved_0x088;
         le32 reserved_0x08C;
-        // 0x090 : Queue Driver Low (W)
         le32 queue_driver_low;
-        // 0x094 : Queue Driver High (W)
         le32 queue_driver_high;
-        // 0x098 - 0x09C : Reserved
         le32 reserved_0x098;
         le32 reserved_0x09C;
-        // 0x0A0 : Queue Device Low (W)
         le32 queue_device_low;
-        // 0x0A4 : Queue Device High (W)
         le32 queue_device_high;
-        // 0x0A8 : Reserved (4 bytes)
         le32 reserved_0x0A8;
-        // 0x0AC : Shared Memory Select (W)
         le32 shm_sel;
-        // 0x0B0 : Shared Memory Length Low (R)
         le32 shm_len_low;
-        // 0x0B4 : Shared Memory Length High (R)
         le32 shm_len_high;
-        // 0x0B8 : Shared Memory Base Low (R)
         le32 shm_base_low;
-        // 0x0BC : Shared Memory Base High (R)
         le32 shm_base_high;
-        // 0x0C0 : Queue Reset (RW)
         le32 queue_reset;
-        // 0x0C4 - 0x0F8 : Reserved (14 dwords)
         le32 reserved_0x0C4[14];
-        // 0x0FC : Configuration Generation (R)
         le32 config_generation;
     };
     static_assert(sizeof(CommonConfig) == offset::TOTAL_SIZE,
                   "CommonConfig must be exactly 256 bytes");
 
-    // 可选：校验关键字段偏移是否与 offset 命名空间一致
-    static_assert(offsetof(CommonConfig, magic_value) ==
-                  offset::MAGIC_VALUE);
-    static_assert(offsetof(CommonConfig, version) == offset::VERSION);
-    static_assert(offsetof(CommonConfig, device_id) ==
-                  offset::DEVICE_ID);
-    static_assert(offsetof(CommonConfig, vendor_id) ==
-                  offset::VENDOR_ID);
-    static_assert(offsetof(CommonConfig, device_features) ==
-                  offset::DEVICE_FEATURE);
-    static_assert(offsetof(CommonConfig, device_features_sel) ==
-                  offset::DEVICE_FEATURE_SEL);
-    static_assert(offsetof(CommonConfig, driver_features) ==
-                  offset::DRIVER_FEATURE);
-    static_assert(offsetof(CommonConfig, driver_features_sel) ==
-                  offset::DRIVER_FEATURE_SEL);
-    static_assert(offsetof(CommonConfig, queue_sel) ==
-                  offset::QUEUE_SEL);
-    static_assert(offsetof(CommonConfig, queue_num_max) ==
-                  offset::QUEUE_NUM_MAX);
-    static_assert(offsetof(CommonConfig, queue_num) ==
-                  offset::QUEUE_NUM);
-    static_assert(offsetof(CommonConfig, queue_ready) ==
-                  offset::QUEUE_READY);
-    static_assert(offsetof(CommonConfig, queue_notify) ==
-                  offset::QUEUE_NOTIFY);
-    static_assert(offsetof(CommonConfig, interrupt_status) ==
-                  offset::INTERRUPT_STATUS);
-    static_assert(offsetof(CommonConfig, interrupt_ack) ==
-                  offset::INTERRUPT_ACK);
-    static_assert(offsetof(CommonConfig, status) == offset::STATUS);
-    static_assert(offsetof(CommonConfig, queue_desc_low) ==
-                  offset::QUEUE_DESC_LO);
-    static_assert(offsetof(CommonConfig, queue_desc_high) ==
-                  offset::QUEUE_DESC_HI);
-    static_assert(offsetof(CommonConfig, queue_driver_low) ==
-                  offset::QUEUE_DRIVER_LO);
-    static_assert(offsetof(CommonConfig, queue_driver_high) ==
-                  offset::QUEUE_DRIVER_HI);
-    static_assert(offsetof(CommonConfig, queue_device_low) ==
-                  offset::QUEUE_DEVICE_LO);
-    static_assert(offsetof(CommonConfig, queue_device_high) ==
-                  offset::QUEUE_DEVICE_HI);
-    static_assert(offsetof(CommonConfig, shm_sel) == offset::SHM_SEL);
-    static_assert(offsetof(CommonConfig, shm_len_low) ==
-                  offset::SHM_LEN_LO);
-    static_assert(offsetof(CommonConfig, shm_len_high) ==
-                  offset::SHM_LEN_HI);
-    static_assert(offsetof(CommonConfig, shm_base_low) ==
-                  offset::SHM_BASE_LO);
-    static_assert(offsetof(CommonConfig, shm_base_high) ==
-                  offset::SHM_BASE_HI);
-    static_assert(offsetof(CommonConfig, queue_reset) ==
-                  offset::QUEUE_RESET);
-    static_assert(offsetof(CommonConfig, config_generation) ==
-                  offset::CONFIG_GENERATION);
+    /**
+     * @brief 通用探测所得的 virtio 基础信息.
+     *
+     * 工厂探测阶段先收敛这组只读事实, 具体设备驱动据此判断
+     * 是否能够接管节点并执行后续初始化.
+     */
+    struct ProbeInfo {
+        bool valid                        = false;
+        bool legacy                       = false;
+        u32 magic_value                   = 0;
+        u32 version                       = 0;
+        u32 device_id                     = 0;
+        u32 vendor_id                     = 0;
+        u32 status                        = 0;
+        u32 device_features               = 0;
+        const device::MMIOResource *mmio  = nullptr;
+    };
 
-    constexpr size_t MAGIC_VALUE = 0x74726976;
-    constexpr size_t VERSION = 0x2;
+    /**
+     * @brief 简单 DMA 缓冲区.
+     *
+     * 保存一段连续页框对应的内核地址、物理地址以及释放所需页数.
+     */
+    struct DmaBuffer {
+        void *kaddr      = nullptr;
+        PhyAddr paddr    = PhyAddr::null;
+        size_t size      = 0;
+        size_t page_cnt  = 0;
+    };
+
+    /**
+     * @brief legacy virtqueue 描述符项.
+     */
+    struct VirtQueueDescLegacy {
+        le64 addr;
+        le32 len;
+        le16 flags;
+        le16 next;
+    };
+    static_assert(sizeof(VirtQueueDescLegacy) == 16);
+
+    /**
+     * @brief legacy virtqueue avail ring 头部.
+     */
+    struct VirtQueueAvailRingLegacy {
+        le16 flags;
+        le16 index;
+    };
+
+    /**
+     * @brief legacy virtqueue used ring 单项.
+     */
+    struct VirtQueueUsedElemLegacy {
+        le32 id;
+        le32 len;
+    };
+
+    /**
+     * @brief legacy virtqueue used ring 头部.
+     */
+    struct VirtQueueUsedRingLegacy {
+        le16 flags;
+        le16 index;
+    };
+
+    /**
+     * @brief modern virtqueue 内存布局描述.
+     *
+     * 当前仅保留结构定义, 供后续 modern virtqueue 实现复用.
+     */
+    struct VirtQueueModern {
+        le64 driver_to_device_paddr;
+        le32 driver_to_device_size;
+        le64 device_to_driver_paddr;
+        le32 device_to_driver_size;
+        le64 avail_offset;
+    };
+
+    namespace vring {
+        constexpr u16 INVALID_DESC = 0xFFFF;
+        constexpr u16 NO_INTERRUPT = 0x0001;
+
+        namespace desc_flag {
+            constexpr u16 NEXT     = 1;
+            constexpr u16 WRITE    = 2;
+            constexpr u16 INDIRECT = 4;
+        }  // namespace desc_flag
+
+        /**
+         * @brief 一段待提交到 virtqueue 的缓冲视图.
+         *
+         * 调用方负责保证该物理缓冲在请求完成前持续有效.
+         */
+        struct BufferView {
+            PhyAddr paddr = PhyAddr::null;
+            size_t size   = 0;
+            bool writable = false;
+        };
+    }  // namespace vring
+
+    /**
+     * @brief legacy virtqueue 运行时对象.
+     *
+     * 聚合一条 legacy 队列的 DMA 内存布局、自由描述符链
+     * 以及 avail/used ring 消费进度.
+     */
+    struct VirtQueueLegacy {
+        u16 queue_index                = 0;
+        u16 size                       = 0;
+        DmaBuffer ring                 = {};
+        VirtQueueDescLegacy *desc      = nullptr;
+        volatile le16 *avail_flags     = nullptr;
+        volatile le16 *avail_index     = nullptr;
+        volatile le16 *avail_ring      = nullptr;
+        volatile le16 *used_flags      = nullptr;
+        volatile le16 *used_index      = nullptr;
+        volatile VirtQueueUsedElemLegacy *used_ring = nullptr;
+        size_t avail_offset            = 0;
+        size_t used_offset             = 0;
+        size_t ring_bytes              = 0;
+        u16 free_head                  = vring::INVALID_DESC;
+        u16 free_count                 = 0;
+        u16 last_used_index            = 0;
+        u16 last_avail_index           = 0;
+    };
+
+    /**
+     * @brief virtio 设备通用运行时基类.
+     *
+     * 负责公共 MMIO 访问、feature 协商、初始化状态机和
+     * legacy virtqueue 的提交/轮询回收逻辑.
+     */
+    class VirtioDriverBase : public driver::DriverBase {
+    public:
+        /**
+         * @brief 构造一个 virtio 通用设备对象.
+         *
+         * @param res 统一设备资源包.
+         * @param probe_info 工厂探测得到的公共信息.
+         * @param mmio_base 已映射的 MMIO 基址.
+         */
+        VirtioDriverBase(DevRes res, ProbeInfo probe_info,
+                         char *mmio_base) noexcept;
+        /**
+         * @brief 销毁 virtio 通用设备对象并回收队列 DMA 资源.
+         */
+        ~VirtioDriverBase() noexcept override;
+
+        [[nodiscard]]
+        std::string_view compatible() const noexcept override {
+            return VIRTIO_MMIO_COMPATIBLE;
+        }
+
+        [[nodiscard]]
+        bool legacy() const noexcept {
+            return _probe_info.legacy;
+        }
+
+        [[nodiscard]]
+        DeviceType device_type() const noexcept {
+            return static_cast<DeviceType>(_probe_info.device_id);
+        }
+
+        [[nodiscard]]
+        u32 device_id() const noexcept {
+            return _probe_info.device_id;
+        }
+
+        [[nodiscard]]
+        u32 vendor_id() const noexcept {
+            return _probe_info.vendor_id;
+        }
+
+        [[nodiscard]]
+        u64 device_features() const noexcept {
+            return _device_features;
+        }
+
+        [[nodiscard]]
+        u64 negotiated_features() const noexcept {
+            return _negotiated_features;
+        }
+
+    protected:
+        /**
+         * @brief 执行 virtio 通用初始化前半段.
+         *
+         * 前置条件是设备已被识别为当前驱动支持的 transport 版本.
+         * 成功后保证 feature 交集已经写回, 且设备接受 `FEATURES_OK`.
+         *
+         * @param supported_features 驱动声明支持的 feature 集合.
+         */
+        [[nodiscard]]
+        Result<void> begin_init(u64 supported_features) noexcept;
+        /**
+         * @brief 执行 virtio 通用初始化收尾阶段.
+         *
+         * 成功后保证设备状态进入 `DRIVER_OK`.
+         */
+        [[nodiscard]]
+        Result<void> finish_init() noexcept;
+
+        /**
+         * @brief 从设备私有配置空间读取一个 8 位值.
+         */
+        [[nodiscard]]
+        Result<u8> read_config_u8(size_t config_offset) const noexcept;
+        /**
+         * @brief 从设备私有配置空间读取一个 16 位值.
+         */
+        [[nodiscard]]
+        Result<u16> read_config_u16(size_t config_offset) const noexcept;
+        /**
+         * @brief 从设备私有配置空间读取一个 32 位值.
+         */
+        [[nodiscard]]
+        Result<u32> read_config_u32(size_t config_offset) const noexcept;
+        /**
+         * @brief 从设备私有配置空间读取一个 64 位值.
+         *
+         * 当前通过两次 32 位读取拼接结果, 贴合 MMIO 寄存器宽度.
+         */
+        [[nodiscard]]
+        Result<u64> read_config_u64(size_t config_offset) const noexcept;
+
+        /**
+         * @brief 初始化一条 legacy virtqueue.
+         *
+         * 该函数负责分配连续 DMA 区域、构造自由描述符链并将 PFN
+         * 写入设备寄存器.
+         */
+        [[nodiscard]]
+        Result<VirtQueueLegacy *> init_queue_legacy(
+            u16 queue_index, u16 requested_size) noexcept;
+        /**
+         * @brief 为一组缓冲区分配并构造一条 legacy 描述符链.
+         */
+        [[nodiscard]]
+        Result<u16> queue_add_chain_legacy(
+            VirtQueueLegacy &queue,
+            const std::vector<vring::BufferView> &buffers) noexcept;
+        /**
+         * @brief 将描述符链头加入 avail ring.
+         */
+        Result<void> queue_submit_legacy(VirtQueueLegacy &queue,
+                                         u16 head_desc) noexcept;
+        /**
+         * @brief 向设备发送一次 queue notify.
+         */
+        Result<void> queue_notify_legacy(VirtQueueLegacy &queue) noexcept;
+        /**
+         * @brief 判断设备是否已经在 used ring 中回收新的请求.
+         */
+        [[nodiscard]]
+        Result<bool> queue_can_pop_legacy(VirtQueueLegacy &queue) noexcept;
+        /**
+         * @brief 从 used ring 中取出一个已完成请求.
+         */
+        [[nodiscard]]
+        Result<VirtQueueUsedElemLegacy> queue_pop_used_legacy(
+            VirtQueueLegacy &queue) noexcept;
+        /**
+         * @brief 将一条描述符链归还到自由链表.
+         */
+        Result<void> queue_free_chain_legacy(VirtQueueLegacy &queue,
+                                             u16 head_desc) noexcept;
+        /**
+         * @brief 提交缓冲区链并以轮询方式等待设备完成.
+         *
+         * 成功后保证该请求对应的描述符链已经回收到自由链表.
+         */
+        [[nodiscard]]
+        Result<VirtQueueUsedElemLegacy> queue_submit_and_poll_legacy(
+            VirtQueueLegacy &queue,
+            const std::vector<vring::BufferView> &buffers) noexcept;
+
+        /**
+         * @brief 分配一段连续 DMA 缓冲区.
+         */
+        [[nodiscard]]
+        Result<DmaBuffer> alloc_dma_buffer(size_t size) noexcept;
+        /**
+         * @brief 释放由 `alloc_dma_buffer()` 分配的 DMA 缓冲区.
+         */
+        void free_dma_buffer(DmaBuffer &buffer) noexcept;
+
+        /**
+         * @brief 读取指定偏移处的 32 位公共寄存器.
+         */
+        [[nodiscard]]
+        u32 read_reg32(size_t reg_offset) const noexcept;
+        /**
+         * @brief 写入指定偏移处的 32 位公共寄存器.
+         */
+        void write_reg32(size_t reg_offset, u32 value) noexcept;
+
+        /**
+         * @brief 读取设备状态寄存器.
+         */
+        [[nodiscard]]
+        u32 status() const noexcept;
+        /**
+         * @brief 覆盖写入设备状态寄存器.
+         */
+        void set_status(u32 status) noexcept;
+
+        /**
+         * @brief 读取设备当前暴露的全部公共 feature 位.
+         */
+        [[nodiscard]]
+        Result<u64> read_device_features() noexcept;
+        /**
+         * @brief 将驱动协商后的公共 feature 位写回设备.
+         */
+        Result<void> write_driver_features(u64 features) noexcept;
+
+        ProbeInfo _probe_info;
+        volatile CommonConfig *_regs = nullptr;
+        u64 _device_features         = 0;
+        u64 _negotiated_features     = 0;
+        std::vector<VirtQueueLegacy> _queues;
+    };
+
+    /**
+     * @brief virtio 具体设备子工厂接口.
+     *
+     * 用于在 `virtio,mmio` 总工厂内部按 `device_id` 二次分发.
+     */
+    class IVirtioDeviceFactory {
+    public:
+        virtual ~IVirtioDeviceFactory() = default;
+
+        /**
+         * @brief 返回该子工厂服务的 virtio 设备类型.
+         */
+        [[nodiscard]]
+        virtual DeviceType device_type() const noexcept = 0;
+
+        /**
+         * @brief 在设备类型命中后再次裁决是否接管该节点.
+         */
+        [[nodiscard]]
+        virtual bool probe(const device::DeviceNode &node,
+                           device::DeviceModel &model,
+                           const ProbeInfo &info) const noexcept = 0;
+
+        /**
+         * @brief 基于通用探测结果创建具体 virtio 驱动对象.
+         */
+        [[nodiscard]]
+        virtual Result<driver::DriverBase *> create(
+            const device::DeviceNode &node, device::DeviceModel &model,
+            const ProbeInfo &info) const = 0;
+    };
+
+    /**
+     * @brief virtio MMIO 通用工厂.
+     *
+     * 负责识别 `virtio,mmio` 节点, 收敛公共探测信息, 然后转发给
+     * 具体 virtio 子工厂.
+     */
+    class VirtioMmioFactory final : public driver::IDeviceFactory {
+    public:
+        /**
+         * @brief 返回该工厂服务的主 compatible.
+         */
+        [[nodiscard]]
+        std::string_view compatible() const noexcept override;
+
+        /**
+         * @brief 在普通设备工厂匹配阶段识别合法 virtio-mmio 节点.
+         */
+        [[nodiscard]]
+        bool probe(const device::DeviceNode &node,
+                   device::DeviceModel &model) const noexcept override;
+
+        /**
+         * @brief 执行通用探测并向对应 virtio 子工厂转发创建请求.
+         */
+        [[nodiscard]]
+        Result<driver::DriverBase *> create(
+            const device::DeviceNode &node,
+            device::DeviceModel &model) const override;
+    };
+
+    /**
+     * @brief 向 virtio 子工厂注册表登记一个具体设备工厂.
+     */
+    [[nodiscard]]
+    bool register_factory(const IVirtioDeviceFactory &factory) noexcept;
+    /**
+     * @brief 判断给定 magic 是否匹配 virtio-mmio 规范.
+     */
+    [[nodiscard]]
+    bool is_virtio_magic(u32 magic_value) noexcept;
+    /**
+     * @brief 判断当前实现是否支持给定 virtio 版本号.
+     */
+    [[nodiscard]]
+    bool is_supported_version(u32 version) noexcept;
+    /**
+     * @brief 将版本号转换为 transport 名称.
+     */
+    [[nodiscard]]
+    const char *transport_version_name(u32 version) noexcept;
+    /**
+     * @brief 将 `device_id` 转换为人类可读的设备类型名称.
+     */
+    [[nodiscard]]
+    const char *device_type_name(u32 device_id) noexcept;
+    /**
+     * @brief 将状态寄存器值转换为调试用状态名称.
+     */
+    [[nodiscard]]
+    const char *device_status_name(u32 status) noexcept;
+    /**
+     * @brief 对给定节点执行一次只读 virtio-mmio 通用探测.
+     *
+     * 该函数不会创建设备对象, 只负责收敛日志与公共元信息.
+     */
+    [[nodiscard]]
+    Result<ProbeInfo> probe_mmio_device(const device::DeviceNode &node) noexcept;
 }  // namespace virtio
