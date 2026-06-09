@@ -331,8 +331,8 @@ namespace test::unordered_map {
 
             auto at_ok = map.at_nt(1);
             ttest(at_ok.has_value());
-            ttest(at_ok.value().get() == 10);
-            at_ok.value().get() = 11;
+            ttest(*at_ok.value() == 10);
+            *at_ok.value() = 11;
             ttest(map.find(1)->second == 11);
 
             auto at_fail = map.at_nt(99);

@@ -45,12 +45,12 @@ namespace test::array {
 
             a[1] = 9;
             ttest(a.at_nt(1).has_value());
-            ttest(a.at_nt(1).value().get() == 9);
+            ttest(*a.at_nt(1).value() == 9);
 
             const std::array<int, 3>& ca = a;
             auto ok = ca.at_nt(2);
             ttest(ok.has_value());
-            ttest(ok.value().get() == 3);
+            ttest(*ok.value() == 3);
 
             auto fail = a.at_nt(3);
             ttest(!fail);

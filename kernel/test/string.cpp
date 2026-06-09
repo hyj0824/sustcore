@@ -357,8 +357,8 @@ namespace test::string {
 
             auto at_ok = s.at_nt(2);
             ttest(at_ok.has_value());
-            ttest(at_ok.value().get() == 'c');
-            at_ok.value().get() = 'C';
+            ttest(*at_ok.value() == 'c');
+            *at_ok.value() = 'C';
             ttest(s == "abCdef");
 
             auto at_fail = s.at_nt(99);

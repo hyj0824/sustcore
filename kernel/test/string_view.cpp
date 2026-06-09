@@ -93,7 +93,7 @@ namespace test::string_view {
 
             auto at_ok = sv.at_nt(2);
             ttest(at_ok.has_value());
-            ttest(at_ok.value() == 's');
+            ttest(*at_ok.value() == 's');
 
             auto at_fail = sv.at_nt(99);
             ttest(!at_fail);

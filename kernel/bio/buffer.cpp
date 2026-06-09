@@ -96,7 +96,7 @@ namespace blk {
         if (!map_res.has_value()) {
             unexpect_return(ErrCode::ENTRY_NOT_FOUND);
         }
-        return map_res.value().get();
+        return *map_res.value();
     }
 
     Result<size_t> BufferCache::ensure_buffer(lba_t blkno) {

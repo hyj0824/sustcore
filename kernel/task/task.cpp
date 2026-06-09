@@ -954,7 +954,8 @@ namespace task {
     Result<size_t> TaskManager::lookup_holder_id(pid_t pid) {
         return _pid_map.at_nt(pid)
             .transform_error(always(ErrCode::OUT_OF_BOUNDARY))
-            .and_then([](PCB *pcb) -> Result<size_t> {
+            .and_then([](auto *pcb_ptr) -> Result<size_t> {
+                PCB *pcb = pcb_ptr == nullptr ? nullptr : *pcb_ptr;
                 if (pcb == nullptr || pcb->cholder == nullptr) {
                     unexpect_return(ErrCode::INVALID_PARAM);
                 }

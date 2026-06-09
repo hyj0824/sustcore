@@ -134,11 +134,11 @@ namespace std {
             return M_data[pos];
         }
         [[nodiscard]]
-        constexpr result_nt<CharT> at_nt(size_t pos) const noexcept {
+        constexpr result_nt<const CharT *> at_nt(size_t pos) const noexcept {
             if (pos >= M_size) {
                 return {unexpect, std::error_type::OUT_OF_RANGE};
             }
-            return M_data[pos];
+            return M_data + pos;
         }
         [[nodiscard]]
         constexpr CharT front() const {

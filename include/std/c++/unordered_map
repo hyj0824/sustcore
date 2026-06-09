@@ -585,20 +585,20 @@ namespace std {
             return it->second;
         }
 
-        result_nt<mapped_type &> at_nt(const key_type &key) noexcept {
+        result_nt<mapped_type *> at_nt(const key_type &key) noexcept {
             auto it = find(key);
             if (it == end()) {
                 return {unexpect, error_type::OUT_OF_RANGE};
             }
-            return std::ref(it->second);
+            return &it->second;
         }
 
-        result_nt<const mapped_type &> at_nt(const key_type &key) const noexcept {
+        result_nt<const mapped_type *> at_nt(const key_type &key) const noexcept {
             auto it = find(key);
             if (it == cend()) {
                 return {unexpect, error_type::OUT_OF_RANGE};
             }
-            return std::cref(it->second);
+            return &it->second;
         }
 
         size_type count(const key_type &key) const noexcept {

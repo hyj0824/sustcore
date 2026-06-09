@@ -177,19 +177,19 @@ namespace std {
         }
 
         [[nodiscard]]
-        constexpr result_nt<reference> at_nt(size_type pos) noexcept {
+        constexpr result_nt<pointer> at_nt(size_type pos) noexcept {
             if (pos >= N) {
                 return {unexpect, error_type::OUT_OF_RANGE};
             }
-            return std::ref(D_elems.ref(pos));
+            return &D_elems.ref(pos);
         }
 
         [[nodiscard]]
-        constexpr result_nt<const_reference> at_nt(size_type pos) const noexcept {
+        constexpr result_nt<const_pointer> at_nt(size_type pos) const noexcept {
             if (pos >= N) {
                 return {unexpect, error_type::OUT_OF_RANGE};
             }
-            return std::cref(D_elems.ref(pos));
+            return &D_elems.ref(pos);
         }
 
         [[nodiscard]]

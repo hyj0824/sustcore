@@ -35,7 +35,7 @@ VSuperblock::~VSuperblock() {
 Result<util::refc_ptr<VINode>> VSuperblock::get_vnode(inode_t inode_id) {
     auto cache_res = _inode_cache.at_nt(inode_id);
     if (cache_res.has_value()) {
-        VINode *cached = cache_res.value().get();
+        VINode *cached = *cache_res.value();
         if (cached != nullptr) {
             return util::refc_ptr(cached);
         }
@@ -150,7 +150,7 @@ Result<void> VFS::unregister_fs(const char *fs_name) {
         unexpect_return(ErrCode::UNKNOWN_ERROR);
     }
 
-    util::owner<VFsDriver *> driver = get_res.value().get();
+    util::owner<VFsDriver *> driver = *get_res.value();
     if (!driver->closable()) {
         unexpect_return(ErrCode::BUSY);
     }
@@ -177,7 +177,7 @@ Result<void> VFS::mount(const char *fs_name, size_t devno,
     if (!lookup_result.has_value()) {
         unexpect_return(ErrCode::INVALID_PARAM);
     }
-    VFsDriver *fsd = lookup_result.value().get();
+    VFsDriver *fsd = *lookup_result.value();
     if (fsd->fsd()->is_pseudo()) {
         unexpect_return(ErrCode::NOT_SUPPORTED);
     }
@@ -207,7 +207,7 @@ Result<void> VFS::mount(const char *fs_name, const char *mountpoint,
     if (!lookup_result.has_value()) {
         unexpect_return(ErrCode::INVALID_PARAM);
     }
-    VFsDriver *fsd = lookup_result.value().get();
+    VFsDriver *fsd = *lookup_result.value();
     if (!fsd->fsd()->is_pseudo()) {
         unexpect_return(ErrCode::NOT_SUPPORTED);
     }
@@ -233,7 +233,7 @@ Result<void> VFS::umount(const char *mountpoint) {
         unexpect_return(ErrCode::INVALID_PARAM);
     }
 
-    MountRecord &record = lookup_result.value().get();
+    MountRecord &record = *lookup_result.value();
     if (record.active_files != 0) {
         unexpect_return(ErrCode::BUSY);
     }
@@ -554,7 +554,7 @@ Result<std::pair<util::Path, VSuperblock *>> VFS::_resolve_mount(
         auto mount_res = mount_table.at_nt(cur_path);
         if (mount_res.has_value()) {
             return std::make_pair(cur_path,
-                                  mount_res.value().get().superblock.get());
+                                  (*mount_res.value()).superblock.get());
         }
         if (cur_path == "/") {
             unexpect_return(ErrCode::INVALID_PARAM);
@@ -569,7 +569,7 @@ Result<VFS::MountRecord *> VFS::_lookup_mount_record(
     if (!record_res.has_value()) {
         unexpect_return(ErrCode::ENTRY_NOT_FOUND);
     }
-    return &record_res.value().get();
+    return record_res.value();
 }
 
 Result<util::refc_ptr<VINode>> VFS::_resolve_inode(const util::Path &path,
@@ -610,7 +610,7 @@ void VFS::_on_vfile_destroy(const util::Path &mount_path) noexcept {
         loggers::VFS::WARN("VFile 销毁时找不到挂载点: %s", mount_path.c_str());
         return;
     }
-    MountRecord &record = active_res.value().get();
+    MountRecord &record = *active_res.value();
     if (record.active_files == 0) {
         loggers::VFS::WARN("VFile 活跃计数已经为 0: %s", mount_path.c_str());
         return;

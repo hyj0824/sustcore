@@ -194,7 +194,7 @@ namespace task::wait {
 
         auto qres = _queues.at_nt(id);
         if (qres.has_value()) {
-            return qres.value().get();
+            return *qres.value();
         }
 
         auto *queue = new WaitQueue(id);
@@ -211,7 +211,9 @@ namespace task::wait {
         }
 
         return _queues.at_nt(id)
-            .transform(unwrap_ref<WaitQueue *>())
+            .transform([](WaitQueue **queue) {
+                return queue == nullptr ? nullptr : *queue;
+            })
             .value_or(nullptr);
     }
 

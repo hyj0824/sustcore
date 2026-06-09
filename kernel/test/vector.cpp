@@ -67,7 +67,7 @@ namespace test::vector {
 
             auto ok = v.at_nt(1);
             ttest(ok.has_value());
-            ttest(ok.value().get() == 2);
+            ttest(*ok.value() == 2);
 
             auto fail = v.at_nt(99);
             ttest(!fail);

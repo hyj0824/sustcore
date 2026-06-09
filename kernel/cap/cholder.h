@@ -183,7 +183,9 @@ namespace cap {
         Result<CHolder *> get_holder(size_t _id) const {
             return _holders.at_nt(_id)
                 .transform_error(always(ErrCode::OUT_OF_BOUNDARY))
-                .transform(unwrap_ref<CHolder *const>());
+                .transform([](const auto *holder) {
+                    return holder == nullptr ? nullptr : *holder;
+                });
         }
 
         template <typename... Args>
