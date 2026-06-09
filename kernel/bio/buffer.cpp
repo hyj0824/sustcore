@@ -3,30 +3,24 @@
  * @author theflysong (song_of_the_fly@163.com)
  * @brief 块缓存实现
  * @version alpha-1.0.0
- * @date 2026-06-06
+ * @date 2026-06-09
  *
  * @copyright Copyright (c) 2026
  *
  */
 
 #include <bio/buffer.h>
-#include <sustcore/errcode.h>
+#include <bio/request.h>
 
 #include <cstring>
 
 namespace blk {
-    BufferCache::BufferCache(IBlockDeviceOps *dev_ops, size_t devno)
-        : _dev_ops(dev_ops), _devno(devno), _blksz(0) {
-        assert(_dev_ops != nullptr);
-        auto block_sz_res = _dev_ops->block_sz();
-        assert(block_sz_res.has_value());
-        assert(block_sz_res.value() != 0);
-        _blksz = block_sz_res.value();
+    BufferCache::BufferCache(size_t devno, size_t blksz)
+        : _devno(devno), _blksz(blksz) {
+        assert(_blksz != 0);
     }
 
     BufferCache::~BufferCache() {
-        auto sync_res = sync_all();
-        (void)sync_res;
         for (size_t i = 0; i < MAX_CACHE_SIZE; ++i) {
             if (_buffers[i].get() == nullptr) {
                 continue;
@@ -38,16 +32,22 @@ namespace blk {
         _mapping.clear();
     }
 
-    Result<void> BufferCache::writeback_buffer(Buffer &buffer) {
-        if (!buffer.valid || !buffer.dirty) {
-            void_return();
-        }
-        auto write_res = _dev_ops->write_blocks(buffer.blkno, buffer.data, 1)
-                             .filter(pred::equal_to(1), ErrCode::IO_ERROR)
-                             .discard_value();
-        propagate(write_res);
-        buffer.dirty = false;
-        void_return();
+    FutureResult<void> BufferCache::make_void_future(
+        Result<void> result) {
+        PromiseResult<void> promise;
+        auto future = promise.future();
+        auto set_res = promise.set_value(result);
+        assert(set_res.has_value());
+        return future;
+    }
+
+    FutureResult<BufferHandler> BufferCache::make_handler_future(
+        Result<BufferHandler> result) {
+        PromiseResult<BufferHandler> promise;
+        auto future = promise.future();
+        auto set_res = promise.set_value(std::move(result));
+        assert(set_res.has_value());
+        return future;
     }
 
     Result<void> BufferCache::clear_slot(size_t idx) {
@@ -58,7 +58,7 @@ namespace blk {
         if (buffer == nullptr) {
             void_return();
         }
-        if (buffer->refcnt != 0) {
+        if (buffer->refcnt != 0 || buffer->inflight) {
             unexpect_return(ErrCode::BUSY);
         }
         auto erase_it = _mapping.find(buffer->blkno);
@@ -80,12 +80,8 @@ namespace blk {
 
         for (size_t i = 0; i < MAX_CACHE_SIZE; ++i) {
             Buffer *buffer = _buffers[i].get();
-            if (buffer == nullptr || buffer->refcnt != 0) {
+            if (buffer == nullptr || buffer->refcnt != 0 || buffer->inflight) {
                 continue;
-            }
-            if (buffer->dirty) {
-                auto writeback_res = writeback_buffer(*buffer);
-                propagate(writeback_res);
             }
             auto clear_res = clear_slot(i);
             propagate(clear_res);
@@ -116,10 +112,11 @@ namespace blk {
         propagate(free_res);
 
         auto *buffer = new Buffer{
-            .blkno  = blkno,
-            .data   = new char[_blksz],
-            .dirty  = false,
-            .valid  = false,
+            .blkno = blkno,
+            .data = new char[_blksz],
+            .dirty = false,
+            .valid = false,
+            .inflight = false,
             .refcnt = 0,
         };
         if (buffer == nullptr || buffer->data == nullptr) {
@@ -134,64 +131,110 @@ namespace blk {
         return idx;
     }
 
-    Result<void> BufferCache::sync(BufferHandler &handler) {
+    FutureResult<void> BufferCache::sync(BufferHandler &handler) {
         if (handler._cache != this || handler._buf == nullptr) {
-            unexpect_return(ErrCode::INVALID_PARAM);
+            return make_void_future(std::unexpected(ErrCode::INVALID_PARAM));
         }
-        auto sync_res = writeback_buffer(*handler._buf);
-        propagate(sync_res);
-        auto dev_sync_res = _dev_ops->sync();
-        propagate(dev_sync_res);
-        void_return();
+        auto &buffer = *handler._buf;
+        if (!buffer.valid || !buffer.dirty) {
+            return make_void_future({});
+        }
+        if (buffer.inflight) {
+            return make_void_future(std::unexpected(ErrCode::BUSY));
+        }
+
+        buffer.inflight = true;
+        auto lower_future = BlockRequestLayer::inst().submit_write_async(
+            _devno, buffer.blkno, buffer.data, 1);
+        auto lower_res = task::wait::kthread_wait_for(lower_future);
+        buffer.inflight = false;
+        if (!lower_res.has_value()) {
+            return make_void_future(std::unexpected(lower_res.error()));
+        }
+        if (lower_res.value() != 1) {
+            return make_void_future(std::unexpected(ErrCode::IO_ERROR));
+        }
+
+        buffer.dirty = false;
+
+        auto flush_future = BlockRequestLayer::inst().submit_flush_async(_devno);
+        auto flush_res = task::wait::kthread_wait_for(flush_future);
+        if (!flush_res.has_value()) {
+            return make_void_future(std::unexpected(flush_res.error()));
+        }
+
+        return make_void_future({});
     }
 
-    Result<void> BufferCache::sync_all() {
+    FutureResult<void> BufferCache::sync_all() {
         for (size_t i = 0; i < MAX_CACHE_SIZE; ++i) {
             Buffer *buffer = _buffers[i].get();
             if (buffer == nullptr) {
                 continue;
             }
-            auto sync_res = writeback_buffer(*buffer);
-            propagate(sync_res);
+            BufferHandler handler(util::nnullforce(buffer), *this);
+            auto sync_future = sync(handler);
+            auto sync_res = task::wait::kthread_wait_for(sync_future);
+            if (!sync_res.has_value()) {
+                return make_void_future(std::unexpected(sync_res.error()));
+            }
         }
-        auto dev_sync_res = _dev_ops->sync();
-        propagate(dev_sync_res);
-        void_return();
+        return make_void_future({});
     }
 
-    Result<void> BufferCache::tidy() {
-        auto sync_res = sync_all();
-        propagate(sync_res);
+    FutureResult<void> BufferCache::tidy() {
+        auto sync_future = sync_all();
+        auto sync_res = task::wait::kthread_wait_for(sync_future);
+        if (!sync_res.has_value()) {
+            return make_void_future(std::unexpected(sync_res.error()));
+        }
 
         for (size_t i = 0; i < MAX_CACHE_SIZE; ++i) {
             Buffer *buffer = _buffers[i].get();
-            if (buffer == nullptr || buffer->refcnt != 0) {
+            if (buffer == nullptr || buffer->refcnt != 0 || buffer->inflight) {
                 continue;
             }
             auto clear_res = clear_slot(i);
-            propagate(clear_res);
+            if (!clear_res.has_value()) {
+                return make_void_future(std::unexpected(clear_res.error()));
+            }
         }
-        void_return();
+        return make_void_future({});
     }
 
-    Result<BufferHandler> BufferCache::get_buffer(lba_t blkno) {
+    FutureResult<BufferHandler> BufferCache::get_buffer_async(
+        lba_t blkno) {
         auto idx_res = ensure_buffer(blkno);
-        propagate(idx_res);
+        if (!idx_res.has_value()) {
+            return make_handler_future(std::unexpected(idx_res.error()));
+        }
 
         Buffer *buffer = _buffers[idx_res.value()].get();
         if (buffer == nullptr) {
-            unexpect_return(ErrCode::UNKNOWN_ERROR);
+            return make_handler_future(std::unexpected(ErrCode::UNKNOWN_ERROR));
         }
 
-        if (!buffer->valid) {
-            auto read_res = _dev_ops->read_blocks(blkno, buffer->data, 1);
-            propagate(read_res);
-            if (read_res.value() != 1) {
-                unexpect_return(ErrCode::IO_ERROR);
-            }
-            buffer->valid = true;
+        if (buffer->valid) {
+            return make_handler_future(
+                BufferHandler(util::nnullforce(buffer), *this));
+        }
+        if (buffer->inflight) {
+            return make_handler_future(std::unexpected(ErrCode::BUSY));
         }
 
-        return BufferHandler(util::nnullforce(buffer), *this);
+        buffer->inflight = true;
+        auto lower_future = BlockRequestLayer::inst().submit_read_async(
+            _devno, blkno, buffer->data, 1);
+        auto lower_res = task::wait::kthread_wait_for(lower_future);
+        buffer->inflight = false;
+        if (!lower_res.has_value()) {
+            return make_handler_future(std::unexpected(lower_res.error()));
+        }
+        if (lower_res.value() != 1) {
+            return make_handler_future(std::unexpected(ErrCode::IO_ERROR));
+        }
+
+        buffer->valid = true;
+        return make_handler_future(BufferHandler(util::nnullforce(buffer), *this));
     }
 }  // namespace blk

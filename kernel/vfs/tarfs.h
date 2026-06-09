@@ -189,7 +189,7 @@ namespace tarfs {
     };
 
     // Like a SuperBlock factory
-    class TarFSDriver : public IBlockFsDriver {
+    class TarFSDriver : public IFsDriver {
     private:
         inline bool is_valid(size_t size_, const uint8_t *data_);
 
@@ -198,13 +198,9 @@ namespace tarfs {
             return "tarfs";
         }
 
-        Result<void> probe(size_t devno, IBlockDeviceOps *device,
-                           blk::BufferCache &cache,
-                           const char *options) override;
+        Result<void> probe(size_t devno, const char *options) override;
 
         Result<util::owner<ISuperblock *>> mount(size_t devno,
-                                                 IBlockDeviceOps *device,
-                                                 blk::BufferCache &cache,
                                                  const char *options) override;
 
         Result<void> unmount(ISuperblock *sb) override;

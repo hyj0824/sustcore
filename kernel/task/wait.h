@@ -39,6 +39,9 @@ namespace task::wait {
     struct promise_base;
 
     size_t alloc_reason();
+    Result<void> future_begin_update() noexcept;
+    Result<void> future_wait_current(size_t reason) noexcept;
+    Result<void> check_future_wait_thread(bool require_kernel) noexcept;
 
     enum class FutureState {
         PENDING,
@@ -1193,4 +1196,214 @@ namespace task::wait {
 
     template <typename T>
     typename detail::future_wait_result_t<T> kthread_wait_for(Future<T> &future);
+}  // namespace task::wait
+
+template <typename T>
+using FutureResult = task::wait::Future<Result<T>>;
+template <typename T>
+using PromiseResult = task::wait::Promise<Result<T>>;
+
+namespace task::wait {
+    template <typename T>
+    inline Result<void> Promise<T>::set_value(T value) {
+        propagate(future_begin_update());
+        if (_state == nullptr || _state->state != FutureState::PENDING) {
+            unexpect_return(ErrCode::BUSY);
+        }
+
+        _state->value = std::move(value);
+        _state->state = FutureState::COMPLETE;
+        auto wake_res = wake_all(_state->wait_reason);
+        propagate(wake_res);
+        void_return();
+    }
+
+    template <typename T>
+    inline Result<void> Promise<T>::set_error(ErrCode error) noexcept {
+        propagate(future_begin_update());
+        if (_state == nullptr || _state->state != FutureState::PENDING) {
+            unexpect_return(ErrCode::BUSY);
+        }
+        _state->error = error;
+        _state->state = FutureState::ERROR;
+        auto wake_res = wake_all(_state->wait_reason);
+        propagate(wake_res);
+        void_return();
+    }
+
+    template <typename T>
+    inline Result<void> Promise<T>::set_cancled() noexcept {
+        propagate(future_begin_update());
+        if (_state == nullptr || _state->state != FutureState::PENDING) {
+            unexpect_return(ErrCode::BUSY);
+        }
+        _state->state = FutureState::CANCLED;
+        auto wake_res = wake_all(_state->wait_reason);
+        propagate(wake_res);
+        void_return();
+    }
+
+    inline Result<void> Promise<void>::set_value() {
+        propagate(future_begin_update());
+        if (_state == nullptr || _state->state != FutureState::PENDING) {
+            unexpect_return(ErrCode::BUSY);
+        }
+        _state->state = FutureState::COMPLETE;
+        auto wake_res = wake_all(_state->wait_reason);
+        propagate(wake_res);
+        void_return();
+    }
+
+    inline Result<void> Promise<void>::set_error(ErrCode error) noexcept {
+        propagate(future_begin_update());
+        if (_state == nullptr || _state->state != FutureState::PENDING) {
+            unexpect_return(ErrCode::BUSY);
+        }
+        _state->error = error;
+        _state->state = FutureState::ERROR;
+        auto wake_res = wake_all(_state->wait_reason);
+        propagate(wake_res);
+        void_return();
+    }
+
+    inline Result<void> Promise<void>::set_cancled() noexcept {
+        propagate(future_begin_update());
+        if (_state == nullptr || _state->state != FutureState::PENDING) {
+            unexpect_return(ErrCode::BUSY);
+        }
+        _state->state = FutureState::CANCLED;
+        auto wake_res = wake_all(_state->wait_reason);
+        propagate(wake_res);
+        void_return();
+    }
+
+    template <typename T>
+    inline Result<void> Future<T>::cancle() noexcept {
+        propagate(future_begin_update());
+        if (_state == nullptr) {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+
+        switch (_state->state) {
+            case FutureState::PENDING: {
+                if (_state->cancel_callback) {
+                    auto cancel_res = _state->cancel_callback();
+                    propagate(cancel_res);
+                }
+                _state->state = FutureState::CANCLED;
+                auto wake_res = wake_all(_state->wait_reason);
+                propagate(wake_res);
+                void_return();
+            }
+            case FutureState::COMPLETE: unexpect_return(ErrCode::FUTURE_ERROR);
+            case FutureState::ERROR:    unexpect_return(ErrCode::FUTURE_ERROR);
+            case FutureState::CANCLED:  unexpect_return(ErrCode::FUTURE_CANCLED);
+            case FutureState::CONSUMED:
+                unexpect_return(ErrCode::FUTURE_CONSUMED);
+        }
+        unexpect_return(ErrCode::UNKNOWN_ERROR);
+    }
+
+    inline Result<void> Future<void>::cancle() noexcept {
+        propagate(future_begin_update());
+        if (_state == nullptr) {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+
+        switch (_state->state) {
+            case FutureState::PENDING: {
+                if (_state->cancel_callback) {
+                    auto cancel_res = _state->cancel_callback();
+                    propagate(cancel_res);
+                }
+                _state->state = FutureState::CANCLED;
+                auto wake_res = wake_all(_state->wait_reason);
+                propagate(wake_res);
+                void_return();
+            }
+            case FutureState::COMPLETE: unexpect_return(ErrCode::FUTURE_ERROR);
+            case FutureState::ERROR:    unexpect_return(ErrCode::FUTURE_ERROR);
+            case FutureState::CANCLED:  unexpect_return(ErrCode::FUTURE_CANCLED);
+            case FutureState::CONSUMED:
+                unexpect_return(ErrCode::FUTURE_CONSUMED);
+        }
+        unexpect_return(ErrCode::UNKNOWN_ERROR);
+    }
+
+    template <typename T>
+    inline typename Future<T>::wait_result_type Future<T>::value() {
+        propagate(future_begin_update());
+        if (_state == nullptr) {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+
+        switch (_state->state) {
+            case FutureState::PENDING:   unexpect_return(ErrCode::FUTURE_PENDING);
+            case FutureState::ERROR:     unexpect_return(_state->error);
+            case FutureState::CANCLED:   unexpect_return(ErrCode::FUTURE_CANCLED);
+            case FutureState::CONSUMED:  unexpect_return(ErrCode::FUTURE_CONSUMED);
+            case FutureState::COMPLETE: {
+                if (!_state->value.has_value()) {
+                    unexpect_return(ErrCode::FUTURE_ERROR);
+                }
+                auto value = std::move(_state->value.value());
+                _state->value.reset();
+                _state->state = FutureState::CONSUMED;
+                if constexpr (detail::is_result_type_v<T>) {
+                    return value;
+                } else {
+                    return value;
+                }
+            }
+        }
+        unexpect_return(ErrCode::UNKNOWN_ERROR);
+    }
+
+    inline Result<void> Future<void>::value() {
+        propagate(future_begin_update());
+        if (_state == nullptr) {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+
+        switch (_state->state) {
+            case FutureState::PENDING:  unexpect_return(ErrCode::FUTURE_PENDING);
+            case FutureState::ERROR:    unexpect_return(_state->error);
+            case FutureState::CANCLED:  unexpect_return(ErrCode::FUTURE_CANCLED);
+            case FutureState::CONSUMED: unexpect_return(ErrCode::FUTURE_CONSUMED);
+            case FutureState::COMPLETE:
+                _state->state = FutureState::CONSUMED;
+                void_return();
+        }
+        unexpect_return(ErrCode::UNKNOWN_ERROR);
+    }
+
+    template <typename T>
+    inline typename Future<T>::wait_result_type
+    Future<T>::awaiter::await_resume() {
+        if (future == nullptr) {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+        return take_wait_result(*future);
+    }
+
+    template <typename T>
+    inline typename detail::future_wait_result_t<T> wait_for(Future<T> &future) {
+        propagate(check_future_wait_thread(false));
+        while (!future.readable()) {
+            auto wait_res = future_wait_current(future.wait_reason());
+            propagate(wait_res);
+        }
+        return take_wait_result(future);
+    }
+
+    template <typename T>
+    inline typename detail::future_wait_result_t<T> kthread_wait_for(
+        Future<T> &future) {
+        propagate(check_future_wait_thread(true));
+        while (!future.readable()) {
+            auto wait_res = future_wait_current(future.wait_reason());
+            propagate(wait_res);
+        }
+        return take_wait_result(future);
+    }
 }  // namespace task::wait

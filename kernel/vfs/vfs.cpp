@@ -14,6 +14,7 @@
 #include <sus/path.h>
 #include <sustcore/errcode.h>
 #include <sustcore/files.h>
+#include <task/wait.h>
 #include <vfs/ops.h>
 #include <vfs/vfs.h>
 
@@ -182,27 +183,13 @@ Result<void> VFS::mount(const char *fs_name, size_t devno,
     }
 
     IFsDriver *driver = fsd->fsd();
-    if (driver->is_block_fs()) {
-        auto mount_result = driver->mount(devno, options);
-        return mount_result.transform(
-            [this, mnt_path, fsd, devno](util::owner<ISuperblock *> isb) {
-                MountRecord record{
-                    .superblock     = util::owner(new VSuperblock(isb, *fsd)),
-                    .devno          = devno,
-                    .is_block_mount = true,
-                    .active_files   = 0,
-                };
-                this->mount_table.insert_or_assign(mnt_path, record);
-            });
-    }
-
-    auto mount_result = fsd->fsd()->mount(devno, options);
+    auto mount_result = driver->mount(devno, options);
     return mount_result.transform(
         [this, mnt_path, fsd, devno](util::owner<ISuperblock *> isb) {
             MountRecord record{
                 .superblock     = util::owner(new VSuperblock(isb, *fsd)),
                 .devno          = devno,
-                .is_block_mount = false,
+                .is_block_mount = true,
                 .active_files   = 0,
             };
             this->mount_table.insert_or_assign(mnt_path, record);
@@ -260,7 +247,9 @@ Result<void> VFS::umount(const char *mountpoint) {
     if (record.is_block_mount) {
         auto cache_res = blk::BlkManager::inst().lookup_cache(record.devno);
         propagate(cache_res);
-        auto cache_sync_res = cache_res.value()->sync_all();
+        auto cache_sync_future = cache_res.value()->sync_all();
+        auto cache_sync_res =
+            task::wait::kthread_wait_for(cache_sync_future);
         propagate(cache_sync_res);
     }
 

@@ -10,6 +10,7 @@
  */
 
 #include <driver/int/base.h>
+#include <bio/buffer.h>
 #include <logger.h>
 #include <object/endpoint.h>
 #include <syscall/syscall.h>
@@ -150,219 +151,20 @@ namespace task::wait {
         void_return();
     }
 
-    template <typename T>
-    Result<void> Promise<T>::set_value(T value) {
+    Result<void> future_begin_update() noexcept {
         InterruptGuard guard;
         guard.enter();
-        if (_state == nullptr || _state->state != FutureState::PENDING) {
-            unexpect_return(ErrCode::BUSY);
-        }
-
-        _state->value = std::move(value);
-        _state->state = FutureState::COMPLETE;
-        auto wake_res = wake_all(_state->wait_reason);
-        propagate(wake_res);
         void_return();
     }
 
-    template <typename T>
-    Result<void> Promise<T>::set_error(ErrCode error) noexcept {
-        InterruptGuard guard;
-        guard.enter();
-        if (_state == nullptr || _state->state != FutureState::PENDING) {
-            unexpect_return(ErrCode::BUSY);
-        }
-        _state->error = error;
-        _state->state = FutureState::ERROR;
-        auto wake_res = wake_all(_state->wait_reason);
-        propagate(wake_res);
-        void_return();
+    Result<void> future_wait_current(size_t reason) noexcept {
+        return schd::Scheduler::inst().block_current(reason);
     }
 
-    template <typename T>
-    Result<void> Promise<T>::set_cancled() noexcept {
-        InterruptGuard guard;
-        guard.enter();
-        if (_state == nullptr || _state->state != FutureState::PENDING) {
-            unexpect_return(ErrCode::BUSY);
-        }
-        _state->state = FutureState::CANCLED;
-        auto wake_res = wake_all(_state->wait_reason);
-        propagate(wake_res);
-        void_return();
-    }
-
-    Result<void> Promise<void>::set_value() {
-        InterruptGuard guard;
-        guard.enter();
-        if (_state == nullptr || _state->state != FutureState::PENDING) {
-            unexpect_return(ErrCode::BUSY);
-        }
-        _state->state = FutureState::COMPLETE;
-        auto wake_res = wake_all(_state->wait_reason);
-        propagate(wake_res);
-        void_return();
-    }
-
-    Result<void> Promise<void>::set_error(ErrCode error) noexcept {
-        InterruptGuard guard;
-        guard.enter();
-        if (_state == nullptr || _state->state != FutureState::PENDING) {
-            unexpect_return(ErrCode::BUSY);
-        }
-        _state->error = error;
-        _state->state = FutureState::ERROR;
-        auto wake_res = wake_all(_state->wait_reason);
-        propagate(wake_res);
-        void_return();
-    }
-
-    Result<void> Promise<void>::set_cancled() noexcept {
-        InterruptGuard guard;
-        guard.enter();
-        if (_state == nullptr || _state->state != FutureState::PENDING) {
-            unexpect_return(ErrCode::BUSY);
-        }
-        _state->state = FutureState::CANCLED;
-        auto wake_res = wake_all(_state->wait_reason);
-        propagate(wake_res);
-        void_return();
-    }
-
-    template <typename T>
-    Result<void> Future<T>::cancle() noexcept {
-        InterruptGuard guard;
-        guard.enter();
-        if (_state == nullptr) {
-            unexpect_return(ErrCode::INVALID_PARAM);
-        }
-
-        switch (_state->state) {
-            case FutureState::PENDING: {
-                if (_state->cancel_callback) {
-                    auto cancel_res = _state->cancel_callback();
-                    propagate(cancel_res);
-                }
-                _state->state = FutureState::CANCLED;
-                auto wake_res = wake_all(_state->wait_reason);
-                propagate(wake_res);
-                void_return();
-            }
-            case FutureState::COMPLETE: unexpect_return(ErrCode::FUTURE_ERROR);
-            case FutureState::ERROR:    unexpect_return(ErrCode::FUTURE_ERROR);
-            case FutureState::CANCLED:  unexpect_return(ErrCode::FUTURE_CANCLED);
-            case FutureState::CONSUMED:
-                unexpect_return(ErrCode::FUTURE_CONSUMED);
-        }
-        unexpect_return(ErrCode::UNKNOWN_ERROR);
-    }
-
-    Result<void> Future<void>::cancle() noexcept {
-        InterruptGuard guard;
-        guard.enter();
-        if (_state == nullptr) {
-            unexpect_return(ErrCode::INVALID_PARAM);
-        }
-
-        switch (_state->state) {
-            case FutureState::PENDING: {
-                if (_state->cancel_callback) {
-                    auto cancel_res = _state->cancel_callback();
-                    propagate(cancel_res);
-                }
-                _state->state = FutureState::CANCLED;
-                auto wake_res = wake_all(_state->wait_reason);
-                propagate(wake_res);
-                void_return();
-            }
-            case FutureState::COMPLETE: unexpect_return(ErrCode::FUTURE_ERROR);
-            case FutureState::ERROR:    unexpect_return(ErrCode::FUTURE_ERROR);
-            case FutureState::CANCLED:  unexpect_return(ErrCode::FUTURE_CANCLED);
-            case FutureState::CONSUMED:
-                unexpect_return(ErrCode::FUTURE_CONSUMED);
-        }
-        unexpect_return(ErrCode::UNKNOWN_ERROR);
-    }
-
-    template <typename T>
-    typename Future<T>::wait_result_type Future<T>::value() {
-        InterruptGuard guard;
-        guard.enter();
-        if (_state == nullptr) {
-            unexpect_return(ErrCode::INVALID_PARAM);
-        }
-
-        switch (_state->state) {
-            case FutureState::PENDING:   unexpect_return(ErrCode::FUTURE_PENDING);
-            case FutureState::ERROR:     unexpect_return(_state->error);
-            case FutureState::CANCLED:   unexpect_return(ErrCode::FUTURE_CANCLED);
-            case FutureState::CONSUMED:  unexpect_return(ErrCode::FUTURE_CONSUMED);
-            case FutureState::COMPLETE: {
-                if (!_state->value.has_value()) {
-                    unexpect_return(ErrCode::FUTURE_ERROR);
-                }
-                auto value = std::move(_state->value.value());
-                _state->value.reset();
-                _state->state = FutureState::CONSUMED;
-                if constexpr (detail::is_result_type_v<T>) {
-                    return value;
-                } else {
-                    return value;
-                }
-            }
-        }
-        unexpect_return(ErrCode::UNKNOWN_ERROR);
-    }
-
-    Result<void> Future<void>::value() {
-        InterruptGuard guard;
-        guard.enter();
-        if (_state == nullptr) {
-            unexpect_return(ErrCode::INVALID_PARAM);
-        }
-
-        switch (_state->state) {
-            case FutureState::PENDING:  unexpect_return(ErrCode::FUTURE_PENDING);
-            case FutureState::ERROR:    unexpect_return(_state->error);
-            case FutureState::CANCLED:  unexpect_return(ErrCode::FUTURE_CANCLED);
-            case FutureState::CONSUMED: unexpect_return(ErrCode::FUTURE_CONSUMED);
-            case FutureState::COMPLETE:
-                _state->state = FutureState::CONSUMED;
-                void_return();
-        }
-        unexpect_return(ErrCode::UNKNOWN_ERROR);
-    }
-
-    template <typename T>
-    typename Future<T>::wait_result_type Future<T>::awaiter::await_resume() {
-        if (future == nullptr) {
-            unexpect_return(ErrCode::INVALID_PARAM);
-        }
-        return take_wait_result(*future);
-    }
-
-    template <typename T>
-    typename detail::future_wait_result_t<T> wait_for(Future<T> &future) {
-        auto current_res = check_waiting_thread(false);
+    Result<void> check_future_wait_thread(bool require_kernel) noexcept {
+        auto current_res = check_waiting_thread(require_kernel);
         propagate(current_res);
-        while (!future.readable()) {
-            auto wait_res =
-                schd::Scheduler::inst().block_current(future.wait_reason());
-            propagate(wait_res);
-        }
-        return take_wait_result(future);
-    }
-
-    template <typename T>
-    typename detail::future_wait_result_t<T> kthread_wait_for(Future<T> &future) {
-        auto current_res = check_waiting_thread(true);
-        propagate(current_res);
-        while (!future.readable()) {
-            auto wait_res =
-                schd::Scheduler::inst().block_current(future.wait_reason());
-            propagate(wait_res);
-        }
-        return take_wait_result(future);
+        void_return();
     }
 
     WaitReasonManager &WaitReasonManager::inst() {
@@ -580,54 +382,5 @@ namespace task::wait {
     bool has_waiting(size_t id) {
         return WaitReasonManager::inst().has_waiting(id);
     }
-
-    template Result<void> Promise<int>::set_value(int value);
-    template Result<void> Promise<int>::set_error(ErrCode error) noexcept;
-    template Result<void> Promise<int>::set_cancled() noexcept;
-    template Result<void> Future<int>::cancle() noexcept;
-    template typename Future<int>::wait_result_type
-        Future<int>::awaiter::await_resume();
-    template typename Future<int>::wait_result_type Future<int>::value();
-    template Result<int> wait_for(Future<int> &future);
-    template Result<int> kthread_wait_for(Future<int> &future);
-
-    template Result<void> Promise<bool>::set_value(bool value);
-    template Result<void> Promise<bool>::set_error(ErrCode error) noexcept;
-    template Result<void> Promise<bool>::set_cancled() noexcept;
-    template Result<void> Future<bool>::cancle() noexcept;
-    template typename Future<bool>::wait_result_type
-        Future<bool>::awaiter::await_resume();
-    template typename Future<bool>::wait_result_type Future<bool>::value();
-    template Result<bool> wait_for(Future<bool> &future);
-    template Result<bool> kthread_wait_for(Future<bool> &future);
-
-    template Result<void> Promise<Result<int>>::set_value(Result<int> value);
-    template Result<void> Promise<Result<int>>::set_error(ErrCode error) noexcept;
-    template Result<void> Promise<Result<int>>::set_cancled() noexcept;
-    template Result<void> Future<Result<int>>::cancle() noexcept;
-    template typename Future<Result<int>>::wait_result_type
-        Future<Result<int>>::awaiter::await_resume();
-    template typename Future<Result<int>>::wait_result_type
-        Future<Result<int>>::value();
-    template Result<int> wait_for(Future<Result<int>> &future);
-    template Result<int> kthread_wait_for(Future<Result<int>> &future);
-
-    template Result<void> Promise<cap::EndpointMessage *>::set_value(
-        cap::EndpointMessage *value);
-    template Result<void> Promise<cap::EndpointMessage *>::set_error(
-        ErrCode error) noexcept;
-    template Result<void> Promise<cap::EndpointMessage *>::set_cancled() noexcept;
-    template Result<void> Future<cap::EndpointMessage *>::cancle() noexcept;
-    template typename Future<cap::EndpointMessage *>::wait_result_type
-        Future<cap::EndpointMessage *>::awaiter::await_resume();
-    template typename Future<cap::EndpointMessage *>::wait_result_type
-        Future<cap::EndpointMessage *>::value();
-    template Result<cap::EndpointMessage *>
-        wait_for(Future<cap::EndpointMessage *> &future);
-    template Result<cap::EndpointMessage *>
-        kthread_wait_for(Future<cap::EndpointMessage *> &future);
-
-    template Result<void> wait_for(Future<void> &future);
-    template Result<void> kthread_wait_for(Future<void> &future);
 
 }  // namespace task::wait

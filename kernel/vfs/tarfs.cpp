@@ -10,6 +10,9 @@
  */
 
 #include <bio/block.h>
+#include <bio/blk.h>
+#include <bio/request.h>
+#include <task/wait.h>
 #include <vfs/tarfs.h>
 #include <mem/alloc.h>
 
@@ -141,12 +144,14 @@ namespace tarfs {
 		return true;
 	}
 
-	Result<void> TarFSDriver::probe(size_t devno, IBlockDeviceOps *device,
-									blk::BufferCache &cache,
-									const char *options) {
-		(void)devno;
-		(void)cache;
+	Result<void> TarFSDriver::probe(size_t devno, const char *options) {
 		(void)options;
+		auto device_res = blk::BlkManager::inst().lookup(devno);
+		propagate(device_res);
+		auto *device = device_res.value();
+		if (device == nullptr) {
+			unexpect_return(ErrCode::NULLPTR);
+		}
 		auto block_sz_res = device->block_sz();
 		propagate(block_sz_res);
 		auto block_cnt_res = device->block_cnt();
@@ -156,7 +161,9 @@ namespace tarfs {
 		if (!data) {
 			unexpect_return(ErrCode::OUT_OF_MEMORY);
 		}
-		auto read_blocks_res = device->read_blocks(0, data, block_cnt_res.value());
+		auto read_future = blk::BlockRequestLayer::inst().submit_read_async(
+			devno, 0, data, block_cnt_res.value());
+		auto read_blocks_res = task::wait::kthread_wait_for(read_future);
 		if (!read_blocks_res.has_value()) {
 			delete[] data;
 			propagate_return(read_blocks_res);
@@ -173,11 +180,15 @@ namespace tarfs {
 		void_return();
 	}
 
-	Result<util::owner<ISuperblock *>> TarFSDriver::mount(
-		size_t devno, IBlockDeviceOps *device, blk::BufferCache &cache,
-		const char *options) {
-		(void)cache;
+	Result<util::owner<ISuperblock *>> TarFSDriver::mount(size_t devno,
+	                                                      const char *options) {
 		(void)options;
+		auto device_res = blk::BlkManager::inst().lookup(devno);
+		propagate(device_res);
+		auto *device = device_res.value();
+		if (device == nullptr) {
+			unexpect_return(ErrCode::NULLPTR);
+		}
 		auto block_sz_res = device->block_sz();
 		propagate(block_sz_res);
 		auto block_cnt_res = device->block_cnt();
@@ -193,7 +204,9 @@ namespace tarfs {
 			if (!data) {
 				unexpect_return(ErrCode::OUT_OF_MEMORY);
 			}
-			auto blocks_res = device->read_blocks(0, data, block_cnt_res.value());
+			auto read_future = blk::BlockRequestLayer::inst().submit_read_async(
+				devno, 0, data, block_cnt_res.value());
+			auto blocks_res = task::wait::kthread_wait_for(read_future);
 			if (!blocks_res.has_value()) {
 				delete[] data;
 				propagate_return(blocks_res);

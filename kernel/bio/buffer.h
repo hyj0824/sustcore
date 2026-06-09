@@ -12,6 +12,7 @@
 #pragma once
 
 #include <bio/block.h>
+#include <task/wait.h>
 #include <string.h>
 #include <sus/nonnull.h>
 #include <sus/owner.h>
@@ -41,6 +42,7 @@ namespace blk {
         // 状态与并发控制
         bool dirty;  // 是否需要写回磁盘
         bool valid;  // data 中是否包含有效数据(读完成标志)
+        bool inflight;  // 是否存在未完成请求
         int refcnt;  // 引用计数
 
         // 这里以后可能会有一个锁
@@ -223,7 +225,7 @@ namespace blk {
     // Buffer Cache
     class BufferCache {
     public:
-        BufferCache(IBlockDeviceOps* dev_ops, size_t devno);
+        BufferCache(size_t devno, size_t blksz);
         ~BufferCache();
 
         // 禁止拷贝/复制
@@ -232,7 +234,6 @@ namespace blk {
         BufferCache(BufferCache &&) = delete;
         BufferCache &operator=(BufferCache &&) = delete;
     private:
-        IBlockDeviceOps *_dev_ops;
         size_t _devno;
         size_t _blksz;
         static constexpr size_t MAX_CACHE_SIZE = 8192;
@@ -240,7 +241,10 @@ namespace blk {
         std::unordered_map<lba_t, size_t>
             _mapping;  // 块位置到缓存索引的映射
         [[nodiscard]]
-        Result<void> writeback_buffer(Buffer &buffer);
+        FutureResult<void> make_void_future(Result<void> result);
+        [[nodiscard]]
+        FutureResult<BufferHandler> make_handler_future(
+            Result<BufferHandler> result);
         [[nodiscard]]
         Result<void> clear_slot(size_t idx);
         [[nodiscard]]
@@ -266,11 +270,11 @@ namespace blk {
 
         // 同步指定块到设备
         [[nodiscard]]
-        Result<void> sync(BufferHandler &handler);
+        FutureResult<void> sync(BufferHandler &handler);
 
         // 同步所有脏块到设备
         [[nodiscard]]
-        Result<void> sync_all(); 
+        FutureResult<void> sync_all();
 
         /**
          * @brief 释放缓存
@@ -280,11 +284,12 @@ namespace blk {
          *
          */
         [[nodiscard]]
-        Result<void> tidy();
+        FutureResult<void> tidy();
 
         //
         [[nodiscard]]
-        Result<BufferHandler> get_buffer(lba_t blkno);  // 获取块缓存
+        FutureResult<BufferHandler> get_buffer_async(
+            lba_t blkno);  // 获取块缓存
     };
 
     inline size_t BufferHandler::blksz() const {

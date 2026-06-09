@@ -578,7 +578,7 @@ namespace std {
 
         EXCEPTION_DEPRECATED
         const mapped_type &at(const key_type &key) const {
-            const_iterator it = find(key);
+            auto it = find(key);
             if (it == cend()) {
                 _THROW(out_of_range("unordered_map::at: key not found"));
             }
@@ -586,7 +586,7 @@ namespace std {
         }
 
         result_nt<mapped_type &> at_nt(const key_type &key) noexcept {
-            iterator it = find(key);
+            auto it = find(key);
             if (it == end()) {
                 return {unexpect, error_type::OUT_OF_RANGE};
             }
@@ -594,7 +594,7 @@ namespace std {
         }
 
         result_nt<const mapped_type &> at_nt(const key_type &key) const noexcept {
-            const_iterator it = find(key);
+            auto it = find(key);
             if (it == cend()) {
                 return {unexpect, error_type::OUT_OF_RANGE};
             }

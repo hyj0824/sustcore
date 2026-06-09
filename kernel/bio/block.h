@@ -11,13 +11,12 @@
 
 #pragma once
 
+#include <bio/request.h>
 #include <driver/base.h>
 #include <sus/rtti.h>
 #include <sustcore/errcode.h>
 
 #include <cstddef>
-
-using lba_t = size_t;
 
 enum class BlockDeviceType { BASIC = 0, RAMDISK = 1 };
 
@@ -60,34 +59,13 @@ public:
         propagate(block_cnt_res);
         return block_sz_res.value() * block_cnt_res.value();
     }
-    /**
-     * @brief 读取块
-     *
-     * @param lba 起始块地址
-     * @param buf 读取数据的缓冲区
-     * @param cnt 读取块的数量
-     * @return size_t 实际读取的块数量
-     */
     [[nodiscard]]
-    virtual Result<size_t> read_blocks(lba_t lba, void *buf, size_t cnt) = 0;
-    /**
-     * @brief 写入块
-     *
-     * @param lba 起始块地址
-     * @param buf 写入数据的缓冲区
-     * @param cnt 写入块的数量
-     * @return size_t 实际写入的块数量
-     */
+    virtual Result<void> bind_request_queue(
+        util::nonnull<blk::BlockRequestQueue *> queue) = 0;
     [[nodiscard]]
-    virtual Result<size_t> write_blocks(lba_t lba, const void *buf,
-                                        size_t cnt) = 0;
-    /**
-     * @brief 同步块设备
-     *
-     * @return bool 是否同步成功
-     */
+    virtual Result<size_t> process_request(blk::BlockRequest &req) = 0;
     [[nodiscard]]
-    virtual Result<void> sync(void) = 0;
+    virtual Result<void> run_request_loop() = 0;
 };
 
 namespace driver {
@@ -104,9 +82,10 @@ private:
     void *D_base;
     size_t D_block_size;
     size_t D_block_count;
+    blk::BlockRequestQueue *_queue = nullptr;
 
 public:
-    constexpr static BlockDeviceType IDENTIFIER = BlockDeviceType::RAMDISK;
+    constexpr static BlockDeviceType IDENTIFIER = BlockDeviceType::BASIC;
     [[nodiscard]]
     BlockDeviceType type_id() const override
     {
@@ -126,14 +105,21 @@ public:
         return D_block_count;
     }
     [[nodiscard]]
-    Result<size_t> read_blocks(lba_t lba, void *buf, size_t cnt) override;
+    Result<void> bind_request_queue(
+        util::nonnull<blk::BlockRequestQueue *> queue) override;
     [[nodiscard]]
-    Result<size_t> write_blocks(lba_t lba, const void *buf,
-                                size_t cnt) override;
+    Result<size_t> process_request(blk::BlockRequest &req) override;
     [[nodiscard]]
-    Result<void> sync(void) override;
+    Result<void> run_request_loop() override;
     [[nodiscard]]
     constexpr void *base() const {
         return D_base;
     }
+
+    [[nodiscard]]
+    Result<size_t> read_blocks(lba_t lba, void *buf, size_t cnt);
+    [[nodiscard]]
+    Result<size_t> write_blocks(lba_t lba, const void *buf, size_t cnt);
+    [[nodiscard]]
+    Result<void> sync(void);
 };

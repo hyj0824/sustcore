@@ -1,1 +1,1 @@
-sources += blk.cpp block.cpp buffer.cpp
+sources += blk.cpp block.cpp buffer.cpp request.cpp

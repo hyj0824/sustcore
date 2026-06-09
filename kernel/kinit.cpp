@@ -11,6 +11,7 @@
 
 #include <bio/blk.h>
 #include <bio/block.h>
+#include <bio/request.h>
 #include <device/int.h>
 #include <device/model.h>
 #include <driver/model.h>
@@ -58,6 +59,7 @@ namespace {
 
     Result<void> init_vfs() {
         blk::BlkManager::init();
+        blk::BlockRequestLayer::init();
         VFS::init();
         auto &vfs = VFS::inst();
 

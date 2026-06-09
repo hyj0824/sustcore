@@ -307,52 +307,6 @@ public:
     virtual bool is_pseudo() const {
         return false;
     }
-
-    [[nodiscard]]
-    virtual bool is_block_fs() const {
-        return false;
-    }
-};
-
-class IBlockFsDriver : public IFsDriver {
-public:
-    ~IBlockFsDriver() override = default;
-
-    Result<void> probe(size_t devno, const char *options) final {
-        auto device_res = blk::BlkManager::inst().lookup(devno);
-        propagate(device_res);
-        auto cache_res = blk::BlkManager::inst().lookup_cache(devno);
-        propagate(cache_res);
-        if (device_res.value() == nullptr || cache_res.value() == nullptr) {
-            unexpect_return(ErrCode::NULLPTR);
-        }
-        return probe(devno, device_res.value(), *cache_res.value(), options);
-    }
-
-    Result<util::owner<ISuperblock *>> mount(size_t devno,
-                                             const char *options) final {
-        auto device_res = blk::BlkManager::inst().lookup(devno);
-        propagate(device_res);
-        auto cache_res = blk::BlkManager::inst().lookup_cache(devno);
-        propagate(cache_res);
-        if (device_res.value() == nullptr || cache_res.value() == nullptr) {
-            unexpect_return(ErrCode::NULLPTR);
-        }
-        return mount(devno, device_res.value(), *cache_res.value(), options);
-    }
-
-    [[nodiscard]]
-    bool is_block_fs() const final {
-        return true;
-    }
-
-    virtual Result<void> probe(size_t devno, IBlockDeviceOps *device,
-                               blk::BufferCache &cache,
-                               const char *options) = 0;
-    virtual Result<util::owner<ISuperblock *>> mount(size_t devno,
-                                                     IBlockDeviceOps *device,
-                                                     blk::BufferCache &cache,
-                                                     const char *options) = 0;
 };
 
 class IPesudoFsDriver : public IFsDriver {

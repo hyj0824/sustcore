@@ -168,7 +168,7 @@ namespace test::coroutine {
         }
 
         task::wait::cotask<Result<int>> co_await_result_future() {
-            task::wait::Promise<Result<int>> promise;
+            PromiseResult<int> promise;
             auto future  = promise.future();
             auto set_res = promise.set_value(Result<int>{47});
             if (!set_res.has_value()) {

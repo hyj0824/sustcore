@@ -106,7 +106,7 @@ namespace test::wait {
                 : TestCase("Future<Result<T>>::value 扁平化结果") {}
 
             void _run(void *env [[maybe_unused]]) const noexcept override {
-                task::wait::Promise<Result<int>> promise;
+                PromiseResult<int> promise;
                 auto future = promise.future();
                 auto set_res = promise.set_value(Result<int>{77});
                 ttest(set_res.has_value());
