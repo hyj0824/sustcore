@@ -6,15 +6,24 @@
 #include <task/wait.h>
 #include <test/wait.h>
 
+static_assert(GuardedLockLike<GuardedLock>);
+static_assert(GuardedLockLike<IrqSaveGuardedLock>);
+static_assert(requires(SpinLocker &lock) {
+    ::wait::locked_wait_event<IrqSaveGuardedLock>(
+        1, lock, []() noexcept { return true; });
+    ::wait::locked_wakeup<IrqSaveGuardedLock>(1, lock);
+    ::wait::locked_wake_all<IrqSaveGuardedLock>(1, lock);
+});
+
 namespace test::wait {
     namespace {
         class CaseWaitEventRejectsInvalidReason : public TestCase {
         public:
             CaseWaitEventRejectsInvalidReason()
-                : TestCase("wait_event 拒绝无效 wait_reason") {}
+                : TestCase("wait_event 拒绝无效 wait_wd") {}
 
             void _run(void* env [[maybe_unused]]) const noexcept override {
-                auto res = task::wait::wait_event(0, []() { return true; });
+                auto res = ::wait::wait_event(0, []() { return true; });
                 ttest(!res.has_value());
                 ttest(res.error() == ErrCode::INVALID_PARAM);
             }
@@ -26,7 +35,7 @@ namespace test::wait {
                 : TestCase("wait_event 拒绝空 ready_predicate") {}
 
             void _run(void* env [[maybe_unused]]) const noexcept override {
-                auto res = task::wait::wait_event(1, {});
+                auto res = ::wait::wait_event(1, {});
                 ttest(!res.has_value());
                 ttest(res.error() == ErrCode::INVALID_PARAM);
             }
@@ -39,7 +48,7 @@ namespace test::wait {
 
             void _run(void* env [[maybe_unused]]) const noexcept override {
                 bool checked = false;
-                auto res     = task::wait::wait_event(1, [&checked]() {
+                auto res     = ::wait::wait_event(1, [&checked]() {
                     checked = true;
                     return true;
                 });
@@ -55,12 +64,12 @@ namespace test::wait {
 
             void _run(void *env [[maybe_unused]]) const noexcept override {
                 auto invalid_reason =
-                    task::wait::future_wait_current(0, []() { return true; });
+                    ::wait::future_wait_current(0, []() { return true; });
                 ttest(!invalid_reason.has_value());
                 ttest(invalid_reason.error() == ErrCode::INVALID_PARAM);
 
                 auto invalid_predicate =
-                    task::wait::future_wait_current(1, {});
+                    ::wait::future_wait_current(1, {});
                 ttest(!invalid_predicate.has_value());
                 ttest(invalid_predicate.error() == ErrCode::INVALID_PARAM);
             }
@@ -72,7 +81,7 @@ namespace test::wait {
                 : TestCase("Future::value 在 pending 时返回 FUTURE_PENDING") {}
 
             void _run(void *env [[maybe_unused]]) const noexcept override {
-                task::wait::Promise<int> promise;
+                ::wait::Promise<int> promise;
                 auto future = promise.future();
                 auto value_res = future.value();
                 ttest(!value_res.has_value());
@@ -86,7 +95,7 @@ namespace test::wait {
                 : TestCase("Future::cancle 将 pending Future 置为 cancled") {}
 
             void _run(void *env [[maybe_unused]]) const noexcept override {
-                task::wait::Promise<int> promise;
+                ::wait::Promise<int> promise;
                 auto future = promise.future();
                 auto cancel_res = future.cancle();
                 ttest(cancel_res.has_value());
@@ -103,7 +112,7 @@ namespace test::wait {
                 : TestCase("Future::value 读取成功后转为 consumed") {}
 
             void _run(void *env [[maybe_unused]]) const noexcept override {
-                task::wait::Promise<int> promise;
+                ::wait::Promise<int> promise;
                 auto future = promise.future();
                 auto set_res = promise.set_value(42);
                 ttest(set_res.has_value());

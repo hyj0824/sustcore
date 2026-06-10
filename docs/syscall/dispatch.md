@@ -103,7 +103,7 @@ current_tcb->syscall_info.complete(ret);
 - `SYS_ENDPOINT_RECV`
 - `SYS_ENDPOINT_CALL`
 
-`dispatch_async(tcb)` 返回 `task::wait::cotask<void>`。它会在对象操作处
+`dispatch_async(tcb)` 返回 `wait::cotask<void>`。它会在对象操作处
 `co_await`，等待队列和调度器负责后续恢复。
 
 异步 syscall 完成时会调用 `complete_syscall(tcb, ret)`:
@@ -114,13 +114,13 @@ current_tcb->syscall_info.complete(ret);
 
 ## coroutine 挂起与线程等待
 
-可挂起 syscall 当前通过 `task::wait::FutureAwaiter` 挂起 coroutine。
+可挂起 syscall 当前通过 `wait::FutureAwaiter` 挂起 coroutine。
 
 它与旧模型的关键区别是:
 
 - `FutureAwaiter` 自己不直接操作 `TCB`
 - `FutureAwaiter` 只写当前 coroutine 的 `WaitContext`
-- `task::wait::cotask` 沿 `co_await` 链传播 `wait_reason`
+- `wait::cotask` 沿 `co_await` 链传播 `wait_wd`
 - 最外层 syscall 路径根据 `wait_context().pending()` 再决定是否调用
   `register_syscall_wait(...)`
 

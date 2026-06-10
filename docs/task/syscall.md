@@ -86,7 +86,7 @@ RISC-V 用户态通过 `ecall` 进入内核。当前路径已经拆成:
 - `SYS_ENDPOINT_RECV`
 - `SYS_ENDPOINT_CALL`
 
-它们走 `dispatch_async(tcb)`，返回 `task::wait::cotask<void>`。
+它们走 `dispatch_async(tcb)`，返回 `wait::cotask<void>`。
 
 可挂起 syscall 可能出现三种情况:
 
@@ -117,7 +117,7 @@ RISC-V 用户态通过 `ecall` 进入内核。当前路径已经拆成:
 `Scheduler::prepare_next_task()` 选出 next 后会:
 
 1. `switch_to(next)`，切换页表和当前 TCB/PCB。
-2. 调用 `task::wait::resume_deferred_syscall(next)`。
+2. 调用 `wait::resume_deferred_syscall(next)`。
 3. 若 coroutine 恢复后再次等待，则跳过该线程重新选。
 4. 若 syscall 完成，则提交或允许调度。
 

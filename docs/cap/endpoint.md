@@ -50,8 +50,8 @@ struct EndpointMsgView {
 `EndpointPayload` 是端点本体，内部包含:
 
 - 消息队列 `messages`
-- 发送等待原因 `send_wait_reason`
-- 接收等待原因 `recv_wait_reason`
+- 发送等待描述符 `send_wait_wd`
+- 接收等待描述符 `recv_wait_wd`
 
 ### 语义
 
@@ -67,7 +67,7 @@ struct EndpointMsgView {
 它和普通 endpoint 最大的区别是:
 
 - 只持有一条 `EndpointMessage *message`
-- 只有一个接收等待原因 `recv_wait_reason`
+- 只有一个接收等待描述符 `recv_wait_wd`
 
 它专门服务于 `endpoint_call` 的调用方等待回复场景。
 
@@ -129,7 +129,7 @@ struct EndpointMsgView {
 3. 进入临界区，把消息入队
 4. 若有接收者等待，则唤醒一个
 5. 若消息已被立即取走，则直接返回
-6. 否则挂入 `send_wait_reason` 等待，直到消息不再在队列中
+6. 否则挂入 `send_wait_wd` 等待，直到消息不再在队列中
 
 ### 关键点
 
@@ -157,7 +157,7 @@ struct EndpointMsgView {
 
 1. 校验 `READ`
 2. 先尝试一次 `recv_async()`
-3. 若为空，则挂入 `recv_wait_reason`
+3. 若为空，则挂入 `recv_wait_wd`
 4. 被唤醒后再次尝试 `recv_async()`
 
 所以它实现的是典型的“先快路径，再阻塞等待”的接收逻辑。

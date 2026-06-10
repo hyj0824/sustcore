@@ -172,8 +172,8 @@ namespace {
 
     [[noreturn]]
     void block_kinit_forever() {
-        auto reason    = task::wait::alloc_reason();
-        auto block_res = schd::Scheduler::inst().block_current(reason);
+        auto block_wd  = wait::alloc_reason();
+        auto block_res = schd::Scheduler::inst().block_current(block_wd);
         if (!block_res.has_value()) {
             loggers::SUSTCORE::FATAL("阻塞 kinit 失败: %s",
                                      to_cstring(block_res.error()));

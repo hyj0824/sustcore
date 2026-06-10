@@ -20,7 +20,7 @@ namespace blk {
     BlockRequestQueue::BlockRequestQueue(size_t devno, size_t depth)
         : _devno(devno),
           _ring(depth + 1),
-          _wait_reason(task::wait::alloc_reason()) {}
+          _wait_wd(wait::alloc_reason()) {}
 
     bool BlockRequestQueue::stopped() noexcept {
         GuardedLock lock(_lock);
@@ -45,7 +45,7 @@ namespace blk {
             }
             req->status = BlockReqStatus::SUBMITTED;
         }
-        auto wake_res = task::wait::locked_wake_all(_wait_reason, _lock);
+        auto wake_res = wait::locked_wake_all(_wait_wd, _lock);
         propagate(wake_res);
         void_return();
     }
@@ -78,8 +78,8 @@ namespace blk {
             if (pop_res.error() != ErrCode::ENTRY_NOT_FOUND) {
                 propagate_return(pop_res);
             }
-            auto wait_res = task::wait::locked_wait_event(
-                _wait_reason, _lock,
+            auto wait_res = wait::locked_wait_event(
+                _wait_wd, _lock,
                 [this]() noexcept { return _stopped || !_ring.empty(); });
             propagate(wait_res);
         }
@@ -165,7 +165,7 @@ namespace blk {
             GuardedLock lock(_lock);
             _stopped = true;
         }
-        auto wake_res = task::wait::locked_wake_all(_wait_reason, _lock);
+        auto wake_res = wait::locked_wake_all(_wait_wd, _lock);
         propagate(wake_res);
         void_return();
     }

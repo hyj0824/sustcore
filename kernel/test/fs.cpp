@@ -101,7 +101,7 @@ namespace test::fs {
                 util::owner<blk::BlockRequestLayer *>(
                     new blk::BlockRequestLayer(util::nnullforce(queue))));
             auto first_future = cache.get_buffer_async(0);
-            auto first_res = task::wait::kthread_wait_for(first_future);
+            auto first_res = wait::kthread_wait_for(first_future);
             tassert(first_res.has_value(), "首次获取块缓存应成功");
             tassert(first_res.value().is_valid(), "首次读取后缓存应有效");
 
@@ -116,18 +116,18 @@ namespace test::fs {
             tassert(first_res.value().is_dirty(), "写入后缓存应变脏");
 
             auto sync_future = cache.sync(first_res.value());
-            auto sync_res = task::wait::kthread_wait_for(sync_future);
+            auto sync_res = wait::kthread_wait_for(sync_future);
             tassert(sync_res.has_value(), "同步单个缓存块应成功");
             tassert(!first_res.value().is_dirty(), "同步后脏标记应被清除");
 
             auto second_future = cache.get_buffer_async(0);
-            auto second_res = task::wait::kthread_wait_for(second_future);
+            auto second_res = wait::kthread_wait_for(second_future);
             tassert(second_res.has_value(), "再次获取同一块缓存应成功");
             tassert(second_res.value().get() == first_res.value().get(),
                     "命中缓存时应返回同一块缓存对象");
 
             auto reload_future = cache.get_buffer_async(0);
-            auto reload_res = task::wait::kthread_wait_for(reload_future);
+            auto reload_res = wait::kthread_wait_for(reload_future);
             tassert(reload_res.has_value(), "应能再次从缓存路径读取完整块");
             char verify[64] = {};
             reload_res.value().readblk(verify, sizeof(verify));
@@ -154,7 +154,7 @@ namespace test::fs {
                     new blk::BlockRequestLayer(util::nnullforce(queue))));
             {
                 auto buf0_future = cache.get_buffer_async(0);
-                auto buf0 = task::wait::kthread_wait_for(buf0_future);
+                auto buf0 = wait::kthread_wait_for(buf0_future);
                 tassert(buf0.has_value(), "应能获取第 0 块缓存");
                 const char* payload0 = "dirty0";
                 auto written0 =
@@ -163,7 +163,7 @@ namespace test::fs {
             }
             {
                 auto buf1_future = cache.get_buffer_async(1);
-                auto buf1 = task::wait::kthread_wait_for(buf1_future);
+                auto buf1 = wait::kthread_wait_for(buf1_future);
                 tassert(buf1.has_value(), "应能获取第 1 块缓存");
                 const char* payload1 = "dirty1";
                 auto written1 =
@@ -172,11 +172,11 @@ namespace test::fs {
             }
 
             auto tidy_future = cache.tidy();
-            auto tidy_res = task::wait::kthread_wait_for(tidy_future);
+            auto tidy_res = wait::kthread_wait_for(tidy_future);
             tassert(tidy_res.has_value(), "tidy 应能成功回写并回收空闲缓存");
 
             auto reload0_future = cache.get_buffer_async(0);
-            auto reload0 = task::wait::kthread_wait_for(reload0_future);
+            auto reload0 = wait::kthread_wait_for(reload0_future);
             tassert(reload0.has_value(), "tidy 后仍应能重新加载第 0 块");
             char verify0[16] = {};
             auto read0 = reload0.value().read(0, verify0, sizeof(verify0));
@@ -185,7 +185,7 @@ namespace test::fs {
                     "第 0 块写回内容应保留");
 
             auto reload1_future = cache.get_buffer_async(1);
-            auto reload1 = task::wait::kthread_wait_for(reload1_future);
+            auto reload1 = wait::kthread_wait_for(reload1_future);
             tassert(reload1.has_value(), "tidy 后仍应能重新加载第 1 块");
             char verify1[16] = {};
             auto read1 = reload1.value().read(4, verify1, sizeof(verify1) - 4);

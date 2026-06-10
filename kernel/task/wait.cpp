@@ -19,7 +19,7 @@
 
 #include <cassert>
 
-namespace task::wait {
+namespace wait {
     const WaitContext WaitContext::EMPTY{};
 
     // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -28,7 +28,7 @@ namespace task::wait {
 
     namespace {
         [[nodiscard]]
-        Result<TCB *> current_waiter() noexcept {
+        Result<task::TCB *> current_waiter() noexcept {
             auto *current = schd::Scheduler::inst().current_tcb();
             if (current == nullptr) {
                 unexpect_return(ErrCode::INVALID_PARAM);
@@ -37,7 +37,7 @@ namespace task::wait {
         }
 
         [[nodiscard]]
-        Result<TCB *> check_waiting_thread(bool require_kernel) noexcept {
+        Result<task::TCB *> check_waiting_thread(bool require_kernel) noexcept {
             auto current_res = current_waiter();
             propagate(current_res);
             auto *current = current_res.value();
@@ -54,7 +54,7 @@ namespace task::wait {
         }
 
         [[nodiscard]]
-        Result<TCB *> check_blockable_thread() noexcept {
+        Result<task::TCB *> check_blockable_thread() noexcept {
             auto current_res = current_waiter();
             propagate(current_res);
             auto *current = current_res.value();
@@ -71,7 +71,7 @@ namespace task::wait {
          * @return Result<void> 成功返回空结果.
          */
         [[nodiscard]]
-        Result<void> wake_regular_waiter(TCB *tcb) noexcept {
+        Result<void> wake_regular_waiter(task::TCB *tcb) noexcept {
             if (tcb == nullptr) {
                 unexpect_return(ErrCode::NULLPTR);
             }
@@ -86,14 +86,14 @@ namespace task::wait {
          *
          * @param tcb 目标线程.
          */
-        void clear_queue_metadata(TCB *tcb) noexcept {
+        void clear_queue_metadata(task::TCB *tcb) noexcept {
             assert(tcb != nullptr);
-            tcb->wait_reason    = 0;
+            tcb->wait_wd        = 0;
             tcb->wait_predicate = {};
             tcb->wait_head.clear();
         }
 
-        void clear_wait_metadata(TCB *tcb) noexcept {
+        void clear_wait_metadata(task::TCB *tcb) noexcept {
             assert(tcb != nullptr);
             clear_queue_metadata(tcb);
         }
@@ -105,7 +105,7 @@ namespace task::wait {
          * @return Result<void> 成功返回空结果.
          */
         [[nodiscard]]
-        Result<void> dispatch_waiter(TCB *tcb) noexcept {
+        Result<void> dispatch_waiter(task::TCB *tcb) noexcept {
             if (tcb == nullptr) {
                 unexpect_return(ErrCode::NULLPTR);
             }
@@ -120,7 +120,7 @@ namespace task::wait {
          * @return false 谓词拒绝唤醒.
          */
         [[nodiscard]]
-        bool run_wait_predicate(TCB *tcb) noexcept {
+        bool run_wait_predicate(task::TCB *tcb) noexcept {
             if (tcb == nullptr) {
                 return false;
             }
@@ -131,9 +131,9 @@ namespace task::wait {
         }
     }  // namespace
 
-    Result<void> wait_event(size_t id,
+    Result<void> wait_event(wd_t wd,
                             WaitReadyPredicate ready_predicate) noexcept {
-        if (id == 0 || !ready_predicate) {
+        if (wd == 0 || !ready_predicate) {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
         if (ready_predicate()) {
@@ -145,55 +145,14 @@ namespace task::wait {
 
         while (!ready_predicate()) {
             auto wait_res = schd::Scheduler::inst().block_current(
-                id,
-                [ready_predicate = ready_predicate](TCB *tcb [[maybe_unused]]) {
+                wd,
+                [ready_predicate = ready_predicate](task::TCB *tcb [[maybe_unused]]) {
                     return ready_predicate();
                 });
             propagate(wait_res);
         }
 
         void_return();
-    }
-
-    Result<void> locked_wait_event(
-        size_t id, SpinLocker &lock,
-        WaitReadyPredicate ready_predicate) noexcept {
-        if (id == 0 || !ready_predicate) {
-            unexpect_return(ErrCode::INVALID_PARAM);
-        }
-
-        auto &scheduler = schd::Scheduler::inst();
-        auto &waitman   = task::wait::WaitReasonManager::inst();
-
-        auto *current = scheduler.current_tcb();
-        if (current == nullptr) {
-            unexpect_return(ErrCode::INVALID_PARAM);
-        }
-
-        if (current->schd_class == schd::ClassType::IDLE) {
-            unexpect_return(ErrCode::INVALID_PARAM);
-        }
-
-        while (true) {
-            {
-                GuardedLock guarded(lock);
-                if (ready_predicate()) {
-                    void_return();
-                }
-
-                auto enqueue_res =
-                    waitman.enqueue(id, current,
-                                    [ready_predicate = ready_predicate](
-                                        TCB *tcb [[maybe_unused]]) {
-                                        return ready_predicate();
-                                    });
-                propagate(enqueue_res);
-
-                current->basic_entity
-                    .template flags_set<schd::SchedMeta::FLAGS_NEED_RESCHED>();
-            }
-            scheduler.schedule(true);
-        }
     }
 
     Result<void> future_begin_update() noexcept {
@@ -203,14 +162,14 @@ namespace task::wait {
     }
 
     Result<void> future_wait_current(
-        size_t reason, WaitReadyPredicate ready_predicate) noexcept {
-        if (reason == 0 || !ready_predicate) {
+        wd_t wait_wd, WaitReadyPredicate ready_predicate) noexcept {
+        if (wait_wd == 0 || !ready_predicate) {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
         return schd::Scheduler::inst().block_current(
-            reason,
+            wait_wd,
             [ready_predicate = std::move(ready_predicate)](
-                TCB *tcb [[maybe_unused]]) { return ready_predicate(); });
+                task::TCB *tcb [[maybe_unused]]) { return ready_predicate(); });
     }
 
     Result<void> check_future_wait_thread(bool require_kernel) noexcept {
@@ -235,98 +194,98 @@ namespace task::wait {
         return inst_wait_reason_manager_initialized;
     }
 
-    size_t WaitReasonManager::alloc_reason() {
-        return _next_reason++;
+    wd_t WaitReasonManager::alloc_reason() {
+        return _next_wd++;
     }
 
-    Result<WaitQueue *> WaitReasonManager::queue_for_wait(size_t id) {
-        if (id == 0) {
+    Result<WaitQueue *> WaitReasonManager::queue_for_wait(wd_t wd) {
+        if (wd == 0) {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
 
-        auto qres = _queues.at_nt(id);
+        auto qres = _queues.at_nt(wd);
         if (qres.has_value()) {
             return *qres.value();
         }
 
-        auto *queue = new WaitQueue(id);
+        auto *queue = new WaitQueue(wd);
         if (queue == nullptr) {
             unexpect_return(ErrCode::OUT_OF_MEMORY);
         }
-        _queues[id] = queue;
+        _queues[wd] = queue;
         return queue;
     }
 
-    Result<WaitQueue *> WaitReasonManager::queue_if_exists(size_t id) {
-        if (id == 0) {
+    Result<WaitQueue *> WaitReasonManager::queue_if_exists(wd_t wd) {
+        if (wd == 0) {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
 
-        return _queues.at_nt(id)
+        return _queues.at_nt(wd)
             .transform([](WaitQueue **queue) {
                 return queue == nullptr ? nullptr : *queue;
             })
             .value_or(nullptr);
     }
 
-    Result<void> WaitReasonManager::enqueue(size_t id, TCB *tcb) {
-        return enqueue(id, tcb, {});
+    Result<void> WaitReasonManager::enqueue(wd_t wd, task::TCB *tcb) {
+        return enqueue(wd, tcb, {});
     }
 
-    Result<void> WaitReasonManager::enqueue(size_t id, TCB *tcb,
+    Result<void> WaitReasonManager::enqueue(wd_t wd, task::TCB *tcb,
                                             WaitPredicate predicate) {
         if (tcb == nullptr) {
             unexpect_return(ErrCode::NULLPTR);
         }
 
-        auto qres = queue_for_wait(id);
+        auto qres = queue_for_wait(wd);
         propagate(qres);
 
-        tcb->wait_reason        = id;
+        tcb->wait_wd            = wd;
         tcb->wait_predicate     = std::move(predicate);
         tcb->basic_entity.state = ThreadState::WAITING;
         qres.value()->threads.push_back(*tcb);
-        loggers::TASK::DEBUG("等待队列入队: pid=%lu tid=%lu reason=%lu",
+        loggers::TASK::DEBUG("等待队列入队: pid=%lu tid=%lu wd=%lu",
                              tcb->task != nullptr ? tcb->task->pid : 0,
-                             tcb->tid, id);
+                             tcb->tid, wd);
         void_return();
     }
 
-    Result<TCB *> WaitReasonManager::peek_one(size_t id) {
-        auto qres = queue_if_exists(id);
+    Result<task::TCB *> WaitReasonManager::peek_one(wd_t wd) {
+        auto qres = queue_if_exists(wd);
         propagate(qres);
 
         WaitQueue *queue = qres.value();
         if (queue == nullptr || queue->threads.empty()) {
-            return static_cast<TCB *>(nullptr);
+            return static_cast<task::TCB *>(nullptr);
         }
         return &queue->threads.front();
     }
 
-    Result<TCB *> WaitReasonManager::pop_one(size_t id) {
-        auto qres = queue_if_exists(id);
+    Result<task::TCB *> WaitReasonManager::pop_one(wd_t wd) {
+        auto qres = queue_if_exists(wd);
         propagate(qres);
 
         WaitQueue *queue = qres.value();
         if (queue == nullptr || queue->threads.empty()) {
-            return static_cast<TCB *>(nullptr);
+            return static_cast<task::TCB *>(nullptr);
         }
 
-        TCB *tcb = &queue->threads.front();
+        task::TCB *tcb = &queue->threads.front();
         queue->threads.pop_front();
         clear_wait_metadata(tcb);
         return tcb;
     }
 
-    Result<void> WaitReasonManager::remove(TCB *tcb) {
+    Result<void> WaitReasonManager::remove(task::TCB *tcb) {
         if (tcb == nullptr) {
             unexpect_return(ErrCode::NULLPTR);
         }
-        if (tcb->wait_reason == 0) {
+        if (tcb->wait_wd == 0) {
             void_return();
         }
 
-        auto qres = queue_if_exists(tcb->wait_reason);
+        auto qres = queue_if_exists(tcb->wait_wd);
         propagate(qres);
         WaitQueue *queue = qres.value();
         if (queue != nullptr) {
@@ -336,16 +295,16 @@ namespace task::wait {
         void_return();
     }
 
-    Result<size_t> WaitReasonManager::wake_one(size_t id) {
-        return queue_if_exists(id).and_then(
-            [id](WaitQueue *queue) -> Result<size_t> {
+    Result<size_t> WaitReasonManager::wake_one(wd_t wd) {
+        return queue_if_exists(wd).and_then(
+            [](WaitQueue *queue) -> Result<size_t> {
                 if (queue == nullptr || queue->threads.empty()) {
                     return size_t(0);
                 }
 
-                TCB *first_rejected = nullptr;
+                task::TCB *first_rejected = nullptr;
                 while (!queue->threads.empty()) {
-                    TCB *tcb = &queue->threads.front();
+                    task::TCB *tcb = &queue->threads.front();
                     queue->threads.pop_front();
 
                     if (tcb == first_rejected) {
@@ -370,9 +329,9 @@ namespace task::wait {
             });
     }
 
-    Result<size_t> WaitReasonManager::wake_all(size_t id) {
-        return queue_if_exists(id).and_then(
-            [id](WaitQueue *queue) -> Result<size_t> {
+    Result<size_t> WaitReasonManager::wake_all(wd_t wd) {
+        return queue_if_exists(wd).and_then(
+            [](WaitQueue *queue) -> Result<size_t> {
                 size_t count = 0;
                 if (queue == nullptr || queue->threads.empty()) {
                     return count;
@@ -380,7 +339,7 @@ namespace task::wait {
 
                 size_t scan_count = queue->threads.size();
                 for (size_t i = 0; i < scan_count; ++i) {
-                    TCB *tcb = &queue->threads.front();
+                    task::TCB *tcb = &queue->threads.front();
                     queue->threads.pop_front();
 
                     if (!run_wait_predicate(tcb)) {
@@ -397,30 +356,20 @@ namespace task::wait {
             });
     }
 
-    Result<size_t> locked_wakeup(size_t id, SpinLocker &lock) {
-        GuardedLock guarded(lock);
-        return WaitReasonManager::inst().wake_one(id);
+    Result<size_t> wake_one(wd_t wd) {
+        return WaitReasonManager::inst().wake_one(wd);
     }
 
-    Result<size_t> locked_wake_all(size_t id, SpinLocker &lock) {
-        GuardedLock guarded(lock);
-        return WaitReasonManager::inst().wake_all(id);
+    Result<size_t> wake_all(wd_t wd) {
+        return WaitReasonManager::inst().wake_all(wd);
     }
 
-    Result<size_t> wake_one(size_t id) {
-        return WaitReasonManager::inst().wake_one(id);
+    bool has_waiting(wd_t wd) {
+        return WaitReasonManager::inst().has_waiting(wd);
     }
 
-    Result<size_t> wake_all(size_t id) {
-        return WaitReasonManager::inst().wake_all(id);
-    }
-
-    bool has_waiting(size_t id) {
-        return WaitReasonManager::inst().has_waiting(id);
-    }
-
-    bool WaitReasonManager::has_waiting(size_t id) {
-        auto qres = queue_if_exists(id);
+    bool WaitReasonManager::has_waiting(wd_t wd) {
+        auto qres = queue_if_exists(wd);
         if (!qres.has_value()) {
             return false;
         }
@@ -428,20 +377,20 @@ namespace task::wait {
         return queue != nullptr && !queue->threads.empty();
     }
 
-    size_t alloc_reason() {
+    wd_t alloc_reason() {
         return WaitReasonManager::inst().alloc_reason();
     }
 
-    Result<void> deprecated_wait_current(size_t id) {
-        return schd::Scheduler::inst().block_current(id);
+    Result<void> deprecated_wait_current(wd_t wd) {
+        return schd::Scheduler::inst().block_current(wd);
     }
 
-    Result<void> deprecated_wait_current(size_t id, WaitPredicate predicate) {
-        return schd::Scheduler::inst().block_current(id, std::move(predicate));
+    Result<void> deprecated_wait_current(wd_t wd, WaitPredicate predicate) {
+        return schd::Scheduler::inst().block_current(wd, std::move(predicate));
     }
 
-    Result<TCB *> peek_one(size_t id) {
-        return WaitReasonManager::inst().peek_one(id);
+    Result<task::TCB *> peek_one(wd_t wd) {
+        return WaitReasonManager::inst().peek_one(wd);
     }
 
-}  // namespace task::wait
+}  // namespace wait

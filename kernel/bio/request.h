@@ -82,7 +82,7 @@ namespace blk {
         size_t _devno = 0;
         SpinLocker _lock{};
         util::RingBuffer<BlockRequest *> _ring{};
-        size_t _wait_reason = 0;
+        wait::wd_t _wait_wd = 0;
         bool _accepting     = true;
         bool _stopped       = false;
 
@@ -167,8 +167,8 @@ namespace blk {
         Result<void> drain_and_stop(ErrCode error);
 
         [[nodiscard]]
-        size_t wait_reason() const noexcept {
-            return _wait_reason;
+        wait::wd_t wait_wd() const noexcept {
+            return _wait_wd;
         }
     };
 

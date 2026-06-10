@@ -17,7 +17,7 @@
 
 namespace cap {
     namespace {
-        Result<void> resolve_waiters(std::vector<task::wait::Promise<bool>> &waiters,
+        Result<void> resolve_waiters(std::vector<wait::Promise<bool>> &waiters,
                                      bool value) {
             ErrCode err = ErrCode::SUCCESS;
             for (auto &promise : waiters) {
@@ -108,21 +108,21 @@ namespace cap {
         return (_obj->signalbits & (static_cast<b32>(1U) << idx)) != 0;
     }
 
-    Result<task::wait::Future<bool>> NotificationObject::wait(size_t idx) {
+    Result<wait::Future<bool>> NotificationObject::wait(size_t idx) {
         propagate(check_idx(idx));
         propagate(check_query_perm(_cap, idx));
 
         GuardedLock lock(_obj->spinlock);
         
         if ((_obj->signalbits & (static_cast<b32>(1U) << idx)) != 0) {
-            task::wait::Promise<bool> promise;
+            wait::Promise<bool> promise;
             auto future  = promise.future();
             auto set_res = promise.set_value(true);
             propagate(set_res);
             return future;
         }
 
-        task::wait::Promise<bool> promise;
+        wait::Promise<bool> promise;
         auto future = promise.future();
         _obj->waiters[idx].push_back(std::move(promise));
         return future;

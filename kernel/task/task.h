@@ -67,7 +67,7 @@ namespace task {
             tcb->basic_entity.state   = ThreadState::EMPTY;
             tcb->basic_entity.rq_head = {};
             tcb->rr_entity            = {};
-            tcb->wait_reason          = 0;
+            tcb->wait_wd              = 0;
             tcb->wait_predicate       = {};
             tcb->syscall_info.reset();
             tcb->wait_head = {};

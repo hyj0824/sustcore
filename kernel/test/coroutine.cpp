@@ -136,28 +136,28 @@ namespace test::coroutine {
             co_return value + 9;
         }
 
-        task::wait::cotask<int> wait_leaf(size_t reason) {
-            auto wait_res = co_await task::wait::FutureAwaiter(
-                reason, {}, []() { return false; });
+        wait::cotask<int> wait_leaf(wait::wd_t wait_wd) {
+            auto wait_res = co_await wait::FutureAwaiter(
+                wait_wd, {}, []() { return false; });
             if (!wait_res.has_value()) {
                 co_return -1;
             }
             co_return 11;
         }
 
-        task::wait::cotask<int> wait_parent(size_t reason) {
-            auto value = co_await wait_leaf(reason);
+        wait::cotask<int> wait_parent(wait::wd_t wait_wd) {
+            auto value = co_await wait_leaf(wait_wd);
             co_return value + 1;
         }
 
-        task::wait::cotask<int> wait_after_normal_suspend() {
+        wait::cotask<int> wait_after_normal_suspend() {
             auto child = make_value_task(5);
             auto value = co_await child;
             co_return value.value;
         }
 
-        task::wait::cotask<Result<int>> co_await_ready_future() {
-            task::wait::Promise<int> promise;
+        wait::cotask<Result<int>> co_await_ready_future() {
+            wait::Promise<int> promise;
             auto future  = promise.future();
             auto set_res = promise.set_value(31);
             if (!set_res.has_value()) {
@@ -167,7 +167,7 @@ namespace test::coroutine {
             co_return value_res;
         }
 
-        task::wait::cotask<Result<int>> co_await_result_future() {
+        wait::cotask<Result<int>> co_await_result_future() {
             PromiseResult<int> promise;
             auto future  = promise.future();
             auto set_res = promise.set_value(Result<int>{47});
@@ -266,15 +266,15 @@ namespace test::coroutine {
         class CaseWaitCotaskPropagateReason : public TestCase {
         public:
             CaseWaitCotaskPropagateReason()
-                : TestCase("wait::cotask 向父协程传播 wait_reason") {}
+                : TestCase("wait::cotask 向父协程传播 wait_wd") {}
 
             void _run(void* env [[maybe_unused]]) const noexcept override {
-                constexpr size_t WAIT_REASON = 17;
-                auto task                          = wait_parent(WAIT_REASON);
+                constexpr wait::wd_t WAIT_WD = 17;
+                auto task                     = wait_parent(WAIT_WD);
                 ttest(task.valid());
                 ttest(!task.done());
                 ttest(task.wait_context().pending());
-                ttest(task.wait_context().wait_reason == WAIT_REASON);
+                ttest(task.wait_context().wait_wd == WAIT_WD);
                 ttest(task.wait_context().suspended_leaf != nullptr);
             }
         };
@@ -290,7 +290,7 @@ namespace test::coroutine {
                 ttest(task.valid());
                 ttest(task.done());
                 ttest(!task.wait_context().pending());
-                ttest(task.wait_context().wait_reason == 0);
+                ttest(task.wait_context().wait_wd == 0);
                 ttest(task.result() == 5);
             }
         };

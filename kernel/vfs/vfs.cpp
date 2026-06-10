@@ -249,7 +249,7 @@ Result<void> VFS::umount(const char *mountpoint) {
         propagate(cache_res);
         auto cache_sync_future = cache_res.value()->sync_all();
         auto cache_sync_res =
-            task::wait::kthread_wait_for(cache_sync_future);
+            wait::kthread_wait_for(cache_sync_future);
         propagate(cache_sync_res);
     }
 

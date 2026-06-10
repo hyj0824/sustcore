@@ -472,7 +472,7 @@ extern "C" void post_init(void) {
     task::TaskManager::init();
 
     loggers::SUSTCORE::INFO("初始化等待系统");
-    task::wait::WaitReasonManager::init();
+    wait::WaitReasonManager::init();
 
     loggers::SUSTCORE::INFO("初始化调度器");
     auto init_res = init_scheduler();

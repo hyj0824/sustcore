@@ -18,18 +18,18 @@
 它包含两个核心字段:
 
 - `b32 signalbits`
-- `size_t wait_reasons[perm::notif::MAX_SIGNALS]`
+- `wait::wd_t wait_wds[perm::notif::MAX_SIGNALS]`
 
 ### `signalbits`
 
 当前实现中信号位图用 `b32` 保存，注释说明“实际长 24 位”。  
 每一位表示一个 signal 当前是否被置位。
 
-### `wait_reasons`
+### `wait_wds`
 
-每个 signal 都有自己独立的等待原因 ID，因此不同信号的等待者不会互相干扰。
+每个 signal 都有自己独立的等待描述符，因此不同信号的等待者不会互相干扰。
 
-构造时会为每个信号调用 `task::wait::alloc_reason()`。
+构造时会为每个信号调用 `wait::alloc_reason()`。
 
 ## 权限模型
 
@@ -69,7 +69,7 @@ Notification 的权限设计与其它对象不同，不是整对象一组 READ/W
 其中:
 
 - 前四个接口仍然同步返回 `Result<bool>`
-- `wait(idx)` 当前返回 `task::wait::cotask<Result<bool>>`
+- `wait(idx)` 当前返回 `wait::cotask<Result<bool>>`
 
 ## 下标合法性
 
@@ -89,7 +89,7 @@ idx < perm::notif::MAX_SIGNALS
 
 1. 进入中断临界区
 2. 把对应位设置为 1
-3. `wake_all(wait_reasons[idx])`
+3. `wake_all(wait_wds[idx])`
 
 返回值为 `true`。
 
@@ -147,7 +147,7 @@ idx < perm::notif::MAX_SIGNALS
 1. 检查 `idx` 与 `QUERY` 权限
 2. 在循环内进入临界区
 3. 如果对应位已经为 1，则立即 `co_return true`
-4. 否则 `co_await task::wait::FutureAwaiter(...)`
+4. 否则 `co_await wait::FutureAwaiter(...)`
 5. 被恢复后重新检查 signalbit，直到该位为 1
 
 ### 重要语义
@@ -166,8 +166,8 @@ idx < perm::notif::MAX_SIGNALS
 - 对象层仍然需要在临界区内检查 signalbit，避免和 signal/unsignal 并发修改
 - 真正的线程等待登记不再由 `NotificationObject::wait()` 自己完成
 - `FutureAwaiter` 只负责 suspend coroutine 并写入 `WaitContext`
-- 最外层 syscall 路径再根据 `wait_reason` 统一调用
-  `task::wait::register_syscall_wait(...)`
+- 最外层 syscall 路径再根据 `wait_wd` 统一调用
+  `wait::register_syscall_wait(...)`
 
 因此当前 notif wait 的 race-safe 依赖于:
 

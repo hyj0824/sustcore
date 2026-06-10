@@ -309,12 +309,12 @@ namespace schd {
         return schd_res.value()->dequeue(rq(), tcb);
     }
 
-    Result<void> Scheduler::block_current(size_t reason) {
-        return block_current(reason, {});
+    Result<void> Scheduler::block_current(wait::wd_t wait_wd) {
+        return block_current(wait_wd, {});
     }
 
-    Result<void> Scheduler::block_current(size_t reason,
-                                          task::wait::WaitPredicate predicate) {
+    Result<void> Scheduler::block_current(wait::wd_t wait_wd,
+                                          wait::WaitPredicate predicate) {
         auto *current = current_tcb();
         if (current == nullptr) {
             unexpect_return(ErrCode::INVALID_PARAM);
@@ -323,8 +323,8 @@ namespace schd {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
 
-        auto enqueue_res = task::wait::WaitReasonManager::inst().enqueue(
-            reason, current, std::move(predicate));
+        auto enqueue_res = wait::WaitReasonManager::inst().enqueue(
+            wait_wd, current, std::move(predicate));
         propagate(enqueue_res);
 
         current->basic_entity

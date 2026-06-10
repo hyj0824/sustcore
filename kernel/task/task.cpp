@@ -348,7 +348,7 @@ namespace task {
         tcb->karg           = nullptr;
         tcb->list_head      = {};
         tcb->boot_role      = BootThreadRole::NONE;
-        tcb->wait_reason    = 0;
+        tcb->wait_wd        = 0;
         tcb->wait_predicate = {};
         tcb->wait_head      = {};
         tcb->syscall_info.reset();

@@ -23,7 +23,7 @@ namespace cap {
     struct NotificationPayload : public _PayloadHelper<PayloadType::NOTIF> {
         // 信号位图, 实际长 24 位
         std::atomic<b32> signalbits = 0;
-        std::vector<task::wait::Promise<bool>> waiters[perm::notif::MAX_SIGNALS];
+        std::vector<wait::Promise<bool>> waiters[perm::notif::MAX_SIGNALS];
         SpinLocker spinlock;
 
         NotificationPayload();
@@ -79,7 +79,7 @@ namespace cap {
         Result<bool> unsignal(size_t idx);
         Result<bool> set(size_t idx, bool state);
         Result<bool> query(size_t idx);
-        Result<task::wait::Future<bool>> wait(size_t idx);
+        Result<wait::Future<bool>> wait(size_t idx);
     };
 
 }  // namespace cap

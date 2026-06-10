@@ -30,20 +30,25 @@ using tid_t        = size_t;
 using pid_t        = size_t;
 
 namespace task {
+    struct TCB;
+}  // namespace task
+
+namespace wait {
+    /// `wd` 是 `wait descriptor` 的缩写, 表示等待子系统分配的描述符编号.
+    using wd_t = size_t;
+    using WaitPredicate      = std::function<bool(task::TCB *tcb)>;
+    using WaitReadyPredicate = std::function<bool()>;
+}  // namespace wait
+
+namespace task {
     enum class BootThreadRole {
         NONE,
         KINIT,
         INIT_USER,
     };
 
-    struct TCB;
     struct PCB;
     using KThreadEntry = void (*)(void *);
-
-    namespace wait {
-        using WaitPredicate      = std::function<bool(TCB *tcb)>;
-        using WaitReadyPredicate = std::function<bool()>;
-    }  // namespace wait
 
     // Make sure that TCB is has standard layout,
     // so that we can use offsetof to get the TCB pointer from the SU pointer.
@@ -177,7 +182,7 @@ namespace task {
 
         // wait data
         util::ListHead<TCB> wait_head;
-        size_t wait_reason;
+        wait::wd_t wait_wd;
         // 等待谓词, 由等待的线程在进入等待时设置,
         // 由被等待的事件在满足条件时检查, 决定是否可以唤醒线程
         wait::WaitPredicate wait_predicate;

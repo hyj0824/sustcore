@@ -25,7 +25,7 @@
 #include <unordered_map>
 #include <utility>
 
-namespace task::wait {
+namespace wait {
     class FutureAwaiter;
 
     template <typename T>
@@ -39,9 +39,9 @@ namespace task::wait {
 
     struct promise_base;
 
-    size_t alloc_reason();
+    wd_t alloc_reason();
     Result<void> future_begin_update() noexcept;
-    Result<void> future_wait_current(size_t reason,
+    Result<void> future_wait_current(wd_t wait_wd,
                                      WaitReadyPredicate ready_predicate) noexcept;
     Result<void> check_future_wait_thread(bool require_kernel) noexcept;
 
@@ -55,19 +55,19 @@ namespace task::wait {
 
     struct WaitContext {
         FutureState state                      = FutureState::COMPLETE;
-        size_t wait_reason               = 0;
+        wd_t wait_wd                          = 0;
         WaitPredicate wait_predicate           = {};
         WaitReadyPredicate ready_predicate     = {};
         std::coroutine_handle<> suspended_leaf = nullptr;
 
         [[nodiscard]]
         bool pending() const noexcept {
-            return state == FutureState::PENDING && wait_reason != 0;
+            return state == FutureState::PENDING && wait_wd != 0;
         }
 
         void clear() noexcept {
             state           = FutureState::COMPLETE;
-            wait_reason     = 0;
+            wait_wd         = 0;
             wait_predicate  = {};
             ready_predicate = {};
             suspended_leaf  = nullptr;
@@ -193,13 +193,13 @@ namespace task::wait {
         struct is_wait_cotask : std::false_type {};
 
         template <typename T>
-        struct is_wait_cotask<task::wait::cotask<T>> : std::true_type {};
+        struct is_wait_cotask<wait::cotask<T>> : std::true_type {};
 
         template <typename T>
         struct is_wait_future : std::false_type {};
 
         template <typename T>
-        struct is_wait_future<task::wait::Future<T>> : std::true_type {};
+        struct is_wait_future<wait::Future<T>> : std::true_type {};
 
         template <typename Awaitable>
         inline constexpr bool is_wait_cotask_v =
@@ -261,17 +261,17 @@ namespace task::wait {
         template <typename T>
         struct AsyncState {
             std::atomic<FutureState> state = FutureState::PENDING;
-            size_t wait_reason = 0;
-            std::atomic<size_t> ref_count = 0;
-            ErrCode error = ErrCode::FUTURE_ERROR;
+            wd_t wait_wd                   = 0;
+            std::atomic<size_t> ref_count  = 0;
+            ErrCode error                  = ErrCode::FUTURE_ERROR;
             future_value_storage_t<T> value{};
             std::function<Result<void>()> cancel_callback{};
 
             AsyncState() = default;
 
-            explicit AsyncState(size_t reason) noexcept
+            explicit AsyncState(wd_t wait_wd) noexcept
                 : state(FutureState::PENDING),
-                  wait_reason(reason),
+                  wait_wd(wait_wd),
                   ref_count(0),
                   error(ErrCode::FUTURE_ERROR),
                   value(),
@@ -741,8 +741,8 @@ namespace task::wait {
         }
 
         [[nodiscard]]
-        size_t wait_reason() const noexcept {
-            return _state != nullptr ? _state->wait_reason : 0;
+        wd_t wait_wd() const noexcept {
+            return _state != nullptr ? _state->wait_wd : 0;
         }
 
         Result<void> cancle() noexcept;
@@ -771,7 +771,7 @@ namespace task::wait {
                     auto &promise                = handle.promise();
                     auto &wait_context           = promise.wait_context();
                     wait_context.state           = FutureState::PENDING;
-                    wait_context.wait_reason     = future->wait_reason();
+                    wait_context.wait_wd         = future->wait_wd();
                     wait_context.wait_predicate  = {};
                     wait_context.ready_predicate = [future = future]() noexcept {
                         return future != nullptr && future->readable();
@@ -847,8 +847,8 @@ namespace task::wait {
         }
 
         [[nodiscard]]
-        size_t wait_reason() const noexcept {
-            return _state != nullptr ? _state->wait_reason : 0;
+        wd_t wait_wd() const noexcept {
+            return _state != nullptr ? _state->wait_wd : 0;
         }
 
         Result<void> set_value(T value);
@@ -934,8 +934,8 @@ namespace task::wait {
         }
 
         [[nodiscard]]
-        size_t wait_reason() const noexcept {
-            return _state != nullptr ? _state->wait_reason : 0;
+        wd_t wait_wd() const noexcept {
+            return _state != nullptr ? _state->wait_wd : 0;
         }
 
         Result<void> cancle() noexcept;
@@ -1032,16 +1032,16 @@ namespace task::wait {
      */
     class FutureAwaiter {
     private:
-        size_t _reason = 0;
+        wd_t _wait_wd = 0;
         WaitPredicate _predicate;
         WaitReadyPredicate _ready_predicate;
         Result<void> _result{};
 
     public:
-        explicit FutureAwaiter(size_t reason,
+        explicit FutureAwaiter(wd_t wait_wd,
                                WaitPredicate predicate            = {},
                                WaitReadyPredicate ready_predicate = {}) noexcept
-            : _reason(reason),
+            : _wait_wd(wait_wd),
               _predicate(std::move(predicate)),
               _ready_predicate(std::move(ready_predicate)),
               _result{} {}
@@ -1065,7 +1065,7 @@ namespace task::wait {
                 if (_ready_predicate && _ready_predicate()) {
                     return false;
                 }
-                if (_reason == 0) {
+                if (_wait_wd == 0) {
                     _result = std::unexpected(ErrCode::INVALID_PARAM);
                     return false;
                 }
@@ -1073,7 +1073,7 @@ namespace task::wait {
                 auto &promise                = handle.promise();
                 auto &wait_context           = promise.wait_context();
                 wait_context.state           = FutureState::PENDING;
-                wait_context.wait_reason     = _reason;
+                wait_context.wait_wd         = _wait_wd;
                 wait_context.wait_predicate  = std::move(_predicate);
                 wait_context.ready_predicate = std::move(_ready_predicate);
                 wait_context.suspended_leaf  = handle;
@@ -1124,57 +1124,57 @@ namespace task::wait {
 
     // 等待队列
     struct WaitQueue {
-        // 等待队列对应的等待id
-        size_t id;
-        util::IntrusiveList<TCB, &TCB::wait_head> threads;
+        // 等待队列对应的等待描述符, `wd` 是 wait descriptor 的缩写.
+        wd_t wd;
+        util::IntrusiveList<task::TCB, &task::TCB::wait_head> threads;
 
-        // 从wait id中创建一个等待队列
-        explicit WaitQueue(size_t id) : id(id), threads() {}
+        // 从等待描述符中创建一个等待队列
+        explicit WaitQueue(wd_t wd) : wd(wd), threads() {}
     };
 
-    // 等待原因管理器, 负责管理所有的等待队列
+    // 等待描述符管理器, 负责管理所有的等待队列
     class WaitReasonManager {
     private:
         // 编号分配
-        std::atomic<size_t> _next_reason = 1;
-        // wait_id -> wait_queue
-        std::unordered_map<size_t, WaitQueue *> _queues;
+        std::atomic<wd_t> _next_wd = 1;
+        // wait_wd -> wait_queue
+        std::unordered_map<wd_t, WaitQueue *> _queues;
 
         // 获取等待队列, 如果不存在则创建一个新的
-        Result<WaitQueue *> queue_for_wait(size_t id);
+        Result<WaitQueue *> queue_for_wait(wd_t wd);
         // 获取等待队列, 如果不存在则返回错误
-        Result<WaitQueue *> queue_if_exists(size_t id);
+        Result<WaitQueue *> queue_if_exists(wd_t wd);
 
     public:
-        // 分配一个 wait reason 号
-        size_t alloc_reason();
+        // 分配一个等待描述符
+        wd_t alloc_reason();
         // 将当前线程加入等待队列
-        Result<void> enqueue(size_t id, TCB *tcb);
-        Result<void> enqueue(size_t id, TCB *tcb,
+        Result<void> enqueue(wd_t wd, task::TCB *tcb);
+        Result<void> enqueue(wd_t wd, task::TCB *tcb,
                              WaitPredicate predicate);
-        Result<TCB *> peek_one(size_t id);
+        Result<task::TCB *> peek_one(wd_t wd);
         // 从等待队列中弹出一个线程
-        Result<TCB *> pop_one(size_t id);
-        Result<void> remove(TCB *tcb);
+        Result<task::TCB *> pop_one(wd_t wd);
+        Result<void> remove(task::TCB *tcb);
         // 从等待队列中唤醒一个线程, 返回被唤醒线程的数量(0或1)
-        Result<size_t> wake_one(size_t id);
+        Result<size_t> wake_one(wd_t wd);
         // 从等待队列中唤醒所有线程, 返回被唤醒线程的数量
-        Result<size_t> wake_all(size_t id);
+        Result<size_t> wake_all(wd_t wd);
         // 判断是否有线程在等待队列中
-        bool has_waiting(size_t id);
+        bool has_waiting(wd_t wd);
 
-        // 初始化等待原因管理器的单例实例
+        // 初始化等待描述符管理器的单例实例
         static void init();
         static bool initialized();
-        // 获取等待原因管理器的单例实例
+        // 获取等待描述符管理器的单例实例
         static WaitReasonManager &inst();
     };
 
-    size_t alloc_reason();
+    wd_t alloc_reason();
     [[deprecated("use co_await wait_current(...) in syscall coroutine paths")]]
-    Result<void> deprecated_wait_current(size_t id);
+    Result<void> deprecated_wait_current(wd_t wd);
     [[deprecated("use co_await wait_current(...) in syscall coroutine paths")]]
-    Result<void> deprecated_wait_current(size_t id,
+    Result<void> deprecated_wait_current(wd_t wd,
                                          WaitPredicate predicate);
     /**
      * @brief 等待指定事件变为就绪.
@@ -1182,34 +1182,92 @@ namespace task::wait {
      * 该接口面向普通线程阻塞场景: 在每次进入等待前以及被唤醒返回后
      * 都会重新检查 ready_predicate, 直到其返回 true.
      *
-     * @param id 等待原因号, 必须非 0.
+     * @param wd 等待描述符, 必须非 0.
      * @param ready_predicate 事件就绪判断函数, 必须非空.
      * @return Result<void> 成功返回空结果, 失败返回错误码.
      */
-    Result<void> wait_event(size_t id,
+    Result<void> wait_event(wd_t wd,
                             WaitReadyPredicate ready_predicate) noexcept;
-    Result<void> locked_wait_event(size_t id, SpinLocker &lock,
-                                   WaitReadyPredicate ready_predicate) noexcept;
-    Result<TCB *> peek_one(size_t id);
-    Result<size_t> wake_one(size_t id);
-    Result<size_t> wake_all(size_t id);
-    Result<size_t> locked_wakeup(size_t id, SpinLocker &lock);
-    Result<size_t> locked_wake_all(size_t id, SpinLocker &lock);
-    bool has_waiting(size_t id);
+    template <GuardedLockLike GL = GuardedLock>
+    Result<void> locked_wait_event(
+        wd_t wd, SpinLocker &lock,
+        WaitReadyPredicate ready_predicate) noexcept;
+    Result<task::TCB *> peek_one(wd_t wd);
+    Result<size_t> wake_one(wd_t wd);
+    Result<size_t> wake_all(wd_t wd);
+    template <GuardedLockLike GL = GuardedLock>
+    Result<size_t> locked_wakeup(wd_t wd, SpinLocker &lock);
+    template <GuardedLockLike GL = GuardedLock>
+    Result<size_t> locked_wake_all(wd_t wd, SpinLocker &lock);
+    bool has_waiting(wd_t wd);
 
     template <typename T>
     typename detail::future_wait_result_t<T> wait_for(Future<T> &future);
 
     template <typename T>
     typename detail::future_wait_result_t<T> kthread_wait_for(Future<T> &future);
-}  // namespace task::wait
+}  // namespace wait
 
 template <typename T>
-using FutureResult = task::wait::Future<Result<T>>;
+using FutureResult = wait::Future<Result<T>>;
 template <typename T>
-using PromiseResult = task::wait::Promise<Result<T>>;
+using PromiseResult = wait::Promise<Result<T>>;
 
-namespace task::wait {
+namespace wait {
+    template <GuardedLockLike GL>
+    inline Result<void> locked_wait_event(
+        wd_t wd, SpinLocker &lock,
+        WaitReadyPredicate ready_predicate) noexcept {
+        if (wd == 0 || !ready_predicate) {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+
+        auto &scheduler = schd::Scheduler::inst();
+        auto &waitman   = WaitReasonManager::inst();
+
+        auto *current = scheduler.current_tcb();
+        if (current == nullptr) {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+
+        if (current->schd_class == schd::ClassType::IDLE) {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+
+        while (true) {
+            {
+                GL guarded(lock);
+                if (ready_predicate()) {
+                    void_return();
+                }
+
+                auto enqueue_res =
+                    waitman.enqueue(wd, current,
+                                    [ready_predicate = ready_predicate](
+                                        task::TCB *tcb [[maybe_unused]]) {
+                                        return ready_predicate();
+                                    });
+                propagate(enqueue_res);
+
+                current->basic_entity
+                    .flags_set<schd::SchedMeta::FLAGS_NEED_RESCHED>();
+            }
+            scheduler.schedule(true);
+        }
+    }
+
+    template <GuardedLockLike GL>
+    inline Result<size_t> locked_wakeup(wd_t wd, SpinLocker &lock) {
+        GL guarded(lock);
+        return WaitReasonManager::inst().wake_one(wd);
+    }
+
+    template <GuardedLockLike GL>
+    inline Result<size_t> locked_wake_all(wd_t wd, SpinLocker &lock) {
+        GL guarded(lock);
+        return WaitReasonManager::inst().wake_all(wd);
+    }
+
     template <typename T>
     inline Result<void> Promise<T>::set_value(T value) {
         propagate(future_begin_update());
@@ -1219,7 +1277,7 @@ namespace task::wait {
 
         _state->value = std::move(value);
         _state->state = FutureState::COMPLETE;
-        auto wake_res = wake_all(_state->wait_reason);
+        auto wake_res = wake_all(_state->wait_wd);
         propagate(wake_res);
         void_return();
     }
@@ -1232,7 +1290,7 @@ namespace task::wait {
         }
         _state->error = error;
         _state->state = FutureState::ERROR;
-        auto wake_res = wake_all(_state->wait_reason);
+        auto wake_res = wake_all(_state->wait_wd);
         propagate(wake_res);
         void_return();
     }
@@ -1244,7 +1302,7 @@ namespace task::wait {
             unexpect_return(ErrCode::BUSY);
         }
         _state->state = FutureState::CANCLED;
-        auto wake_res = wake_all(_state->wait_reason);
+        auto wake_res = wake_all(_state->wait_wd);
         propagate(wake_res);
         void_return();
     }
@@ -1255,7 +1313,7 @@ namespace task::wait {
             unexpect_return(ErrCode::BUSY);
         }
         _state->state = FutureState::COMPLETE;
-        auto wake_res = wake_all(_state->wait_reason);
+        auto wake_res = wake_all(_state->wait_wd);
         propagate(wake_res);
         void_return();
     }
@@ -1267,7 +1325,7 @@ namespace task::wait {
         }
         _state->error = error;
         _state->state = FutureState::ERROR;
-        auto wake_res = wake_all(_state->wait_reason);
+        auto wake_res = wake_all(_state->wait_wd);
         propagate(wake_res);
         void_return();
     }
@@ -1278,7 +1336,7 @@ namespace task::wait {
             unexpect_return(ErrCode::BUSY);
         }
         _state->state = FutureState::CANCLED;
-        auto wake_res = wake_all(_state->wait_reason);
+        auto wake_res = wake_all(_state->wait_wd);
         propagate(wake_res);
         void_return();
     }
@@ -1297,7 +1355,7 @@ namespace task::wait {
                     propagate(cancel_res);
                 }
                 _state->state = FutureState::CANCLED;
-                auto wake_res = wake_all(_state->wait_reason);
+                auto wake_res = wake_all(_state->wait_wd);
                 propagate(wake_res);
                 void_return();
             }
@@ -1323,7 +1381,7 @@ namespace task::wait {
                     propagate(cancel_res);
                 }
                 _state->state = FutureState::CANCLED;
-                auto wake_res = wake_all(_state->wait_reason);
+                auto wake_res = wake_all(_state->wait_wd);
                 propagate(wake_res);
                 void_return();
             }
@@ -1397,7 +1455,7 @@ namespace task::wait {
         propagate(check_future_wait_thread(false));
         while (!future.readable()) {
             auto wait_res = future_wait_current(
-                future.wait_reason(), [&future]() noexcept {
+                future.wait_wd(), [&future]() noexcept {
                     return future.readable();
                 });
             propagate(wait_res);
@@ -1411,11 +1469,11 @@ namespace task::wait {
         propagate(check_future_wait_thread(true));
         while (!future.readable()) {
             auto wait_res = future_wait_current(
-                future.wait_reason(), [&future]() noexcept {
+                future.wait_wd(), [&future]() noexcept {
                     return future.readable();
                 });
             propagate(wait_res);
         }
         return take_wait_result(future);
     }
-}  // namespace task::wait
+}  // namespace wait

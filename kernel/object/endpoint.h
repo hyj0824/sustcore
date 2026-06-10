@@ -51,17 +51,17 @@ namespace cap {
     struct PendingEndpointSend {
         util::ListHead<PendingEndpointSend> list_head{};
         EndpointMessage *message = nullptr;
-        task::wait::Promise<void> promise{};
+        wait::Promise<void> promise{};
     };
 
     struct PendingEndpointRecv {
         util::ListHead<PendingEndpointRecv> list_head{};
-        task::wait::Promise<EndpointMessage *> promise{};
+        wait::Promise<EndpointMessage *> promise{};
     };
 
     struct PendingReplyRecv {
         util::ListHead<PendingReplyRecv> list_head{};
-        task::wait::Promise<EndpointMessage *> promise{};
+        wait::Promise<EndpointMessage *> promise{};
     };
 
     /**
@@ -107,14 +107,14 @@ namespace cap {
          *
          * Future就绪表示该消息已经被接收方消费.
          */
-        Result<task::wait::Future<void>> send(
+        Result<wait::Future<void>> send(
             pid_t sender_pid, const EndpointMsgView &msg);
         /**
          * @brief 发起一次接收请求, 返回异步结果句柄.
          *
          * Future就绪后可读取接收到的消息指针.
          */
-        Result<task::wait::Future<EndpointMessage *>> recv();
+        Result<wait::Future<EndpointMessage *>> recv();
     };
 
     /**
@@ -141,6 +141,6 @@ namespace cap {
         /**
          * @brief 发起一次回复读取请求, 返回异步结果句柄.
          */
-        Result<task::wait::Future<EndpointMessage *>> recv();
+        Result<wait::Future<EndpointMessage *>> recv();
     };
 }  // namespace cap

@@ -37,7 +37,7 @@
 ### 等待信息
 
 - `wait_head`: 挂入等待队列的节点。
-- `wait_reason`: 当前等待原因。
+- `wait_wd`: 当前等待描述符。
 - `wait_predicate`: 唤醒前检查的谓词。
 
 ### syscall 信息
@@ -136,12 +136,12 @@
 
 ## 等待系统
 
-等待原因由 `task::wait::WaitReasonManager` 管理。
+等待描述符由 `wait::WaitReasonManager` 管理。
 
 核心结构:
 
-- `size_t`: 等待原因编号。
-- `WaitQueue`: 单个等待原因对应的 TCB 队列。
+- `wait::wd_t`: 等待描述符编号。
+- `WaitQueue`: 单个等待描述符对应的 TCB 队列。
 - `WaitPredicate`: 唤醒时针对 TCB 的谓词。
 - `WaitReadyPredicate`: syscall awaiter 挂起前的就绪判断。
 
@@ -165,13 +165,13 @@
 当前等待模型由三部分组成:
 
 1. `FutureAwaiter`
-2. `task::wait::WaitContext`
-3. `task::wait::cotask`
+2. `wait::WaitContext`
+3. `wait::cotask`
 
 `FutureAwaiter` 挂起时只负责:
 
 1. 检查 ready predicate
-2. 把 `wait_reason`、谓词和 suspended leaf 写入 `WaitContext`
+2. 把 `wait_wd`、谓词和 suspended leaf 写入 `WaitContext`
 3. suspend 当前 coroutine
 
 它不直接:

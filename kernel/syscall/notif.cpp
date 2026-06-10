@@ -62,7 +62,7 @@ namespace syscall {
         propagate(notif_res);
         auto future_res = notif_res.value().wait(idx);
         propagate(future_res);
-        auto wait_res = task::wait::wait_for(future_res.value());
+        auto wait_res = wait::wait_for(future_res.value());
         propagate(wait_res);
         return wait_res.value();
     }

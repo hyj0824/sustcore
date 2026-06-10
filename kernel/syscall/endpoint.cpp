@@ -305,7 +305,7 @@ namespace syscall {
         // wait for the send future to be ready
         auto future_res = obj.send(current_pid(), msg_view_res.value());
         propagate(future_res);
-        auto wait_res = task::wait::wait_for(future_res.value());
+        auto wait_res = wait::wait_for(future_res.value());
         propagate(wait_res);
         void_return();
     }
@@ -325,7 +325,7 @@ namespace syscall {
         auto future_res = endpoint_obj.recv();
         propagate(future_res);
         // wait for the future to be ready and get the message
-        auto recv_res = task::wait::wait_for(future_res.value());
+        auto recv_res = wait::wait_for(future_res.value());
         propagate(recv_res);
 
         cap::EndpointMessage *msg = recv_res.value();
@@ -381,7 +381,7 @@ namespace syscall {
         // send and wait
         auto send_future_res = endpoint_obj.send(current_pid(), call_msg);
         propagate(send_future_res);
-        auto send_wait_res = task::wait::wait_for(send_future_res.value());
+        auto send_wait_res = wait::wait_for(send_future_res.value());
         propagate(send_wait_res);
         // once we're able to send the message,
         // and the message was successfully received,
@@ -393,7 +393,7 @@ namespace syscall {
         cap::ReplyObject reply_obj(util::nnullforce(caller_cap_res.value()));
         auto reply_future_res = reply_obj.recv();
         propagate(reply_future_res);
-        auto reply_wait_res = task::wait::wait_for(reply_future_res.value());
+        auto reply_wait_res = wait::wait_for(reply_future_res.value());
         propagate(reply_wait_res);
 
         auto reply = util::owner(reply_wait_res.value());

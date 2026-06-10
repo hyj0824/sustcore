@@ -149,7 +149,7 @@ namespace blk {
         buffer.inflight = true;
         auto lower_future =
             _request_layer->submit_write_async(buffer.blkno, buffer.data, 1);
-        auto lower_res  = task::wait::kthread_wait_for(lower_future);
+        auto lower_res  = wait::kthread_wait_for(lower_future);
         buffer.inflight = false;
         if (!lower_res.has_value()) {
             return make_void_future(std::unexpected(lower_res.error()));
@@ -161,7 +161,7 @@ namespace blk {
         buffer.dirty = false;
 
         auto flush_future = _request_layer->submit_flush_async();
-        auto flush_res    = task::wait::kthread_wait_for(flush_future);
+        auto flush_res    = wait::kthread_wait_for(flush_future);
         if (!flush_res.has_value()) {
             return make_void_future(std::unexpected(flush_res.error()));
         }
@@ -177,7 +177,7 @@ namespace blk {
             }
             BufferHandler handler(util::nnullforce(buffer), *this);
             auto sync_future = sync(handler);
-            auto sync_res    = task::wait::kthread_wait_for(sync_future);
+            auto sync_res    = wait::kthread_wait_for(sync_future);
             if (!sync_res.has_value()) {
                 return make_void_future(std::unexpected(sync_res.error()));
             }
@@ -187,7 +187,7 @@ namespace blk {
 
     FutureResult<void> BufferCache::tidy() {
         auto sync_future = sync_all();
-        auto sync_res    = task::wait::kthread_wait_for(sync_future);
+        auto sync_res    = wait::kthread_wait_for(sync_future);
         if (!sync_res.has_value()) {
             return make_void_future(std::unexpected(sync_res.error()));
         }
@@ -227,7 +227,7 @@ namespace blk {
         buffer->inflight = true;
         auto sumbit_future =
             _request_layer->submit_read_async(blkno, buffer->data, 1);
-        auto submit_res   = task::wait::kthread_wait_for(sumbit_future);
+        auto submit_res   = wait::kthread_wait_for(sumbit_future);
         buffer->inflight = false;
         if (!submit_res.has_value()) {
             return make_handler_future(std::unexpected(submit_res.error()));

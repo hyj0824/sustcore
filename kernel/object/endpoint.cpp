@@ -161,7 +161,7 @@ namespace cap {
         }
     }
 
-    Result<task::wait::Future<void>> EndpointObject::send(
+    Result<wait::Future<void>> EndpointObject::send(
         pid_t sender_pid, const EndpointMsgView &view) {
         propagate(check_msg_valid(view));
         if (!imply(perm::endpoint::WRITE)) {
@@ -234,7 +234,7 @@ namespace cap {
         return future;
     }
 
-    Result<task::wait::Future<EndpointMessage *>> EndpointObject::recv() {
+    Result<wait::Future<EndpointMessage *>> EndpointObject::recv() {
         if (!imply(perm::endpoint::READ)) {
             loggers::CAPABILITY::ERROR("Endpoint READ权限不足");
             unexpect_return(ErrCode::INSUFFICIENT_PERMISSIONS);
@@ -358,7 +358,7 @@ namespace cap {
         void_return();
     }
 
-    Result<task::wait::Future<EndpointMessage *>> ReplyObject::recv() {
+    Result<wait::Future<EndpointMessage *>> ReplyObject::recv() {
         if (!imply(perm::reply::CALLER)) {
             loggers::CAPABILITY::ERROR("Reply CALLER权限不足");
             unexpect_return(ErrCode::INSUFFICIENT_PERMISSIONS);
