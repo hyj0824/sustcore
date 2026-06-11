@@ -17,6 +17,7 @@
 #include <guard.h>
 #include <kinit.h>
 #include <kio.h>
+#include <kmod/bootstrap.h>
 #include <logger.h>
 #include <mem/alloc.h>
 #include <mem/slub.h>
@@ -37,6 +38,8 @@
 #include <vfs/vfs.h>
 
 #include <cassert>
+#include <cstring>
+#include <vector>
 
 namespace task {
     namespace {
@@ -234,6 +237,80 @@ namespace task {
                 .entrypoint   = VirAddr(static_cast<addr_t>(0)),
                 .startup_blob = util::owner<char *>(nullptr),
             };
+        }
+
+        [[nodiscard]]
+        bool valid_bootstrap_cap_path(const BootstrapCapPathView &record) {
+            return record.cap != cap::null && record.cap != cap::error &&
+                   record.path != nullptr && record.path[0] == '/';
+        }
+
+        [[nodiscard]]
+        size_t bootstrap_cap_path_record_size(
+            const BootstrapCapPathView &record) {
+            return sizeof(BootstrapRecordHeader) + sizeof(CapIdx) +
+                   strlen(record.path) + 1;
+        }
+
+        [[nodiscard]]
+        Result<void> append_bootstrap_record(char *dst, size_t blob_size,
+                                             size_t &offset, uint32_t type,
+                                             const void *data,
+                                             size_t data_size) {
+            if (dst == nullptr || data == nullptr) {
+                unexpect_return(ErrCode::NULLPTR);
+            }
+            size_t record_size = sizeof(BootstrapRecordHeader) + data_size;
+            if (offset > blob_size || blob_size - offset < record_size) {
+                unexpect_return(ErrCode::OUT_OF_BOUNDARY);
+            }
+
+            auto *header =
+                reinterpret_cast<BootstrapRecordHeader *>(dst + offset);
+            header->next = 0;
+            header->type = type;
+            memcpy(dst + offset + sizeof(BootstrapRecordHeader), data,
+                   data_size);
+            offset += record_size;
+            void_return();
+        }
+
+        [[nodiscard]]
+        Result<void> append_bootstrap_cap_path_record(
+            char *dst, size_t blob_size, size_t &offset, uint32_t type,
+            const BootstrapCapPathView &record) {
+            if (!valid_bootstrap_cap_path(record)) {
+                unexpect_return(ErrCode::INVALID_PARAM);
+            }
+
+            size_t path_len    = strlen(record.path) + 1;
+            size_t record_size = sizeof(BootstrapRecordHeader) +
+                                 sizeof(CapIdx) + path_len;
+            if (offset > blob_size || blob_size - offset < record_size) {
+                unexpect_return(ErrCode::OUT_OF_BOUNDARY);
+            }
+
+            auto *header =
+                reinterpret_cast<BootstrapRecordHeader *>(dst + offset);
+            header->next = 0;
+            header->type = type;
+            memcpy(dst + offset + sizeof(BootstrapRecordHeader), &record.cap,
+                   sizeof(record.cap));
+            memcpy(dst + offset + sizeof(BootstrapRecordHeader) +
+                       sizeof(record.cap),
+                   record.path, path_len);
+            offset += record_size;
+            void_return();
+        }
+
+        void finalize_bootstrap_record_next(char *blob,
+                                            const std::vector<size_t> &offsets) {
+            for (size_t i = 0; i < offsets.size(); ++i) {
+                auto *header = reinterpret_cast<BootstrapRecordHeader *>(
+                    blob + offsets[i]);
+                header->next =
+                    i + 1 < offsets.size() ? offsets[i + 1] : 0;
+            }
         }
 
         /**
@@ -853,23 +930,135 @@ namespace task {
         return image_cap;
     }
 
+    Result<void> TaskManager::validate_bootstrap_blob(const void *startup_blob,
+                                                      size_t startup_blob_size) {
+        if (startup_blob_size == 0) {
+            void_return();
+        }
+        if (startup_blob == nullptr) {
+            unexpect_return(ErrCode::NULLPTR);
+        }
+
+        bool valid = true;
+        bool walked = bootstrap_foreach_record(
+            startup_blob, startup_blob_size, [&](const BootstrapRecordView &view) {
+                if (!valid) {
+                    return;
+                }
+                if (view.header->type == BOOTSTRAP_TYPE_FILECAPEXPLAIN ||
+                    view.header->type == BOOTSTRAP_TYPE_DIRCAPEXPLAIN)
+                {
+                    BootstrapCapPathView cap_path{};
+                    valid = bootstrap_parse_cap_path(view, cap_path);
+                    if (!valid || !valid_bootstrap_cap_path(cap_path)) {
+                        return;
+                    }
+                    return;
+                }
+
+                if (view.header->type == 0) {
+                    valid = false;
+                }
+            });
+        if (!walked || !valid) {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+        void_return();
+    }
+
+    Result<void> TaskManager::build_bootstrap_blob(
+        const void *startup_blob, size_t startup_blob_size,
+        const std::vector<BootstrapCapPathView> &dir_records,
+        const std::vector<BootstrapCapPathView> &file_records, TaskSpec &spec) {
+        auto validate_res = validate_bootstrap_blob(startup_blob,
+                                                    startup_blob_size);
+        propagate(validate_res);
+
+        size_t total_size = startup_blob_size;
+        for (const auto &record : dir_records) {
+            if (!valid_bootstrap_cap_path(record)) {
+                unexpect_return(ErrCode::INVALID_PARAM);
+            }
+            total_size += bootstrap_cap_path_record_size(record);
+        }
+        for (const auto &record : file_records) {
+            if (!valid_bootstrap_cap_path(record)) {
+                unexpect_return(ErrCode::INVALID_PARAM);
+            }
+            total_size += bootstrap_cap_path_record_size(record);
+        }
+
+        if (total_size == 0) {
+            if (spec.startup_blob != nullptr) {
+                delete[] spec.startup_blob.get();
+                spec.startup_blob      = util::owner<char *>(nullptr);
+                spec.startup_blob_size = 0;
+            }
+            void_return();
+        }
+
+        auto merged = util::owner(new char[total_size]);
+        if (merged.get() == nullptr) {
+            unexpect_return(ErrCode::OUT_OF_MEMORY);
+        }
+
+        size_t offset = 0;
+        std::vector<size_t> record_offsets{};
+        if (startup_blob_size != 0) {
+            bool copied = true;
+            bool walked = bootstrap_foreach_record(
+                startup_blob, startup_blob_size,
+                [&](const BootstrapRecordView &view) {
+                    if (!copied) {
+                        return;
+                    }
+                    record_offsets.push_back(offset);
+                    auto append_res = append_bootstrap_record(
+                        merged.get(), total_size, offset, view.header->type,
+                        view.data, view.data_size);
+                    copied = append_res.has_value();
+                });
+            if (!walked || !copied) {
+                unexpect_return(ErrCode::INVALID_PARAM);
+            }
+        }
+
+        for (const auto &record : dir_records) {
+            record_offsets.push_back(offset);
+            auto append_res = append_bootstrap_cap_path_record(
+                merged.get(), total_size, offset, BOOTSTRAP_TYPE_DIRCAPEXPLAIN,
+                record);
+            propagate(append_res);
+        }
+        for (const auto &record : file_records) {
+            record_offsets.push_back(offset);
+            auto append_res = append_bootstrap_cap_path_record(
+                merged.get(), total_size, offset, BOOTSTRAP_TYPE_FILECAPEXPLAIN,
+                record);
+            propagate(append_res);
+        }
+
+        finalize_bootstrap_record_next(merged.get(), record_offsets);
+        if (spec.startup_blob != nullptr) {
+            delete[] spec.startup_blob.get();
+        }
+        spec.startup_blob      = std::move(merged);
+        spec.startup_blob_size = total_size;
+        void_return();
+    }
+
     Result<void> TaskManager::load_task_spec(CapIdx image_cap,
                                              cap::CHolder *holder,
                                              const void *startup_blob,
                                              size_t startup_blob_size,
                                              TaskSpec &spec, LoadPrm &prm) {
-        if (startup_blob_size != 0) {
-            if (startup_blob == nullptr) {
-                unexpect_return(ErrCode::NULLPTR);
-            }
-            auto copied = util::owner(new char[startup_blob_size]);
-            if (copied.get() == nullptr) {
-                unexpect_return(ErrCode::OUT_OF_MEMORY);
-            }
-            memcpy(copied.get(), startup_blob, startup_blob_size);
-            spec.startup_blob      = std::move(copied);
-            spec.startup_blob_size = startup_blob_size;
-        }
+        std::vector<BootstrapCapPathView> dir_records{};
+        std::vector<BootstrapCapPathView> file_records{};
+        auto bootstrap_res = build_bootstrap_blob(startup_blob,
+                                                  startup_blob_size,
+                                                  dir_records, file_records,
+                                                  spec);
+        propagate(bootstrap_res);
 
         auto preload_res = holder == nullptr
                                ? preload(image_cap, spec, prm)
@@ -944,9 +1133,40 @@ namespace task {
         });
         auto image_res = VFS::inst().open(path, *holder);
         propagate(image_res);
-        auto load_res = load_task_image(image_res.value(), holder,
-                                        INIT_SCHED_CLASS, false);
+        auto root_res = VFS::inst().open_dir(
+            "/", *holder,
+            perm::vdir::READ | perm::vdir::WRITE | perm::vdir::EXEC |
+                perm::basic::CLONE);
+        propagate(root_res);
+        std::vector<BootstrapCapPathView> dir_records{};
+        std::vector<BootstrapCapPathView> file_records{};
+        dir_records.push_back(BootstrapCapPathView{
+            .cap  = root_res.value(),
+            .path = "/",
+        });
+
+        TaskSpec spec = empty_task_spec();
+        LoadPrm load_prm{};
+        auto bootstrap_res =
+            build_bootstrap_blob(nullptr, 0, dir_records, file_records, spec);
+        propagate(bootstrap_res);
+        auto load_spec_res = load_task_spec(image_res.value(), holder,
+                                            spec.startup_blob.get(),
+                                            spec.startup_blob_size, spec,
+                                            load_prm);
+        if (!load_spec_res.has_value()) {
+            destroy_unowned_task_memory(spec);
+            propagate_return(load_spec_res);
+        }
+        bool spec_owned = true;
+        auto spec_guard = util::Guard([&]() {
+            if (spec_owned) {
+                destroy_unowned_task_memory(spec);
+            }
+        });
+        auto load_res = create_loaded_user_task(spec, INIT_SCHED_CLASS, false);
         propagate(load_res);
+        spec_owned = false;
         holder_guard.release();
         return load_res.value();
     }

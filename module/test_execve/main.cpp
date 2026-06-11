@@ -7,16 +7,17 @@
 constexpr size_t kSignalSyn    = 0;
 constexpr size_t kSignalSynAck = 1;
 constexpr size_t kSignalAck    = 2;
+constexpr uint32_t kBootstrapTypeNotif = 0xFFFF0002U;
 
 static CapIdx bootstrap_notif() {
-    if (__startup_data == nullptr ||
-        __startup_size != sizeof(NotifBootstrap))
+    CapIdx notif = cap::null;
+    if (!bootstrap_find_single_cap(__startup_data, __startup_size,
+                                   kBootstrapTypeNotif, notif))
     {
         printf("test_execve: 启动参数无效 size=%u\n", __startup_size);
         exit(-1);
     }
-    auto *bootstrap = static_cast<const NotifBootstrap *>(__startup_data);
-    return bootstrap->notif;
+    return notif;
 }
 
 int kmod_main() {

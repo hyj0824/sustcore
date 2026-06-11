@@ -12,6 +12,7 @@ constexpr uint64_t kOpEncrypt     = 1;
 constexpr uint64_t kOpDecrypt     = 2;
 constexpr uint64_t kKey           = 0xfedcba9876543210ULL;
 constexpr uint64_t kValue         = 0x123456789abcdef0ULL;
+constexpr uint32_t kBootstrapTypeEndpoint = 0xFFFF0001U;
 
 struct CallRequest {
     uint64_t op;
@@ -20,14 +21,14 @@ struct CallRequest {
 };
 
 static CapIdx bootstrap_endpoint() {
-    if (__startup_data == nullptr ||
-        __startup_size != sizeof(EndpointBootstrap))
+    CapIdx endpoint = cap::null;
+    if (!bootstrap_find_single_cap(__startup_data, __startup_size,
+                                   kBootstrapTypeEndpoint, endpoint))
     {
         printf("test_call_user: 启动参数无效 size=%u\n", __startup_size);
         exit(-1);
     }
-    auto *bootstrap = static_cast<const EndpointBootstrap *>(__startup_data);
-    return bootstrap->endpoint;
+    return endpoint;
 }
 
 static uint64_t call_service(CapIdx endpoint, uint64_t op, uint64_t value) {

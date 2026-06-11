@@ -74,8 +74,6 @@ size_t sys_vfs_write(CapIdx file_cap, size_t offset, const void *buf,
                      size_t len);
 size_t sys_vfs_size(CapIdx file_cap);
 bool sys_vfs_sync(CapIdx capidx);
-CapIdx sys_open_initrd();
-CapIdx sys_open_root();
 
 CapIdx sys_cap_clone(CapIdx src);
 bool sys_cap_downgrade(CapIdx idx, uint64_t new_perm);

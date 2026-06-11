@@ -179,8 +179,6 @@ namespace syscall {
             case SYS_VFS_SYNC:            return "SYS_VFS_SYNC";
             case SYS_VFS_MKFILE:          return "SYS_VFS_MKFILE";
             case SYS_VFS_MKDIR:           return "SYS_VFS_MKDIR";
-            case SYS_OPEN_INITRD:         return "SYS_OPEN_INITRD";
-            case SYS_OPEN_ROOT:           return "SYS_OPEN_ROOT";
             default:                      return "UNKNOWN_SYSCALL";
         }
     }
@@ -324,14 +322,6 @@ namespace syscall {
             }
             case SYS_VFS_SYNC: {
                 ret = result_bool_ret("sync", vfs_sync(capidx));
-                break;
-            }
-            case SYS_OPEN_INITRD: {
-                ret = result_value_ret("open_initrd", open_initrd());
-                break;
-            }
-            case SYS_OPEN_ROOT: {
-                ret = result_value_ret("open_root", open_root());
                 break;
             }
             case SYS_PCB_KILL: {

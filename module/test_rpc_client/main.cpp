@@ -9,6 +9,7 @@
 #include <string>
 
 constexpr sus_i32 kTestValue    = 114514;
+constexpr uint32_t kBootstrapTypeEndpoint = 0xFFFF0001U;
 
 class SampleServiceInterface {
 public:
@@ -46,14 +47,14 @@ public:
 };
 
 static CapIdx bootstrap_endpoint() {
-    if (__startup_data == nullptr ||
-        __startup_size != sizeof(EndpointBootstrap))
+    CapIdx endpoint = cap::null;
+    if (!bootstrap_find_single_cap(__startup_data, __startup_size,
+                                   kBootstrapTypeEndpoint, endpoint))
     {
         printf("test_rpc_client: 启动参数无效 size=%u\n", __startup_size);
         exit(-1);
     }
-    auto *bootstrap = static_cast<const EndpointBootstrap *>(__startup_data);
-    return bootstrap->endpoint;
+    return endpoint;
 }
 
 static void fail(const char *msg) {

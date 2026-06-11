@@ -170,8 +170,8 @@ private:
 
     [[nodiscard]]
     Result<util::refc_ptr<VINode>> _resolve_from(
-        util::refc_ptr<VINode> base, const util::Path &path,
-        VSuperblock &vsb) const;
+        util::refc_ptr<VINode> base, const util::Path &base_path,
+        const util::Path &path, VSuperblock *vsb) const;
 
     [[nodiscard]]
     Result<VFile *> _open_file_at(VINode &parent, const util::Path &mount_path,
@@ -238,10 +238,6 @@ public:
     [[nodiscard]]
     Result<CapIdx> mkdir(cap::Capability &parent_dir_cap, const char *relpath,
                          flags::oflg_t oflags, cap::CHolder &holder);
-    [[nodiscard]]
-    Result<CapIdx> open_initrd(cap::CHolder &holder);
-    [[nodiscard]]
-    Result<CapIdx> open_root(cap::CHolder &holder);
     [[nodiscard]]
     Result<CapIdx> open_dir(const char *filepath, cap::CHolder &holder,
                             b64 perm);

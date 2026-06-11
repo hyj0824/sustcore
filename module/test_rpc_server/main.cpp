@@ -20,6 +20,8 @@ public:
     [[= rpc::expose(1)]] virtual sus_i32 get() = 0;
 };
 
+constexpr uint32_t kBootstrapTypeEndpoint = 0xFFFF0001U;
+
 class SampleServer
     : public SampleServiceInterface,
       public rpc::MetaServer<SampleServiceInterface, SampleServer> {
@@ -50,7 +52,7 @@ int kmod_main() {
     printf("Server is running endpoint=%p\n", (void *)endpoint);
 
     CapIdx initial_caps[] = {endpoint};
-    EndpointBootstrap bootstrap{endpoint};
+    BootstrapSingleCapRecord<kBootstrapTypeEndpoint> bootstrap(endpoint);
     int fd                = kmod_fopen("/initrd/test_rpc_client.mod", "x");
     CapIdx client_pcb     =
         fd < 0 ? cap::error

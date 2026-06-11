@@ -9,17 +9,18 @@
 
 constexpr uint64_t kValueK    = 0xfedcba9876543210ULL;
 constexpr size_t kRepeatCount = 10;
+constexpr uint32_t kBootstrapTypeEndpoint = 0xFFFF0001U;
 
 static CapIdx bootstrap_endpoint() {
-    if (__startup_data == nullptr ||
-        __startup_size != sizeof(EndpointBootstrap))
+    CapIdx endpoint = cap::null;
+    if (!bootstrap_find_single_cap(__startup_data, __startup_size,
+                                   kBootstrapTypeEndpoint, endpoint))
     {
         printf("test-endpoint-slave: 启动参数无效 size=%u\n",
                __startup_size);
         exit(-1);
     }
-    auto *bootstrap = static_cast<const EndpointBootstrap *>(__startup_data);
-    return bootstrap->endpoint;
+    return endpoint;
 }
 
 static uint64_t recv_u64(CapIdx endpoint, const char *tag) {

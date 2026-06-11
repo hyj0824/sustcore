@@ -14,6 +14,7 @@ constexpr size_t kSignalSynAck       = 1;
 constexpr size_t kSignalAck          = 2;
 constexpr size_t kCompletionSignal   = 0;
 static CapIdx exec_notif_cap         = cap::null;
+constexpr uint32_t kBootstrapTypeNotif = 0xFFFF0002U;
 
 static const char *cap_type_name(PayloadType type) {
     return to_string(type);
@@ -98,7 +99,7 @@ int kmod_main() {
 
     if (is_child) {
         CapIdx reserved_caps[] = {exec_notif_cap};
-        NotifBootstrap bootstrap{exec_notif_cap};
+        BootstrapSingleCapRecord<kBootstrapTypeNotif> bootstrap(exec_notif_cap);
         printf("test_fork(%s): child exec test_execve\n", tag);
         int fd = kmod_fopen("/initrd/test_execve.mod", "x");
         if (fd < 0 ||

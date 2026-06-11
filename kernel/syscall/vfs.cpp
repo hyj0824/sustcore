@@ -132,15 +132,4 @@ namespace syscall {
         unexpect_return(ErrCode::TYPE_NOT_MATCHED);
     }
 
-    Result<CapIdx> open_initrd() {
-        auto holder_res = current_holder_for_vfs();
-        propagate(holder_res);
-        return VFS::inst().open_initrd(*holder_res.value());
-    }
-
-    Result<CapIdx> open_root() {
-        auto holder_res = current_holder_for_vfs();
-        propagate(holder_res);
-        return VFS::inst().open_root(*holder_res.value());
-    }
 }  // namespace syscall

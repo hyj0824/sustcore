@@ -9,6 +9,7 @@
 
 constexpr uint64_t kOpEncrypt     = 1;
 constexpr uint64_t kOpDecrypt     = 2;
+constexpr uint32_t kBootstrapTypeEndpoint = 0xFFFF0001U;
 
 struct CallRequest {
     uint64_t op;
@@ -70,7 +71,7 @@ int kmod_main() {
     }
 
     CapIdx initial_caps[] = {endpoint};
-    EndpointBootstrap bootstrap{endpoint};
+    BootstrapSingleCapRecord<kBootstrapTypeEndpoint> bootstrap(endpoint);
     int fd                = kmod_fopen("/initrd/test_call_user.mod", "x");
     CapIdx user_pcb       =
         fd < 0 ? cap::error

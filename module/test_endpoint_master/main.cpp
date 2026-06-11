@@ -9,6 +9,7 @@
 
 constexpr uint64_t kValueV    = 0x123456789abcdef0ULL;
 constexpr size_t kRepeatCount = 10;
+constexpr uint32_t kBootstrapTypeEndpoint = 0xFFFF0001U;
 
 static uint64_t recv_u64(CapIdx endpoint, const char *tag) {
     uint64_t value = 0;
@@ -39,7 +40,7 @@ int kmod_main() {
     }
 
     CapIdx initial_caps[] = {endpoint};
-    EndpointBootstrap bootstrap{endpoint};
+    BootstrapSingleCapRecord<kBootstrapTypeEndpoint> bootstrap(endpoint);
     int fd = kmod_fopen("/initrd/test_endpoint_slave.mod", "x");
     CapIdx slave_pcb =
         fd < 0 ? cap::error

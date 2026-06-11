@@ -14,6 +14,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <kmod/bootstrap.h>
 
 namespace {
     struct FileStructure {
@@ -22,12 +23,20 @@ namespace {
         bool used     = false;
     };
 
+    struct DirBinding {
+        CapIdx cap          = cap::null;
+        const char *path    = nullptr;
+        size_t path_len     = 0;
+        bool from_bootstrap = false;
+    };
+
     // allow up to 32 open files simultaneously,
     // which is temporarily sufficient for our needs
     constexpr int MAX_KMOD_FILES = 32;
     FileStructure g_files[MAX_KMOD_FILES]{};
-    CapIdx g_initrd_cap = cap::null;
-    CapIdx g_root_cap   = cap::null;
+    constexpr int MAX_DIR_BINDINGS = 16;
+    DirBinding g_dir_bindings[MAX_DIR_BINDINGS]{};
+    bool g_dir_bindings_loaded = false;
 
     // to find the free slot to insert the file
     [[nodiscard]]
@@ -43,43 +52,86 @@ namespace {
         return -1;
     }
 
-    // to ensure the capability refers to '/initrd/' is temporarily usable
-    [[nodiscard]]
-    bool ensure_initrd_cap() {
-        if (g_initrd_cap != cap::null) {
-            return true;
-        }
-        g_initrd_cap = sys_open_initrd();
-        return g_initrd_cap != cap::error && g_initrd_cap != cap::null;
-    }
-
-    [[nodiscard]]
-    bool ensure_root_cap() {
-        if (g_root_cap != cap::null) {
-            return true;
-        }
-        g_root_cap = sys_open_root();
-        return g_root_cap != cap::error && g_root_cap != cap::null;
-    }
-    
-    // to strip the prefix of 'initrd' to get the relative path for vfs open
-    [[nodiscard]]
-    const char *strip_initrd_prefix(const char *path) {
-        constexpr const char *INITRD_PREFIX = "/initrd/";
-        constexpr size_t INITRD_PREFIX_LEN  = 8;
-        if (path == nullptr) {
-            return nullptr;
-        }
-        if (strncmp(path, INITRD_PREFIX, INITRD_PREFIX_LEN) != 0) {
-            return nullptr;
-        }
-        return path + INITRD_PREFIX_LEN;
-    }
-
     struct OpenBase {
-        CapIdx cap    = cap::null;
+        CapIdx cap          = cap::null;
         const char *relpath = nullptr;
     };
+
+    [[nodiscard]]
+    bool binding_matches(const DirBinding &binding, const char *path) {
+        if (binding.cap == cap::null || binding.path == nullptr ||
+            binding.path_len == 0 || path == nullptr)
+        {
+            return false;
+        }
+        if (strncmp(path, binding.path, binding.path_len) != 0) {
+            return false;
+        }
+        if (binding.path_len == 1) {
+            return path[0] == '/';
+        }
+        return path[binding.path_len] == '\0' || path[binding.path_len] == '/';
+    }
+
+    void ensure_dir_bindings_loaded() {
+        if (g_dir_bindings_loaded) {
+            return;
+        }
+        g_dir_bindings_loaded = true;
+        int binding_count     = 0;
+        (void)bootstrap_foreach_record(
+            __startup_data, __startup_size, [&](const BootstrapRecordView &view) {
+                if (view.header->type != BOOTSTRAP_TYPE_DIRCAPEXPLAIN ||
+                    binding_count >= MAX_DIR_BINDINGS)
+                {
+                    return;
+                }
+                BootstrapCapPathView cap_path{};
+                if (!bootstrap_parse_cap_path(view, cap_path) ||
+                    cap_path.cap == cap::null || cap_path.cap == cap::error ||
+                    cap_path.path == nullptr || cap_path.path[0] != '/')
+                {
+                    return;
+                }
+                for (int i = 0; i < binding_count; ++i) {
+                    if (strcmp(g_dir_bindings[i].path, cap_path.path) == 0) {
+                        return;
+                    }
+                }
+                g_dir_bindings[binding_count++] = DirBinding{
+                    .cap          = cap_path.cap,
+                    .path         = cap_path.path,
+                    .path_len     = strlen(cap_path.path),
+                    .from_bootstrap = true,
+                };
+            });
+    }
+
+    [[nodiscard]]
+    OpenBase resolve_via_bindings(const char *path) {
+        ensure_dir_bindings_loaded();
+        const DirBinding *best = nullptr;
+        for (const auto &binding : g_dir_bindings) {
+            if (!binding_matches(binding, path)) {
+                continue;
+            }
+            if (best == nullptr || binding.path_len > best->path_len) {
+                best = &binding;
+            }
+        }
+        if (best == nullptr) {
+            return {};
+        }
+
+        const char *relpath = path + best->path_len;
+        if (best->path_len == 1 && relpath[0] == '/') {
+            ++relpath;
+        }
+        if (relpath[0] == '/') {
+            ++relpath;
+        }
+        return OpenBase{.cap = best->cap, .relpath = relpath};
+    }
 
     [[nodiscard]]
     OpenBase resolve_open_base(const char *path) {
@@ -87,19 +139,12 @@ namespace {
             return {};
         }
 
-        if (const char *initrd_rel = strip_initrd_prefix(path);
-            initrd_rel != nullptr)
+        auto bootstrap_base = resolve_via_bindings(path);
+        if (bootstrap_base.cap != cap::null && bootstrap_base.relpath != nullptr)
         {
-            if (!ensure_initrd_cap()) {
-                return {};
-            }
-            return OpenBase{.cap = g_initrd_cap, .relpath = initrd_rel};
+            return bootstrap_base;
         }
-
-        if (!ensure_root_cap()) {
-            return {};
-        }
-        return OpenBase{.cap = g_root_cap, .relpath = path + 1};
+        return {};
     }
 
     [[nodiscard]]

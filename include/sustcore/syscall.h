@@ -55,8 +55,6 @@
 #define SYS_VFS_SYNC    (SYSCALL_BASE + 0x24)
 #define SYS_VFS_MKFILE  (SYSCALL_BASE + 0x25)
 #define SYS_VFS_MKDIR   (SYSCALL_BASE + 0x26)
-#define SYS_OPEN_INITRD (SYSCALL_BASE + 0x27)
-#define SYS_OPEN_ROOT   (SYSCALL_BASE + 0x28)
 
 // 以SYS_UNSTABLE_BASE开头的系统调用为不稳定接口, 可能会在后续版本中更改或移除
 #define SYS_UNSTABLE_BASE  (0xFFC00000)

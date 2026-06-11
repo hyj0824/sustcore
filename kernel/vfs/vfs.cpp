@@ -363,24 +363,42 @@ namespace {
 }  // namespace
 
 Result<util::refc_ptr<VINode>> VFS::_resolve_from(util::refc_ptr<VINode> base,
+                                                  const util::Path &base_path,
                                                   const util::Path &path,
-                                                  VSuperblock &vsb) const {
+                                                  VSuperblock *vsb) const {
     VINode *current = base.get();
-    if (current == nullptr) {
+    if (current == nullptr || vsb == nullptr) {
         unexpect_return(ErrCode::NULLPTR);
     }
     const util::Path relpath = path.normalize();
     if (relpath == ".") {
         return base;
     }
+    util::Path current_path = base_path.normalize();
     for (const auto &entry : relpath) {
+        util::Path next_path = (current_path / util::Path(entry)).normalize();
+        auto mount_res       = mount_table.at_nt(next_path);
+        if (mount_res.has_value()) {
+            auto *mount_record = mount_res.value();
+            auto root_res      = mount_record->superblock->sb()->root();
+            propagate(root_res);
+            auto mounted_vnode =
+                mount_record->superblock->get_vnode(root_res.value());
+            propagate(mounted_vnode);
+            current      = mounted_vnode.value().get();
+            current_path = next_path;
+            vsb          = mount_record->superblock.get();
+            continue;
+        }
+
         auto lookup_res = current->inode()->as_directory().and_then(
             [entry](IDirectory *dir) { return dir->lookup(entry); });
         propagate(lookup_res);
 
-        auto next_vind = vsb.get_vnode(lookup_res.value());
+        auto next_vind = vsb->get_vnode(lookup_res.value());
         propagate(next_vind);
-        current = next_vind.value().get();
+        current      = next_vind.value().get();
+        current_path = next_path;
     }
     return util::refc_ptr(current);
 }
@@ -393,9 +411,10 @@ Result<VFile *> VFS::_open_file_at(VINode &parent, const util::Path &mount_path,
     auto parent_dir_res = parent.inode()->as_directory();
     propagate(parent_dir_res);
 
-    auto target_res = _resolve_from(util::refc_ptr(&parent),
-                                    util::Path::from(relpath).normalize(),
-                                    parent.superblock());
+    auto target_res =
+        _resolve_from(util::refc_ptr(&parent), mount_path,
+                      util::Path::from(relpath).normalize(),
+                      &parent.superblock());
     propagate(target_res);
     auto file_res = target_res.value()->inode()->as_file();
     propagate(file_res);
@@ -423,9 +442,10 @@ Result<VDirectory *> VFS::_open_dir_at(VINode &parent,
     auto parent_dir_res = parent.inode()->as_directory();
     propagate(parent_dir_res);
 
-    auto target_res = _resolve_from(util::refc_ptr(&parent),
-                                    util::Path::from(relpath).normalize(),
-                                    parent.superblock());
+    auto target_res =
+        _resolve_from(util::refc_ptr(&parent), mount_path,
+                      util::Path::from(relpath).normalize(),
+                      &parent.superblock());
     propagate(target_res);
     auto dir_res = target_res.value()->inode()->as_directory();
     propagate(dir_res);
@@ -572,9 +592,9 @@ Result<CapIdx> VFS::mkfile(cap::Capability &parent_dir_cap, const char *relpath,
     propagate(create_target_res);
     const auto &target = create_target_res.value();
 
-    auto create_parent_res =
-        _resolve_from(util::refc_ptr(parent->vinode().get()), target.parent_path,
-                      parent->vinode()->superblock());
+    auto create_parent_res = _resolve_from(
+        util::refc_ptr(parent->vinode().get()), parent->mount_path(),
+        target.parent_path, &parent->vinode()->superblock());
     propagate(create_parent_res);
 
     auto target_dir_res = create_parent_res.value()->inode()->as_directory();
@@ -625,9 +645,9 @@ Result<CapIdx> VFS::mkdir(cap::Capability &parent_dir_cap, const char *relpath,
     propagate(create_target_res);
     const auto &target = create_target_res.value();
 
-    auto create_parent_res =
-        _resolve_from(util::refc_ptr(parent->vinode().get()), target.parent_path,
-                      parent->vinode()->superblock());
+    auto create_parent_res = _resolve_from(
+        util::refc_ptr(parent->vinode().get()), parent->mount_path(),
+        target.parent_path, &parent->vinode()->superblock());
     propagate(create_parent_res);
 
     auto target_dir_res = create_parent_res.value()->inode()->as_directory();
@@ -662,16 +682,6 @@ Result<CapIdx> VFS::mkdir(cap::Capability &parent_dir_cap, const char *relpath,
         propagate_return(insert_res);
     }
     return insert_res.value();
-}
-
-Result<CapIdx> VFS::open_initrd(cap::CHolder &holder) {
-    return open_dir("/initrd/", holder,
-                    perm::vdir::READ | perm::vdir::WRITE | perm::vdir::EXEC);
-}
-
-Result<CapIdx> VFS::open_root(cap::CHolder &holder) {
-    return open_dir("/", holder,
-                    perm::vdir::READ | perm::vdir::WRITE | perm::vdir::EXEC);
 }
 
 Result<CapIdx> VFS::open_dir(const char *filepath, cap::CHolder &holder,

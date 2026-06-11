@@ -13,6 +13,7 @@
 
 #include <arch/description.h>
 #include <exe/task.h>
+#include <kmod/bootstrap.h>
 #include <schd/schdbase.h>
 #include <sus/list.h>
 #include <sus/map.h>
@@ -21,6 +22,7 @@
 
 #include <atomic>
 #include <unordered_map>
+#include <vector>
 
 namespace task {
     struct ForkResult {
@@ -222,6 +224,21 @@ namespace task {
          */
         Result<CapIdx> preload_into(CapIdx image_cap, cap::CHolder *holder,
                                     TaskSpec &spec, LoadPrm &prm);
+        /**
+         * @brief 校验 bootstrap 记录链是否合法.
+         */
+        [[nodiscard]]
+        Result<void> validate_bootstrap_blob(const void *startup_blob,
+                                             size_t startup_blob_size);
+        /**
+         * @brief 合并调用方 bootstrap 链与系统注入记录.
+         */
+        [[nodiscard]]
+        Result<void> build_bootstrap_blob(
+            const void *startup_blob, size_t startup_blob_size,
+            const std::vector<BootstrapCapPathView> &dir_records,
+            const std::vector<BootstrapCapPathView> &file_records,
+            TaskSpec &spec);
         /**
          * @brief 复制启动缓冲区、预加载并装载 ELF 到 TaskSpec.
          */

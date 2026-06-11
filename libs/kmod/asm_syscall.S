@@ -316,19 +316,3 @@ sys_vfs_sync:
     li a7, SYS_VFS_SYNC
     ecall
     ret
-
-    .global sys_open_initrd
-    .type sys_open_initrd, @function
-sys_open_initrd:
-    li a0, 0
-    li a7, SYS_OPEN_INITRD
-    ecall
-    ret
-
-    .global sys_open_root
-    .type sys_open_root, @function
-sys_open_root:
-    li a0, 0
-    li a7, SYS_OPEN_ROOT
-    ecall
-    ret

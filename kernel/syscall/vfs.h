@@ -45,8 +45,4 @@ namespace syscall {
     [[nodiscard]]
     Result<bool> vfs_sync(CapIdx capidx);
 
-    [[nodiscard]]
-    Result<CapIdx> open_initrd();
-    [[nodiscard]]
-    Result<CapIdx> open_root();
 }  // namespace syscall
