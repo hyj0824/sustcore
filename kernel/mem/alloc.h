@@ -18,5 +18,5 @@ using Allocator = LinearGrowAllocator;
 static_assert(AllocatorTrait<Allocator>, "Allocator 不满足 AllocatorTrait");
 
 template <typename ObjType>
-using KOP = SimpleKOP<ObjType, Allocator>;
+using KOP = slub::SlubAllocator<ObjType>;
 static_assert(KOPTrait<KOP<int>, int>, "KOP 不满足 KOPTrait");
