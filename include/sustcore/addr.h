@@ -227,24 +227,6 @@ constexpr AddrT convert(KvaAddr kva) {
     }
 }
 
-enum class KernelStage { PRE_INIT, POST_INIT };
-
-template <KernelStage Stage>
-struct _StageAddrConf;
-
-template <>
-struct _StageAddrConf<KernelStage::PRE_INIT> {
-    using Type = PhyAddr;
-};
-
-template <>
-struct _StageAddrConf<KernelStage::POST_INIT> {
-    using Type = KpaAddr;
-};
-
-template <KernelStage Stage>
-using _StageAddr = typename _StageAddrConf<Stage>::Type;
-
 template <typename T>
 inline static PhyAddr convert_pointer(T *ptr) {
     AddrType types[]       = {AddrType::PA, AddrType::KPA, AddrType::KVA};
@@ -275,3 +257,21 @@ inline static bool is_user_vaddr(VirAddr vaddr) {
 
 using VirArea = util::range::Range<VirAddr>;
 using PhyArea = util::range::Range<PhyAddr>;
+
+template <typename AddrT>
+inline static util::range::Range<AddrT> page_align_inward(util::range::Range<AddrT> area)
+{
+    return {
+        area.begin.page_align_up(),
+        area.end.page_align_down()
+    };
+}
+
+template <typename AddrT>
+inline static util::range::Range<AddrT> page_align_outward(util::range::Range<AddrT> area)
+{
+    return {
+        area.begin.page_align_down(),
+        area.end.page_align_up()
+    };
+}

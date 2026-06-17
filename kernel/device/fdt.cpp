@@ -9,12 +9,19 @@
  *
  */
 
+#include <arch/description.h>
+#if defined(__ARCH_riscv64__)
+#include <arch/riscv64/clint.h>
+#include <arch/riscv64/clock.h>
 #include <arch/riscv64/device/fdt_helper.h>
+#include <arch/riscv64/device/platform.h>
+#include <arch/riscv64/intc.h>
+#include <arch/riscv64/plic.h>
+#elif defined(__ARCH_loongarch64__)
+#include <arch/loongarch64/fdt_helper.h>
+#endif
 #include <device/fdt.h>
 #include <device/model.h>
-#include <driver/int/clint.h>
-#include <driver/int/plic.h>
-#include <driver/int/riscv_intc.h>
 #include <driver/model.h>
 #include <driver/rtc/goldfish.h>
 #include <driver/serial.h>
@@ -916,6 +923,7 @@ namespace fdt {
 
 namespace fdt {
     namespace {
+#if defined(__ARCH_riscv64__)
         /**
          * @brief FDT 下的 RISC-V CPU 本地中断工厂.
          */
@@ -952,7 +960,7 @@ namespace fdt {
                 }
                 auto virqs = device::DevResManager::get_virq_resource(node);
                 auto mmios = device::DevResManager::get_mmio_resource(node);
-                auto device_owner_res = driver::RiscVIntC::create(
+                auto device_owner_res = riscv::IntC::create(
                     driver::DriverBase::DevRes(
                         node, std::move(virqs), std::move(mmios)),
                     matched->identifier, matched->hart_id);
@@ -1016,7 +1024,7 @@ namespace fdt {
                 auto virqs = device::DevResManager::get_virq_resource(node);
                 auto mmios = device::DevResManager::get_mmio_resource(node);
 
-                auto device_owner_res = driver::Clint::create(
+                auto device_owner_res = riscv::Clint::create(
                     driver::DriverBase::DevRes(
                         node, std::move(virqs), std::move(mmios)),
                     fdt_node->raw_node().phandle != 0
@@ -1028,14 +1036,14 @@ namespace fdt {
                 auto &clint = *device_owner_res.value();
                 const auto &fdt_device_node =
                     static_cast<const FDTDeviceNode &>(clint.node());
-                auto *domain = new device::LinearIrqDomain<CLINT_MAX_HW_IRQ>(
+                auto *domain = new driver::LinearIrqDomain<CLINT_MAX_HW_IRQ>(
                     static_cast<domain_t>(clint.identifier()),
                     clint.name(), clint);
                 if (domain == nullptr) {
                     unexpect_return(ErrCode::OUT_OF_MEMORY);
                 }
                 auto register_res = model.interrupt().register_domain(
-                    util::owner<device::IrqDomain *>(domain));
+                    util::owner<driver::IrqDomain *>(domain));
                 propagate(register_res);
                 if (fdt_device_node.raw_node().phandle != 0) {
                     auto irq_domain_res = _provider->register_irq_domain_view(
@@ -1111,7 +1119,7 @@ namespace fdt {
                 auto virqs = device::DevResManager::get_virq_resource(node);
                 auto mmios = device::DevResManager::get_mmio_resource(node);
 
-                auto device_owner_res = driver::Plic::create(
+                auto device_owner_res = riscv::Plic::create(
                     driver::DriverBase::DevRes(
                         node, std::move(virqs), std::move(mmios)),
                     fdt_node->raw_node().phandle != 0
@@ -1151,13 +1159,13 @@ namespace fdt {
              *
              * @param refs 中断引用列表.
              * @param irqman 全局中断管理器.
-             * @return Result<std::vector<driver::Plic::Context>> context 列表.
+             * @return Result<std::vector<riscv::Plic::Context>> context 列表.
              */
             [[nodiscard]]
-            Result<std::vector<driver::Plic::Context>> build_plic_contexts(
+            Result<std::vector<riscv::Plic::Context>> build_plic_contexts(
                 const std::vector<std::pair<phandle_t, hwirq_t>> &refs,
                 driver::IrqManager &irqman) const noexcept {
-                std::vector<driver::Plic::Context> contexts;
+                std::vector<riscv::Plic::Context> contexts;
                 contexts.reserve(refs.size());
 
                 size_t enabled_count  = 0;
@@ -1200,10 +1208,10 @@ namespace fdt {
              * @param phandle 父中断控制器 phandle.
              * @param hwirq 条目中的硬件中断号.
              * @param irqman 全局中断管理器.
-             * @return Result<driver::Plic::Context> context 构造结果.
+             * @return Result<riscv::Plic::Context> context 构造结果.
              */
             [[nodiscard]]
-            Result<driver::Plic::Context> build_plic_context(
+            Result<riscv::Plic::Context> build_plic_context(
                 size_t index, phandle_t phandle, hwirq_t hwirq,
                 driver::IrqManager &irqman) const noexcept {
                 auto *intc_node = _provider->config().get_node_by_phandle(phandle);
@@ -1223,9 +1231,9 @@ namespace fdt {
                 }
 
                 auto hart_id = parsed_res.value().id;
-                auto ctx_id = static_cast<driver::Plic::ctx_t>(
+                auto ctx_id = static_cast<riscv::Plic::ctx_t>(
                     hart_id * 2 + index % 2);
-                driver::Plic::Context context{
+                riscv::Plic::Context context{
                     .hart_id       = hart_id,
                     .external_virq = 0,
                     .ctx_id        = ctx_id,
@@ -1261,6 +1269,7 @@ namespace fdt {
             const FDTProvider *_provider = nullptr;
         };
 
+ #endif
     }  // namespace
 
     /**
@@ -1287,6 +1296,7 @@ namespace fdt {
             return;
         }
 
+#if defined(__ARCH_riscv64__)
         auto *root_factory  = new RiscVIntCIrqFactory(&_cpu_intc_candidates);
         auto *clint_factory = new ClintIrqFactory(&_local_intc_map);
         auto *plic_factory  = new PlicIrqFactory();
@@ -1309,10 +1319,11 @@ namespace fdt {
         [[maybe_unused]] auto plic_res =
             driver::DriverModel::inst().register_factory(
                 util::owner<driver::IIrqChipFactory *>(plic_factory));
+#endif
     }
 
     Result<void> FDTProvider::register_irq_domain(
-        phandle_t phandle, const device::IrqDomain &domain) const {
+        phandle_t phandle, const driver::IrqDomain &domain) const {
         if (phandle == 0) {
             loggers::DEVICE::ERROR("拒绝登记无效中断控制器 phandle=0");
             unexpect_return(ErrCode::INVALID_PARAM);
@@ -1339,8 +1350,8 @@ namespace fdt {
         void_return();
     }
 
-    Result<device::IrqDomain &> FDTProvider::resolve_irq_domain(
-        phandle_t phandle, device::IrqManager &irqman) const {
+    Result<driver::IrqDomain &> FDTProvider::resolve_irq_domain(
+        phandle_t phandle, driver::IrqManager &irqman) const {
         auto it = _irq_domains.find(phandle);
         if (it == _irq_domains.end()) {
             loggers::DEVICE::ERROR("未找到 phandle=%u 对应的中断域映射",
@@ -1496,7 +1507,7 @@ namespace fdt {
     Result<std::vector<virq_t>>
     FDTProvider::resolve_interrupt_refs_to_virqs(
         const std::vector<InterruptRef> &refs,
-        device::IrqManager &irqman) const {
+        driver::IrqManager &irqman) const {
         std::vector<virq_t> virqs;
         virqs.reserve(refs.size());
 
@@ -1530,7 +1541,7 @@ namespace fdt {
     }
 
     Result<std::vector<virq_t>> FDTProvider::parse_interrupt_virqs(
-        const Node &node, device::IrqManager &irqman) const {
+        const Node &node, driver::IrqManager &irqman) const {
         auto ext_refs_res = parse_interrupts_extended(node);
         if (ext_refs_res.has_value()) {
             return resolve_interrupt_refs_to_virqs(ext_refs_res.value(),
@@ -1545,12 +1556,13 @@ namespace fdt {
         return resolve_interrupt_refs_to_virqs(refs_res.value(), irqman);
     }
 
-    void FDTProvider::append_as_regions(
-        std::vector<device::MemRegion> &regions, const RegionCells &cells,
-        const Property &prop, device::MemRegion::MemoryStatus status) const {
+    void FDTProvider::append_as_regions(std::vector<MemRegion> &regions,
+                                        const RegionCells &cells,
+                                        const Property &prop,
+                                        MemRegion::MemoryStatus status) const {
         auto new_regions = prop.as_regions(cells);
         for (const auto &area : new_regions) {
-            regions.emplace_back(area, status);
+            regions.emplace_back(MemRegion{.status = status, .area = area});
         }
     }
 
@@ -1593,44 +1605,45 @@ namespace fdt {
 
     void FDTProvider::register_memory_regions(
         device::DeviceModel &model) const {
+        (void)model;
+    }
+
+    void FDTProvider::register_platform(device::DeviceModel &model) const {
         if (!_config.root) {
+            loggers::DEVICE::WARN("设备树根节点不存在, 无法获取平台信息");
             return;
         }
 
-        std::vector<device::MemRegion> regions;
-
-        // 加入所有 device_type = memory 的节点下的区域作为FREE区域
-        for (const auto &[_, node] : _config.root->children) {
-            if (!node_status_enabled(*node) || !is_memory_node(*node)) {
-                continue;
-            }
-            auto reg_it = node->properties.find(REG_PROP);
-            if (reg_it == node->properties.end()) {
-                loggers::DEVICE::WARN("内存节点 /%s 缺少 reg 属性, 已跳过",
-                                      node->name.c_str());
-                continue;
-            }
-            append_as_regions(regions, node_region_cells(*node),
-                              *reg_it->second,
-                              device::MemRegion::MemoryStatus::FREE);
+        Node *cpus_node = _config.get_node_by_path(CPUS_PATH);
+        if (cpus_node == nullptr || !node_status_enabled(*cpus_node)) {
+            loggers::DEVICE::WARN(
+                "设备树中缺少 /cpus 节点或其状态不可用, 无法获取平台信息");
+            return;
         }
 
-        // 加入 reserved-memory 下的所有保留区域
-        Node *reserved_memory = _config.get_node_by_path(RESERVED_MEMORY_PATH);
-        if (reserved_memory != nullptr) {
-            for (const auto &[_, child] : reserved_memory->children) {
-                if (!node_status_enabled(*child)) {
-                    loggers::DEVICE::WARN(
-                        "节点 /reserved-memory/%s 缺少 reg 属性, 已跳过",
-                        child->name.c_str());
-                    continue;
-                }
-                append_as_regions(regions, node_region_cells(*child),
-                                  *child->properties.at(REG_PROP),
-                                  device::MemRegion::MemoryStatus::RESERVED);
-            }
+        auto freq_prop_it = cpus_node->properties.find(TIMEBASE_FREQ_PROP);
+        if (freq_prop_it == cpus_node->properties.end()) {
+            loggers::DEVICE::WARN(
+                "节点 /cpus 缺少 timebase-frequency 属性, 无法构造平台时钟源");
+            return;
         }
-        model.collect_memory_regions(&regions);
+
+        auto timebase_freq = freq_prop_it->second->as_integral();
+        if (timebase_freq == 0) {
+            loggers::DEVICE::ERROR(
+                "节点 /cpus 的 timebase-frequency 为 0, 无法创建平台");
+            return;
+        }
+
+#if defined(__ARCH_riscv64__)
+        auto freq = units::frequency::from_hz(timebase_freq);
+        model.set_platform(util::owner<device::Platform *>(
+            new riscv::Riscv64Platform(freq)));
+        loggers::DEVICE::INFO("已创建 Riscv64Platform, timebase-frequency=%lluHz",
+                              static_cast<unsigned long long>(freq.to_hz()));
+#else
+        (void)timebase_freq;
+#endif
     }
 
     void FDTProvider::register_cpus(device::DeviceModel &model) const {
@@ -1644,7 +1657,7 @@ namespace fdt {
         cpus.cleanup();
         cpus.topology.cleanup();
 
-        // 解析 /cpus 根节点与频率.
+        // 解析 /cpus 根节点.
         if (!_config.root) {
             loggers::DEVICE::WARN("设备树根节点不存在, 无法获取 CPU 信息");
             return;
@@ -1657,24 +1670,17 @@ namespace fdt {
             return;
         }
 
-        auto freq_prop_it = cpus_node->properties.find(TIMEBASE_FREQ_PROP);
-        if (freq_prop_it == cpus_node->properties.end()) {
-            loggers::DEVICE::WARN(
-                "节点 /cpus 缺少 timebase-frequency 属性, CPU 频率保留为 0");
-        } else {
-            auto timebase_freq = freq_prop_it->second->as_integral();
-            if (timebase_freq == 0) {
-                loggers::DEVICE::ERROR(
-                    "节点 /cpus 的 timebase-frequency 为 0, 无法创建 "
-                    "ClockSource");
-            } else {
-                cpus.freq          = units::frequency::from_hz(timebase_freq);
-                cpus._clock_source = new driver::CSRTimeClockSource(cpus.freq);
-                loggers::DEVICE::INFO(
-                    "已创建 CSRTimeClockSource, freq=%lluHz",
-                    static_cast<unsigned long long>(cpus.freq.to_hz()));
-            }
+        auto *platform = model.platform();
+        if (platform == nullptr) {
+            loggers::DEVICE::ERROR("平台对象不可用, 无法构建 CPU 信息");
+            return;
         }
+        auto *clock_source = platform->clock_source();
+        if (clock_source == nullptr) {
+            loggers::DEVICE::ERROR("平台 ClockSource 不可用, 无法构建 CPU 信息");
+            return;
+        }
+        auto cpu_frequency = clock_source->frequency();
 
         std::vector<ParsedCpu> parsed_cpus;
         parsed_cpus.reserve(cpus_node->children.size());
@@ -1747,7 +1753,7 @@ namespace fdt {
             auto cpu_res = device::RiscV64Cpu::Builder()
                                .id(parsed.id)
                                .model(parsed.model)
-                               .frequency(cpus.freq)
+                               .frequency(cpu_frequency)
                                .isa_string(parsed.isa_string)
                                .mmu_type(parsed.mmu_type)
                                .local_intc(static_cast<intc_t>(
@@ -1783,7 +1789,7 @@ namespace fdt {
         cpus.topology = std::move(topology_res.value());
         loggers::DEVICE::INFO(
             "CPU 信息更新完成: freq=%lluHz count=%u topo_cpus=%u",
-            static_cast<unsigned long long>(cpus.freq.to_hz()),
+            static_cast<unsigned long long>(cpu_frequency.to_hz()),
             static_cast<unsigned>(cpus.cpus.size()),
             static_cast<unsigned>(cpus.topology.logical_cpus().size()));
     }
@@ -1916,6 +1922,7 @@ namespace fdt {
 
     void FDTProvider::register_device(device::DeviceModel &model) const {
         register_memory_regions(model);
+        register_platform(model);
         register_cpus(model);
         register_nodes(model);
         register_intcs(model);

@@ -3,6 +3,7 @@
 
 .extern _sbi_setup
 .extern _sbi_post_start
+.extern __sbi_reclaimable_cursor
 
 .global _sbi_start
 .type _sbi_start, @function
@@ -11,6 +12,10 @@ _sbi_start:
     csrw sie, zero
     csrw satp, zero
     sfence.vma zero, zero
+
+    // 保存 OpenSBI 传入的启动参数, 跨 _sbi_setup 继续传递给 _sbi_post_start
+    mv s0, a0
+    mv s1, a1
 
     // write hart and fdt to global variables
     la t1, __sbi_boot_hart_id
@@ -23,12 +28,17 @@ _sbi_start:
 
     // jump to the setup function
     call _sbi_setup
-_sbi_trampoline:
+_sbi_paging_setup:
     // 这里是一个从低地址到高地址的过渡阶段
     // 此处 a0 = satp 应设的值
     csrw satp, a0
     // 刷新 tlb
     sfence.vma zero, zero
+_sbi_trampoline:
+    mv a0, s0
+    mv a1, s1
+    la t1, __sbi_reclaimable_cursor
+    ld a2, 0(t1)
     la ra, _sbi_post_start
     jr ra
 
@@ -51,6 +61,10 @@ _sbi_write:
 .section .sbi_boot.data, "aw", @progbits
 .global __sbi_boot_hart_id
 __sbi_boot_hart_id:
+    .quad 0
+
+.global __sbi_reclaimable_cursor
+__sbi_reclaimable_cursor:
     .quad 0
 
 .global __sbi_dtb_phys

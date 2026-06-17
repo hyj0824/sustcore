@@ -13,10 +13,10 @@
 
 .section .data
 .extern dtb_ptr
+.extern bootinfo_ptr
 .extern __hart_context
 
 .extern c_setup
-.extern post_init
 
 .section .text.entry, "ax"
 .globl _start
@@ -28,8 +28,8 @@ _start:
     locate_hart_context a0, t1
     # tp.hart_id = a0
     set_hart_id a0
-    # 设置 dtb_ptr
-    la t1, dtb_ptr
+    # 设置 bootinfo_ptr
+    la t1, bootinfo_ptr
     sd a1, 0(t1)
     # 设置栈指针
     la sp, boot_stack_top
@@ -45,11 +45,12 @@ _start:
 redive:
     # 设置栈指针
     la sp, boot_stack_top
-    j post_init
+    wfi
+    j redive
 
 .section .bss.stack
 .align 12
 boot_stack:
-    .space 4096 * 128  # 128KB 栈空间
+    .space 1024 * 64  # 64KB 栈空间
 .globl boot_stack_top
 boot_stack_top:

@@ -35,24 +35,11 @@ TaskMemoryManager
 - 大对象: SLUB 大对象路径或 `Allocator` 大对象路径转交 `GFP`。
 - 用户内存: `MemoryPayload::ensure_page()` 懒分配物理页，随后由 `TaskMemoryManager::on_np()` 映射进页表。
 
-## 初始化阶段
-
-内核把初始化分为两个阶段:
-
-- `PRE_INIT`: 还未稳定进入内核高半区，页框链表/页表节点地址按早期地址语义处理。
-- `POST_INIT`: 已建立内核虚拟地址空间，页框元数据和页表访问使用 KPA/KVA 语义。
-
-`_StageAddr<Stage>` 定义了不同阶段页表和 buddy 元数据访问的地址类型:
-
-- `KernelStage::PRE_INIT`: `PhyAddr`
-- `KernelStage::POST_INIT`: `KpaAddr`
-
 ## 页表模型
 
 当前架构配置为 RISC-V 64 SV39:
 
-- `EarlyPageMan = Riscv64SV39PageMan<PRE_INIT>`
-- `PageMan = Riscv64SV39PageMan<POST_INIT>`
+- `PageMan = Riscv64SV39PageMan`
 
 SV39 页表管理器支持:
 
@@ -64,6 +51,7 @@ SV39 页表管理器支持:
 - 页表根切换。
 - TLB 刷新。
 - PTE 软件位标记 COW。
+- 页表合并: `merge_from()` 递归把另一棵页表的有效映射并入当前页表。
 
 ## 用户地址空间模型
 
@@ -84,4 +72,5 @@ SV39 页表管理器支持:
 - 页表析构路径中仍有 `TODO: 释放页表`，`TaskMemoryManager` 目前主要解除用户映射并刷新 TLB。
 - COW 处理只支持 4K 页；遇到大页会返回 `NOT_SUPPORTED`。
 - 用户访问辅助通过 SUM 或临时页表切换访问用户地址，调用方必须保证地址范围已经由 VMA/页表覆盖。
+- 新任务地址空间初始化会继承主内核页表映射，因此 KVA/KPA/MMIO 在各任务页表中都存在。
 - buddy/slub 作为主路径时，需要确保 `RawGFPImpl` 和 `Allocator` 别名已经切换，否则释放/复用行为会退化到线性分配器语义。

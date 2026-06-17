@@ -13,6 +13,7 @@
 
 #include <device/cpu.h>
 #include <device/device.h>
+#include <device/platform.h>
 #include <driver/base.h>
 #include <driver/factory.h>
 #include <driver/int/base.h>
@@ -20,6 +21,7 @@
 #include <logger.h>
 #include <sus/owner.h>
 #include <sustcore/addr.h>
+#include <sustcore/boot.h>
 #include <sustcore/errcode.h>
 
 #include <vector>
@@ -29,28 +31,6 @@ namespace device {
 }
 
 namespace device {
-    /**
-     * @brief 内存区域
-     *
-     */
-    struct MemRegion {
-        /**
-         * @brief 内存状态
-         *
-         */
-        enum class MemoryStatus {
-            FREE             = 0,
-            RESERVED         = 1,
-            ACPI_RECLAIMABLE = 2,
-            ACPI_NVS         = 3,
-            IOMMU            = 4,
-            BAD_MEMORY       = 5
-        };
-
-        PhyArea area;
-        MemoryStatus status;
-    };
-
     class DeviceProvider {
     public:
         virtual ~DeviceProvider() = default;
@@ -76,6 +56,11 @@ namespace device {
         [[nodiscard]]
         CpuGroupInfo &cpus() {
             return _cpus;
+        }
+
+        [[nodiscard]]
+        Platform *platform() const noexcept {
+            return _platform.get();
         }
 
         [[nodiscard]]
@@ -149,6 +134,13 @@ namespace device {
             _clock_virq = virq;
         }
 
+        void set_platform(util::owner<Platform *> platform) noexcept {
+            if (_platform.get() != nullptr) {
+                delete _platform.get();
+            }
+            _platform = std::move(platform);
+        }
+
         /**
          * @brief 获取当前系统的 clock virq.
          *
@@ -182,6 +174,10 @@ namespace device {
             }
             _providers.clear();
             cleanup_device_nodes();
+            if (_platform.get() != nullptr) {
+                delete _platform.get();
+                _platform = util::owner<Platform *>(nullptr);
+            }
         }
 
         static DeviceModel &inst();
@@ -222,6 +218,8 @@ namespace device {
         std::vector<DeviceNode *> _non_irq_devices;
         std::vector<MemRegion> _regions;
         CpuGroupInfo _cpus;
+        util::owner<Platform *> _platform =
+            util::owner<Platform *>(nullptr);
         driver::IrqManager _interrupt;
         driver::virq_t _clock_virq = 0;
     };

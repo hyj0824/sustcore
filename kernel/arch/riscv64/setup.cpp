@@ -10,103 +10,89 @@
  */
 
 #include <arch/riscv64/csr.h>
-#include <arch/riscv64/device/fdt_helper.h>
-#include <arch/riscv64/device/misc.h>
+#include <arch/riscv64/device/platform.h>
 #include <arch/riscv64/trait.h>
 #include <device/int.h>
+#include <device/model.h>
+#include <device/platform.h>
 #include <logger.h>
-#include <libfdt.h>
 #include <sbi/sbi.h>
 #include <sus/logger.h>
-#include <sus/units.h>
-
+#include <sustcore/addr.h>
+#include <sustcore/boot.h>
+#include <env.h>
 #include <cstddef>
-#include <cstring>
+
+using namespace rv64;
 
 size_t hart_id;
 void *dtb_ptr;
+BootInfoHeader *bootinfo_ptr;
 
-namespace
-{
-    constexpr size_t BOOT_DTB_STORAGE_SIZE = 128 * 1024;
-    alignas(PAGESIZE) unsigned char boot_dtb_storage[BOOT_DTB_STORAGE_SIZE];
-
-    PhyAddr boot_dtb_storage_pa(void) {
-        addr_t storage_addr = reinterpret_cast<addr_t>(boot_dtb_storage);
-        if (within_scope(storage_addr, AddrType::KVA)) {
-            return PhyAddr(KVA2PA(storage_addr));
-        }
-        if (within_scope(storage_addr, AddrType::KPA)) {
-            return PhyAddr(KPA2PA(storage_addr));
-        }
-        return PhyAddr(storage_addr);
-    }
-
-    void *boot_dtb_storage_preinit_addr(void) {
-        return boot_dtb_storage_pa().addr();
-    }
-
-    [[noreturn]]
-    void halt_on_fdt_error(const char *message) {
-        loggers::DEVICE::FATAL("%s", message);
-        while (true);
-    }
-}  // namespace
-
-void Riscv64Serial::serial_write_char(char ch) {
+void EarlySerial::serial_write_char(char ch) {
     sbi_dbcn_console_write_byte(ch);
 }
 
-void Riscv64Serial::serial_write_string(size_t len, const char *str) {
-    sbi_dbcn_console_write(len, str);
+void EarlySerial::serial_write_string(size_t len, const char *str) {
+    sbi_dbcn_console_write(len, convert_pointer(str).as<char>());
+}
+
+extern void env_setup();
+
+Result<void> Initialization::init_clock() {
+    [[maybe_unused]] auto &device_model = device::DeviceModel::inst();
+    [[maybe_unused]] auto &irqman       = device_model.interrupt();
+    [[maybe_unused]] auto *ctx          = env::hart_ctx;
+    assert(ctx != nullptr);
+
+    loggers::SUSTCORE::INFO("初始化 hart Clint Timer%u",
+                            static_cast<unsigned>(ctx->hart_id()));
+    auto *platform = device_model.platform();
+    if (platform == nullptr) {
+        loggers::SUSTCORE::ERROR("全局 Platform 不可用!");
+        unexpect_return(ErrCode::NULLPTR);
+    }
+    assert(platform->is<riscv::Riscv64Platform>());
+
+    auto *clock_source =
+        platform->as<riscv::Riscv64Platform>()->clock_source();
+    if (clock_source == nullptr) {
+        loggers::SUSTCORE::ERROR("全局 ClockSource 不可用!");
+        unexpect_return(ErrCode::NULLPTR);
+    }
+
+    auto clock_virq = device_model.clock_virq();
+    if (clock_virq == 0) {
+        loggers::SUSTCORE::ERROR("DeviceModel 未提供有效 clock_virq");
+        unexpect_return(ErrCode::INVALID_PARAM);
+    }
+
+    ctx->alarm()       = new device::ClintAlarm(clock_source, clock_virq);
+    ctx->time_keeper() = new device::TimeKeeper(clock_source, ctx->alarm());
+    auto enable_timer_res = irqman.enable_irq(clock_virq);
+    if (!enable_timer_res.has_value()) {
+        loggers::SUSTCORE::ERROR("启用 CLINT timer 中断失败!");
+        propagate_return(enable_timer_res);
+    }
+
+    loggers::SUSTCORE::INFO("hart %u 已初始化 ClintAlarm",
+                            static_cast<unsigned>(ctx->hart_id()));
+    void_return();
 }
 
 extern "C" void c_setup(void) {
-    kernel_setup();
+    loggers::SUSTCORE::INFO("进入内核 C 入口点!");
+    env_setup();
     while (true);
 }
 
-void Riscv64Initialization::pre_init(void) {
-    if (FDTHelper::fdt_init(dtb_ptr) == nullptr) {
-        halt_on_fdt_error("原始FDT初始化失败");
-    }
+void Initialization::pre_init(void) {}
 
-    int dtb_size = fdt_totalsize(dtb_ptr);
-    if (dtb_size <= 0) {
-        halt_on_fdt_error("原始FDT大小非法");
-    }
-    if (static_cast<size_t>(dtb_size) > BOOT_DTB_STORAGE_SIZE) {
-        halt_on_fdt_error("原始FDT超过内核静态保留区容量");
-    }
-
-    void *static_dtb = boot_dtb_storage_preinit_addr();
-    memmove(static_dtb, dtb_ptr, static_cast<size_t>(dtb_size));
-    dtb_ptr = static_dtb;
-
-    if (FDTHelper::fdt_init(dtb_ptr) == nullptr) {
-        halt_on_fdt_error("静态FDT副本初始化失败");
-    }
-}
-
-void Riscv64Initialization::promote_dtb_to_kpa(void) {
-    KpaAddr static_dtb = convert<KpaAddr>(boot_dtb_storage_pa());
-    dtb_ptr            = static_dtb.addr();
-    if (FDTHelper::fdt_init(dtb_ptr) == nullptr) {
-        halt_on_fdt_error("KPA高地址FDT副本初始化失败");
-    }
-}
-
-void Riscv64Idle::idle()
+void Idle::idle()
 {
     while(true);
 }
 
-void Riscv64Initialization::post_init(void) {
-    units::frequency freq = get_clock_freq();
-    if (freq.to_mhz() == 0) {
-        // 使用QEMU virt机器的默认值10MHz
-        freq = 10_MHz;
-        loggers::DEVICE::ERROR("获取时钟频率失败, 使用默认值 %d Hz", freq);
-    }
-    loggers::DEVICE::INFO("时钟频率: %d Hz = %d KHz = %d MHz", freq.to_hz(), freq.to_khz(), freq.to_mhz());
+void Initialization::post_init(void) 
+{
 }

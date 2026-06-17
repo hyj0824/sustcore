@@ -12,13 +12,13 @@
 #pragma once
 
 #include <device/factory.h>
-#include <driver/int/plic.h>
 #include <driver/serial.h>
 #include <device/model.h>
 #include <logger.h>
 #include <sus/rtti.h>
 #include <sus/types.h>
 #include <sustcore/addr.h>
+#include <sustcore/boot.h>
 #include <sustcore/errcode.h>
 
 #include <cassert>
@@ -488,9 +488,9 @@ namespace fdt {
         Result<std::vector<virq_t>> parse_interrupt_virqs(
             const Node &node, driver::IrqManager &irqman) const;
 
-        void append_as_regions(std::vector<device::MemRegion> &regions,
+        void append_as_regions(std::vector<MemRegion> &regions,
                                const RegionCells &cells, const Property &prop,
-                               device::MemRegion::MemoryStatus status) const;
+                               MemRegion::MemoryStatus status) const;
 
         bool is_memory_node(Node &node) const;
         [[nodiscard]]
@@ -502,6 +502,7 @@ namespace fdt {
         void scan_visible_nodes(const Node &root, Fn &&handler) const;
 
         void register_memory_regions(device::DeviceModel &model) const;
+        void register_platform(device::DeviceModel &model) const;
         void register_cpus(device::DeviceModel &model) const;
         void register_nodes(device::DeviceModel &model) const;
         void register_intcs(device::DeviceModel &model) const;

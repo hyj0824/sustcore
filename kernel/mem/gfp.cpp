@@ -23,12 +23,14 @@ void LinearGrowGFP::pre_init() {
     PhyAddr _baseaddr = PhyAddr::null;
     // 从regions中找到大小最大的可用内存区域, 作为线性增长GFP的内存池
     size_t max_size   = 0;
-    auto &meminfo = env::inst().meminfo();
-    for (size_t i = 0; i < meminfo.region_cnt; i++) {
-        if (meminfo.regions[i].status == MemRegion::MemoryStatus::FREE) {
-            if (meminfo.regions[i].size > max_size) {
-                max_size  = meminfo.regions[i].size;
-                _baseaddr = meminfo.regions[i].ptr;
+    auto *bootinfo = env::inst().bootinfo();
+    assert(bootinfo != nullptr);
+    for (size_t i = 0; i < bootinfo->region_cnt; i++) {
+        const auto &region = bootinfo_regions(bootinfo)[i];
+        if (region.status == MemRegion::MemoryStatus::FREE) {
+            if (region.area.size() > max_size) {
+                max_size  = region.area.size();
+                _baseaddr = region.area.begin;
             }
         }
     }
@@ -38,8 +40,4 @@ void LinearGrowGFP::pre_init() {
     curaddr           = baseaddr;
     PhyAddr _boundary = baseaddr + max_size;
     boundary          = _boundary.page_align_down();
-}
-
-void LinearGrowGFP::post_init() {
-    // 线性增长GFP不需要在post_init阶段执行任何操作
 }

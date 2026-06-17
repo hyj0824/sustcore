@@ -11,8 +11,12 @@
 
 #pragma once
 
-#include <arch/riscv64/description.h>
+#include <arch/description.h>
+#if defined(__ARCH_riscv64__)
 #include <arch/riscv64/spinlock.h>
+#elif defined(__ARCH_loongarch64__)
+#include <arch/loongarch64/spinlock.h>
+#endif
 #include <driver/int/base.h>
 #include <features/attributes.h>
 #include <task/scheduler.h>

@@ -4,18 +4,20 @@ OUTPUT_ARCH(riscv)
 
 /* 内核虚拟地址偏移 */
 KVA_OFFSET           = 0xffffffff00000000;
-/* 内核物理地址基址 */
-KERNEL_PHY_BASE      = 0x0000000080240000;
-/* 内核页表基址 */
-/* [KERNEL_PAGING_BASE, KERNEL_BASE) 这段内存被内核页表占用 */
-/* 启动程序会将这段内存传递给内核以说明内核页表位置 */
-/* 内核应在建立自己的页表后将这段内存回收 */
-KERNEL_PAGING_BASE   = 0x0000000080230000;
+
 /* SBI 基址 */
 /* SBI 引导启动程序 */
 /* 与内核的其余部分无交集 */
 /* 内核应当在启动后将这段内存回收 */
+/* 实际上 [SBI_BASE, SBI_RECLAIMABLE_BASE) 这段内存被 SBI 引导启动程序占用 */
+/* 且可被内核回收用于动态内存分配 */
 SBI_BASE             = 0x0000000080200000;
+/* SBI 可回收内存基址 */
+/* [SBI_RECLAIMABLE_BASE, KERNEL_PHY_BASE) 这段内存被内核页表与 bootinfo 占用 */
+/* 内核应在建立自己的页表并复制 bootinfo 后将这段内存回收 */
+SBI_RECLAIMABLE_BASE = 0x00000000802E0000;
+/* 内核物理地址基址 */
+KERNEL_PHY_BASE      = 0x0000000080300000;
 
 /* 内核虚拟地址基址与对应的物理地址基址 */
 KERNEL_BASE          = KVA_OFFSET + KERNEL_PHY_BASE;
@@ -25,6 +27,7 @@ SECTIONS
     /* SBI 内存 */
     . = SBI_BASE;
     s_sbi = .;
+    s_sbi_kva = s_sbi + KVA_OFFSET;
 
     .sbi_boot : {
         KEEP(*(.sbi_boot .sbi_boot.*))
@@ -36,15 +39,17 @@ SECTIONS
         KEEP(*(.sbi_post .sbi_post.*))
     }
 
-    /* SBI 页表内存 */
-    . = KERNEL_PAGING_BASE;
-    s_sbi_paging = .;
+    /* SBI 可回收内存 */
+    . = SBI_RECLAIMABLE_BASE;
+    s_sbi_reclaimable = .;
+    s_sbi_reclaimable_kva = s_sbi_reclaimable + KVA_OFFSET;
 
-    .sbi_paging : AT(KERNEL_PAGING_BASE) {
-        KEEP(*(.sbi_paging .sbi_paging.*))
+    .sbi_reclaimable : AT(SBI_RECLAIMABLE_BASE) {
+        KEEP(*(.sbi_reclaimable .sbi_reclaimable.*))
     }
     . = KERNEL_PHY_BASE;
-    e_sbi_paging = .;
+    e_sbi_reclaimable = .;
+    e_sbi_reclaimable_kva = e_sbi_reclaimable + KVA_OFFSET;
 
     /* 内核内存 */
     . = KERNEL_BASE;

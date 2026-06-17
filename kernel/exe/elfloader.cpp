@@ -187,10 +187,6 @@ namespace loader::elf {
         return a > (~uint64_t(0) - b);
     }
 
-    inline void local_fence_i() noexcept {
-        asm volatile("fence.i" ::: "memory");
-    }
-
     /**
      * @brief 校验 ELF64 文件头及程序头表边界.
      */
@@ -403,16 +399,13 @@ namespace loader::elf {
 
         auto load_res = loadsegs(*file, *spec.tmm, ehdr);
         propagate(load_res);
-        // loadsegs() writes executable bytes into MemoryPayload pages.
-        // RISC-V requires fence.i before those freshly written bytes are
-        // fetched as instructions on this hart.
-        local_fence_i();
 
         for (auto &vma : spec.tmm->vmas()) {
             vma.loading      = false;
             PageMan::RWX rwx = VMA::seg2rwx(vma.type);
             spec.tmm->pman().modify_range_flags<PageMan::make_mask(0b001111)>(
-                vma.varea.begin, vma.size(), rwx, true, false);
+                vma.varea.begin, vma.size(),
+                PageMan::page_flags(rwx, true, false));
         }
 
         loggers::SUSTCORE::DEBUG("每个VMA的前16字节内容:");

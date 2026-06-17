@@ -13,15 +13,20 @@
 
 #include <sustcore/addr.h>
 
-#define _SBI_PAGING     SECTION(".sbi_paging")
+#define _SBI_RECLAIMABLE SECTION(".sbi_reclaimable")
 
 namespace sbi {
-    extern "C" char s_sbi, s_sbi_paging, e_sbi_paging, ekernel_phys;
-    constexpr size_t MINIMUM_PAGING_SIZE   = 32 * 1024;         // 32KB
+    extern "C" char s_sbi, s_sbi_kva, s_sbi_reclaimable,
+        s_sbi_reclaimable_kva, e_sbi_reclaimable, e_sbi_reclaimable_kva,
+        ekernel_phys, ekernel;
+    constexpr size_t MINIMUM_PAGING_SIZE   = 128 * 1024;         // 64KB
     constexpr size_t MAXIMUM_KERNEL_SIZE   = 32 * 1024 * 1024;  // 32MB
     constexpr size_t MAXIMUM_DTB_SIZE      = 2 * 1024 * 1024;   // 2MB
+    constexpr size_t PAGE_TABLE_ALIGNMENT  = 4 * 1024;          // 4KB
     constexpr size_t PAGING_ALIGNMENT      = 2 * 1024 * 1024;   // 2MB
     constexpr size_t PAGING_ALIGNMENT_MASK = 0x1FFFFF;          // 2MB - 1
+    constexpr size_t PAGE_SIZE_1G          = 1024 * 1024 * 1024ULL;
+    constexpr size_t PAGE_SIZE_1G_MASK     = PAGE_SIZE_1G - 1;
 
     using pte_t = size_t;  // 页目录项类型
 
@@ -53,11 +58,4 @@ namespace sbi {
             vpn[1]         = (vaddr_num >> VPN1_SHIFT) & VPN_MASK; \
             vpn[2]         = (vaddr_num >> VPN2_SHIFT) & VPN_MASK; \
         } while (0)
-
-    extern _SBI_PAGING pte_t L0PAGING[PAGE_ENTRIES]
-        __attribute__((aligned(PAGE_SIZE)));
-    extern _SBI_PAGING pte_t L1_KERNEL_PAGING[PAGE_ENTRIES]
-        __attribute__((aligned(PAGE_SIZE)));
-    extern _SBI_PAGING pte_t L1_IDENTITY_PAGING[PAGE_ENTRIES]
-        __attribute__((aligned(PAGE_SIZE)));
 }  // namespace sbi
