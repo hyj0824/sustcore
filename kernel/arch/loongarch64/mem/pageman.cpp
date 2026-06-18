@@ -110,18 +110,44 @@ void PageMan::set_cow(PTE *pte, bool cow) {
         return;
     }
     if (cow) {
-        pte->value |= PAGE_COW;
+        pte->basic.rsw |= 0b01U;
     } else {
-        pte->value &= ~PAGE_COW;
+        pte->basic.rsw &= ~0b01U;
     }
+}
+
+void PageMan::protect_cow(PTE *pte, RWX original_rwx) {
+    if (pte == nullptr) {
+        return;
+    }
+
+    PageFlags cow_flags = page_flags(without_write(original_rwx),
+                                     is_user_accessible(*pte),
+                                     is_global(*pte), is_present(*pte));
+    modify_pte<Modifier::RWX | Modifier::U | Modifier::G | Modifier::P>(
+        pte, cow_flags);
+    pte->basic.d = false;
+    set_cow(pte, true);
+}
+
+void PageMan::restore_from_cow(PTE *pte, PageFlags flags) {
+    if (pte == nullptr) {
+        return;
+    }
+
+    modify_pte<Modifier::ALL>(pte, flags);
+    pte->basic.d = is_writable(flags.rwx);
+    set_cow(pte, false);
 }
 
 void PageMan::set_paddr(PTE *pte, PhyAddr paddr) {
     if (pte == nullptr) {
         return;
     }
-    pte->value =
-        (pte->value & ~PAGE_ADDR_MASK) | (paddr.arith() & PAGE_ADDR_MASK);
+
+    umb_t new_val = paddr.arith() & PAGE_ADDR_MASK;
+    pte->value &= ~PAGE_ADDR_MASK;
+    pte->value |= new_val;
 }
 
 PhyAddr PageMan::read_root() {

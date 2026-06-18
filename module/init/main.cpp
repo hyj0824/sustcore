@@ -26,7 +26,11 @@ namespace {
     [[nodiscard]]
     void *current_sp() {
         void *sp = nullptr;
+#if defined(__ARCH_riscv64__)
         asm volatile("mv %0, sp" : "=r"(sp));
+#elif defined(__ARCH_loongarch64__)
+        asm volatile("move %0, $sp" : "=r"(sp));
+#endif
         return sp;
     }
 
@@ -194,7 +198,8 @@ int kmod_main() {
         exit(-1);
     }
 
-    int fd = kmod_fopen("/initrd/test_fork.mod", "x");
+    int fd = 0;
+    fd = kmod_fopen("/initrd/test_fork.mod", "x");
     if (fd >= 0) {
         if (spawn_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap) == cap::error)
         {
@@ -203,23 +208,23 @@ int kmod_main() {
         kmod_fclose(fd);
     }
 
-    // fd = kmod_fopen("/initrd/test_thread.mod", "x");
-    // if (fd >= 0) {
-    //     if (spawn_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap) == cap::error)
-    //     {
-    //         printf("init: create test_thread failed\n");
-    //     }
-    //     kmod_fclose(fd);
-    // }
+    fd = kmod_fopen("/initrd/test_thread.mod", "x");
+    if (fd >= 0) {
+        if (spawn_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap) == cap::error)
+        {
+            printf("init: create test_thread failed\n");
+        }
+        kmod_fclose(fd);
+    }
 
-    // fd = kmod_fopen("/initrd/test_endpoint_master.mod", "x");
-    // if (fd >= 0) {
-    //     if (spawn_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap) == cap::error)
-    //     {
-    //         printf("init: create test_endpoint_master failed\n");
-    //     }
-    //     kmod_fclose(fd);
-    // }
+    fd = kmod_fopen("/initrd/test_endpoint_master.mod", "x");
+    if (fd >= 0) {
+        if (spawn_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap) == cap::error)
+        {
+            printf("init: create test_endpoint_master failed\n");
+        }
+        kmod_fclose(fd);
+    }
 
     fd = kmod_fopen("/initrd/test_call_service.mod", "x");
     if (fd >= 0) {
@@ -230,14 +235,14 @@ int kmod_main() {
         kmod_fclose(fd);
     }
 
-    fd = kmod_fopen("/initrd/test_rpc_server.mod", "x");
-    if (fd >= 0) {
-        if (spawn_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap) == cap::error)
-        {
-            printf("init: create test_rpc_server failed\n");
-        }
-        kmod_fclose(fd);
-    }
+    // fd = kmod_fopen("/initrd/test_rpc_server.mod", "x");
+    // if (fd >= 0) {
+    //     if (spawn_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap) == cap::error)
+    //     {
+    //         printf("init: create test_rpc_server failed\n");
+    //     }
+    //     kmod_fclose(fd);
+    // }
 
     fd = kmod_fopen("/initrd/test_file_rw_a.mod", "x");
     if (fd >= 0) {
@@ -249,16 +254,16 @@ int kmod_main() {
     }
 
     // try write file /sys/dev/serial@10000000/serial
-    fd = kmod_fopen("/sys/dev/serial@10000000/serial", "w");
-    if (fd >= 0) {
-        kmod_fwrite(fd, "Hello, World!\n", 14);
-        printf(
-            "init: write \"Hello, World!\" to "
-            "/sys/dev/serial@10000000/serial\n");
-        kmod_fclose(fd);
-    } else {
-        printf("init: can't open `/sys/dev/serial@10000000/serial` !\n");
-    }
+    // fd = kmod_fopen("/sys/dev/serial@10000000/serial", "w");
+    // if (fd >= 0) {
+    //     kmod_fwrite(fd, "Hello, World!\n", 14);
+    //     printf(
+    //         "init: write \"Hello, World!\" to "
+    //         "/sys/dev/serial@10000000/serial\n");
+    //     kmod_fclose(fd);
+    // } else {
+    //     printf("init: can't open `/sys/dev/serial@10000000/serial` !\n");
+    // }
 
     // printf("init: 打印目录树\n");
     // print_tree(root_dir_cap, "/");
