@@ -47,7 +47,3 @@ defs-cpp := -DASSERT_IMPLEMENTED=1 -DUSE_SUSTCORE_FEATURES $(base-feature-defs) 
 include-asm := -I$(path-include) -I$(path-include)/std \
 	-I$(path-third_party)/include -I$(path-third_party)/include/std \
 	-I$(component-root) -I$(path-include)/arch
-
-# ifeq ($(architecture),loongarch64)
-# flags-cpp += -mno-lsx
-# endif

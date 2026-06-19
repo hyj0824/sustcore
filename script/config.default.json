@@ -3,22 +3,22 @@
 	"arch": "riscv64",
 	"riscv64": {
 		"compiler-prefix": "riscv64-unknown-elf-",
-		"qemu": {
-		},
+		"additional-flags": {},
+		"qemu": {},
 		"features": [
+			"kernel-run-modules"
 		],
-		"logger": {
-		},
+		"logger": {},
 		"logger-disable-all": true
 	},
 	"loongarch64": {
-		"compiler-prefix": "loongarch64-unknown-elf-",
-		"qemu": {
-		},
+		"compiler-prefix": "loongarch64-linux-gnu-",
+		"additional-flags": {},
+		"qemu": {},
 		"features": [
+			"kernel-run-modules"
 		],
-		"logger": {
-		},
+		"logger": {},
 		"logger-disable-all": true
 	}
 }

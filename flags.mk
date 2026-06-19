@@ -30,6 +30,18 @@ flags-common-ld := -nostdlib
 flags-kernel-ld := -z max-page-size=0x100
 flags-module-ld := -z max-page-size=0x1000 -e_start
 
+# 通过 JSON 文件临时引入一些因为不同工具链需要的 flag
+# 比如说，评测机不能开 -mno-lsx，但本地测试要开
+config-additional-flags-c ?=
+config-additional-flags-cpp ?=
+config-additional-flags-asm ?=
+config-additional-flags-ld ?=
+
+flags-common-c += $(config-additional-flags-c)
+flags-common-cpp += $(config-additional-flags-cpp)
+flags-common-ld += $(config-additional-flags-ld)
+flags-asm += $(config-additional-flags-asm)
+
 flags-mode-c :=
 flags-mode-cpp :=
 flags-mode-ld :=

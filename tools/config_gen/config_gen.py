@@ -35,6 +35,13 @@ def optional_list(value, name):
     return value
 
 
+def optional_string_list(value, name):
+    values = optional_list(value, name)
+    for index, item in enumerate(values):
+        require_string(item, f"{name}[{index}]")
+    return values
+
+
 def resolve_arch_config(config, override_arch=None):
     config = require_object(config, "config")
     arch = override_arch or require_string(config.get("arch"), "arch")
@@ -64,6 +71,26 @@ def emit_config(config, override_arch=None):
         lines.append(
             f"{make_value(arch)}-compiler-prefix ?= {make_value(compiler_prefix)}"
         )
+
+    additional_flags = arch_config.get("additional-flags")
+    if additional_flags is not None:
+        additional_flags = require_object(
+            additional_flags, f"{arch}.additional-flags"
+        )
+        for key, variable in (
+            ("c", "config-additional-flags-c"),
+            ("cpp", "config-additional-flags-cpp"),
+            ("asm", "config-additional-flags-asm"),
+            ("ld", "config-additional-flags-ld"),
+        ):
+            flags = optional_string_list(
+                additional_flags.get(key), f"{arch}.additional-flags.{key}"
+            )
+            if flags:
+                lines.append(
+                    f"{variable} ?= "
+                    + " ".join(make_value(flag) for flag in flags)
+                )
 
     qemu = arch_config.get("qemu")
     if qemu is not None:
