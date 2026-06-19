@@ -10,6 +10,7 @@
  */
 
 #include <device/resource.h>
+#include <device/pci.h>
 #include <bio/blk.h>
 #include <driver/virtio/virtio-blk.h>
 #include <logger.h>
@@ -56,8 +57,8 @@ namespace {
 
 namespace virtio {
     VirtioBlkDriver::VirtioBlkDriver(DevRes res, ProbeInfo probe_info,
-                                     char *mmio_base) noexcept
-        : VirtioDriverBase(std::move(res), probe_info, mmio_base),
+                                     util::owner<Transport *> transport) noexcept
+        : VirtioDriverBase(std::move(res), probe_info, std::move(transport)),
           _config(),
           _request_queue(nullptr),
           _request_header(),
@@ -80,7 +81,16 @@ namespace virtio {
         auto config_res = load_config();
         propagate(config_res);
 
-        auto queue_res = init_queue_legacy(REQUEST_QUEUE_INDEX, 8);
+        Result<VirtQueueLegacy *> queue_res = std::unexpected(
+            ErrCode::NOT_SUPPORTED);
+        if (_transport.get() != nullptr &&
+            _transport->kind() == Transport::Kind::PCI)
+        {
+            auto *transport_pci = static_cast<TransportPCI *>(_transport.get());
+            queue_res = init_queue_modern(REQUEST_QUEUE_INDEX, 8);
+        } else {
+            queue_res = init_queue_legacy(REQUEST_QUEUE_INDEX, 8);
+        }
         propagate(queue_res);
         _request_queue = queue_res.value();
 
@@ -387,7 +397,7 @@ namespace virtio {
 
         const size_t window_offset = DEBUG_DUMP_OFFSET - first_block * _block_size;
         const u8 *window           = blocks.data() + window_offset;
-        loggers::DEVICE::DEBUG(
+        loggers::DEVICE::INFO(
             "virtio-blk 调试窗口: node=%s image_offset=[0x%llx,0x%llx)",
             name(), static_cast<unsigned long long>(DEBUG_DUMP_OFFSET),
             static_cast<unsigned long long>(DEBUG_DUMP_OFFSET + DEBUG_DUMP_SIZE));
@@ -416,7 +426,7 @@ namespace virtio {
             line[static_cast<size_t>(pos)] = '|';
             ++pos;
             line[static_cast<size_t>(pos)]   = '\0';
-            loggers::DEVICE::DEBUG("%s", line.data());
+            loggers::DEVICE::INFO("%s", line.data());
         }
         void_return();
     }
@@ -434,23 +444,38 @@ namespace virtio {
         const device::DeviceNode &node, device::DeviceModel &model,
         const ProbeInfo &info) const {
         (void)model;
-        // 先提取资源并映射 MMIO, 然后构造驱动对象, 最后调用初始化收敛失败路径.
+        // 按 transport 构造具体访问后端, 然后再创建统一 virtio-blk 驱动对象.
         auto virqs = device::DevResManager::get_virq_resource(node);
         auto mmios = device::DevResManager::get_mmio_resource(node);
-        if (mmios.empty()) {
-            unexpect_return(ErrCode::ENTRY_NOT_FOUND);
-        }
+        util::owner<Transport *> transport =
+            util::owner<Transport *>(nullptr);
+        if (node.platform() == device::DevicePlatform::FDT) {
+            if (mmios.empty()) {
+                unexpect_return(ErrCode::ENTRY_NOT_FOUND);
+            }
 
-        auto *mmio = mmios.front().get();
-        if (mmio == nullptr) {
-            unexpect_return(ErrCode::NULLPTR);
+            auto *mmio = mmios.front().get();
+            if (mmio == nullptr) {
+                unexpect_return(ErrCode::NULLPTR);
+            }
+            auto map_res = device::MMIOManager::inst().map_to_kernel(*mmio);
+            propagate(map_res);
+            transport = util::owner<Transport *>(
+                new TransportMMIO(info, *mmio, map_res.value().as<char>()));
+        } else if (node.platform() == device::DevicePlatform::PCI) {
+            auto *pci_node = node.as<pci::PCIDeviceNode>();
+            if (pci_node == nullptr) {
+                unexpect_return(ErrCode::INVALID_PARAM);
+            }
+            transport = util::owner<Transport *>(
+                new TransportPCI(*pci_node, info));
+        } else {
+            unexpect_return(ErrCode::NOT_SUPPORTED);
         }
-        auto map_res = device::MMIOManager::inst().map_to_kernel(*mmio);
-        propagate(map_res);
 
         auto *driver = new VirtioBlkDriver(
             driver::DriverBase::DevRes(node, std::move(virqs), std::move(mmios)),
-            info, map_res.value().as<char>());
+            info, std::move(transport));
         if (driver == nullptr) {
             unexpect_return(ErrCode::OUT_OF_MEMORY);
         }
@@ -459,6 +484,13 @@ namespace virtio {
         if (!init_res.has_value()) {
             delete driver;
             propagate_return(init_res);
+        }
+
+        auto dump_res = driver->__debug_print_blocks();
+        if (!dump_res.has_value()) {
+            loggers::DEVICE::ERROR(
+                "virtio-blk 调试窗口读取失败: node=%s err=%s", node.name(),
+                to_cstring(dump_res.error()));
         }
 
         if (!blk::BlkManager::initialized()) {

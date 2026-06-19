@@ -10,6 +10,7 @@
  */
 
 #include <device/model.h>
+#include <device/fdt/device_node.h>
 #include <logger.h>
 #include <symbols.h>
 
@@ -17,6 +18,27 @@
 #include <ranges>
 
 namespace {
+    [[nodiscard]]
+    bool has_irq_factory(const device::DeviceNode &node) noexcept {
+        if (!driver::DriverModel::initialized()) {
+            return false;
+        }
+        auto &model = device::DeviceModel::inst();
+        const auto &factories = driver::DriverModel::inst().irq_factories();
+        for (const auto *factory : factories.factories()) {
+            if (factory == nullptr) {
+                continue;
+            }
+            auto match = factories.match(*factory, node);
+            if (match.matched &&
+                factory->probe(node, model, match.driver_flag))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     [[nodiscard]]
     bool is_empty(MemRegion region) {
         return region.area.nullable();
@@ -103,14 +125,22 @@ namespace device {
         if (!driver::DriverModel::initialized()) {
             _non_irq_devices.push_back(registered);
         } else {
-            auto *irq_factory =
-                driver::DriverModel::inst().irq_factories().find(*registered);
-            if (irq_factory == nullptr) {
+            if (!has_irq_factory(*registered)) {
                 _non_irq_devices.push_back(registered);
             }
         }
-        loggers::DEVICE::DEBUG("已登记 DeviceNode: platform=%s",
-                               registered->platform());
+        if (driver::DriverModel::initialized()) {
+            auto runtime_res =
+                driver::DriverModel::inst().register_runtime_device(registered);
+            if (!runtime_res.has_value()) {
+                loggers::DEVICE::ERROR(
+                    "运行时接入 DeviceNode 失败: node=%s err=%s",
+                    registered->name(), to_cstring(runtime_res.error()));
+                propagate_return(runtime_res);
+            }
+        }
+        loggers::DEVICE::DEBUG("已登记 DeviceNode: platform=%d",
+                               static_cast<int>(registered->platform()));
         return registered;
     }
 
@@ -125,7 +155,10 @@ namespace device {
             if (node.get() == nullptr) {
                 continue;
             }
-            if (node->is_compatible_with(compatible) >= 0) {
+            auto *fdt_node = node->as<fdt::FDTDeviceNode>();
+            if (fdt_node != nullptr &&
+                fdt_node->is_compatible_with(compatible) >= 0)
+            {
                 matched.push_back(node.get());
             }
         }
@@ -267,8 +300,9 @@ namespace device {
         return merge_same_status_regions(std::move(normalized));
     }
 
-    void KernelProvider::register_device(DeviceModel &model) const {
+    Result<void> KernelProvider::register_device(DeviceModel &model) const {
         (void)model;
+        void_return();
     }
 
     DeviceModel DeviceModel::_INSTANCE;

@@ -9,7 +9,7 @@
  *
  */
 
-#include <arch/riscv64/clint.h>
+#include <arch/riscv64/device/clint.h>
 #include <logger.h>
 
 namespace riscv {
@@ -56,10 +56,6 @@ namespace riscv {
           _identifier(identifier),
           _hart_id(hart_id),
           _target_harts(std::move(target_harts)) {}
-
-    std::string_view Clint::compatible() const noexcept {
-        return "riscv,clint0";
-    }
 
     driver::intc_t Clint::identifier() const noexcept {
         return _identifier;

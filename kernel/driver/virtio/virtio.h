@@ -12,6 +12,7 @@
 #pragma once
 
 #include <device/device.h>
+#include <device/pci.h>
 #include <device/resource.h>
 #include <driver/base.h>
 #include <driver/factory.h>
@@ -36,7 +37,7 @@ namespace virtio {
     using be32 = uint32_t;
     using be64 = uint64_t;
 
-    constexpr std::string_view VIRTIO_MMIO_COMPATIBLE = "virtio,mmio";
+    constexpr const char *VIRTIO_MMIO_COMPATIBLE = "virtio,mmio";
     constexpr u32 MAGIC_VALUE                         = 0x74726976;
     constexpr u32 VERSION_LEGACY                     = 0x1;
     constexpr u32 VERSION_MODERN                     = 0x2;
@@ -125,6 +126,59 @@ namespace virtio {
         constexpr size_t CONFIG_SPACE       = 0x100;
         constexpr size_t TOTAL_SIZE         = 0x100;
     }  // namespace offset
+
+    namespace pci_cap {
+        constexpr u8 CAP_ID_VENDOR   = 0x09;
+        constexpr u8 CFG_COMMON      = 1;
+        constexpr u8 CFG_NOTIFY      = 2;
+        constexpr u8 CFG_ISR         = 3;
+        constexpr u8 CFG_DEVICE      = 4;
+        constexpr u8 CFG_PCI         = 5;
+        constexpr u8 CFG_SHARED_MEM  = 8;
+        constexpr u8 CFG_VENDOR_DATA = 9;
+    }  // namespace pci_cap
+
+    struct VirtioPciCap {
+        b8 cap_vndr = 0;
+        b8 cap_next = 0;
+        b8 cap_len = 0;
+        b8 cfg_type = 0;
+        b8 bar = 0;
+        b8 id = 0;
+        b8 padding[2]{};
+        le32 offset = 0;
+        le32 length = 0;
+    };
+
+    struct VirtioPciNotifyCap : public VirtioPciCap {
+        le32 notify_off_multiplier = 0;
+    };
+
+    struct VirtioPciCommonCfg {
+        le32 device_feature_select;
+        le32 device_feature;
+        le32 driver_feature_select;
+        le32 driver_feature;
+        le16 msix_config;
+        le16 num_queues;
+        u8 device_status;
+        u8 config_generation;
+        le16 queue_select;
+        le16 queue_size;
+        le16 queue_msix_vector;
+        le16 queue_enable;
+        le16 queue_notify_off;
+        le64 queue_desc;
+        le64 queue_driver;
+        le64 queue_device;
+    };
+
+    struct VirtioPciRegion {
+        bool valid = false;
+        b8 bar = 0;
+        b64 cpu_addr = 0;
+        b32 length = 0;
+    };
 
     /**
      * @brief virtio MMIO 通用寄存器布局.
@@ -215,6 +269,174 @@ namespace virtio {
         PhyAddr paddr    = PhyAddr::null;
         size_t size      = 0;
         size_t page_cnt  = 0;
+    };
+
+    /**
+     * @brief virtio transport 抽象.
+     *
+     * 负责屏蔽不同 transport 的寄存器与配置空间访问差异.
+     */
+    class Transport {
+    public:
+        enum class Kind {
+            MMIO,
+            PCI,
+        };
+
+        explicit Transport(ProbeInfo probe_info) noexcept
+            : _probe_info(probe_info) {}
+        virtual ~Transport() = default;
+
+        [[nodiscard]]
+        virtual Kind kind() const noexcept = 0;
+
+        [[nodiscard]]
+        virtual const char *name() const noexcept = 0;
+
+        [[nodiscard]]
+        virtual u32 read_reg32(size_t reg_offset) const noexcept = 0;
+        virtual void write_reg32(size_t reg_offset, u32 value) noexcept = 0;
+
+        [[nodiscard]]
+        virtual Result<u8> read_config_u8(size_t config_offset) const noexcept = 0;
+        [[nodiscard]]
+        virtual Result<u16> read_config_u16(
+            size_t config_offset) const noexcept = 0;
+        [[nodiscard]]
+        virtual Result<u32> read_config_u32(
+            size_t config_offset) const noexcept = 0;
+        [[nodiscard]]
+        virtual Result<u64> read_config_u64(
+            size_t config_offset) const noexcept = 0;
+
+        [[nodiscard]]
+        const ProbeInfo &probe_info() const noexcept {
+            return _probe_info;
+        }
+
+    protected:
+        ProbeInfo _probe_info;
+    };
+
+    /**
+     * @brief virtio-mmio transport 实现.
+     */
+    class TransportMMIO final : public Transport {
+    public:
+        TransportMMIO(ProbeInfo probe_info, const device::MMIOResource &mmio,
+                      char *mmio_base) noexcept;
+        ~TransportMMIO() override = default;
+
+        [[nodiscard]]
+        Kind kind() const noexcept override {
+            return Kind::MMIO;
+        }
+
+        [[nodiscard]]
+        const char *name() const noexcept override {
+            return "virtio-mmio";
+        }
+
+        [[nodiscard]]
+        u32 read_reg32(size_t reg_offset) const noexcept override;
+        void write_reg32(size_t reg_offset, u32 value) noexcept override;
+
+        [[nodiscard]]
+        Result<u8> read_config_u8(size_t config_offset) const noexcept override;
+        [[nodiscard]]
+        Result<u16> read_config_u16(size_t config_offset) const noexcept override;
+        [[nodiscard]]
+        Result<u32> read_config_u32(size_t config_offset) const noexcept override;
+        [[nodiscard]]
+        Result<u64> read_config_u64(size_t config_offset) const noexcept override;
+
+        [[nodiscard]]
+        const device::MMIOResource &mmio() const noexcept {
+            return *_mmio;
+        }
+
+    private:
+        const device::MMIOResource *_mmio = nullptr;
+        volatile CommonConfig *_regs      = nullptr;
+    };
+
+    /**
+     * @brief virtio-pci transport 预留骨架.
+     */
+    class TransportPCI final : public Transport {
+    public:
+        TransportPCI(const pci::PCIDeviceNode &node, ProbeInfo probe_info) noexcept;
+        ~TransportPCI() override;
+
+        [[nodiscard]]
+        Kind kind() const noexcept override {
+            return Kind::PCI;
+        }
+
+        [[nodiscard]]
+        const char *name() const noexcept override {
+            return "virtio-pci";
+        }
+
+        [[nodiscard]]
+        u32 read_reg32(size_t reg_offset) const noexcept override;
+        void write_reg32(size_t reg_offset, u32 value) noexcept override;
+
+        [[nodiscard]]
+        Result<u8> read_config_u8(size_t config_offset) const noexcept override;
+        [[nodiscard]]
+        Result<u16> read_config_u16(size_t config_offset) const noexcept override;
+        [[nodiscard]]
+        Result<u32> read_config_u32(size_t config_offset) const noexcept override;
+        [[nodiscard]]
+        Result<u64> read_config_u64(size_t config_offset) const noexcept override;
+
+        [[nodiscard]]
+        bool modern() const noexcept {
+            return _modern;
+        }
+
+        [[nodiscard]]
+        bool queue_uses_modern_layout() const noexcept {
+            return _modern;
+        }
+
+        [[nodiscard]]
+        Result<u16> max_queue_size(u16 queue_index) noexcept;
+        Result<void> setup_queue(u16 queue_index, u16 queue_size,
+                                 PhyAddr desc, PhyAddr driver_area,
+                                 PhyAddr device_area) noexcept;
+        Result<void> notify_queue(u16 queue_index) noexcept;
+
+    private:
+        [[nodiscard]]
+        Result<void> parse_capabilities() noexcept;
+        [[nodiscard]]
+        Result<void> load_probe_info() noexcept;
+        [[nodiscard]]
+        Result<void> parse_vendor_cap(b16 offset) noexcept;
+        [[nodiscard]]
+        Result<VirtioPciRegion> read_region(b16 cap_offset,
+                                            b8 expected_cfg_type) const noexcept;
+        [[nodiscard]]
+        Result<volatile char *> map_bar_region(const VirtioPciRegion &region,
+                                               util::owner<device::MMIOResource *> &resource) noexcept;
+
+        const pci::PCIDeviceNode *_node = nullptr;
+        bool _modern = false;
+        VirtioPciRegion _common_cfg{};
+        VirtioPciRegion _notify_cfg{};
+        VirtioPciRegion _device_cfg{};
+        b32 _notify_off_multiplier = 0;
+        util::owner<device::MMIOResource *> _common_resource =
+            util::owner<device::MMIOResource *>(nullptr);
+        util::owner<device::MMIOResource *> _notify_resource =
+            util::owner<device::MMIOResource *>(nullptr);
+        util::owner<device::MMIOResource *> _device_resource =
+            util::owner<device::MMIOResource *>(nullptr);
+        volatile char *_common_base = nullptr;
+        volatile char *_notify_base = nullptr;
+        volatile char *_device_base = nullptr;
     };
 
     /**
@@ -329,16 +551,11 @@ namespace virtio {
          * @param mmio_base 已映射的 MMIO 基址.
          */
         VirtioDriverBase(DevRes res, ProbeInfo probe_info,
-                         char *mmio_base) noexcept;
+                         util::owner<Transport *> transport) noexcept;
         /**
          * @brief 销毁 virtio 通用设备对象并回收队列 DMA 资源.
          */
         ~VirtioDriverBase() noexcept override;
-
-        [[nodiscard]]
-        std::string_view compatible() const noexcept override {
-            return VIRTIO_MMIO_COMPATIBLE;
-        }
 
         [[nodiscard]]
         bool legacy() const noexcept {
@@ -420,6 +637,9 @@ namespace virtio {
          */
         [[nodiscard]]
         Result<VirtQueueLegacy *> init_queue_legacy(
+            u16 queue_index, u16 requested_size) noexcept;
+        [[nodiscard]]
+        Result<VirtQueueLegacy *> init_queue_modern(
             u16 queue_index, u16 requested_size) noexcept;
         /**
          * @brief 为一组缓冲区分配并构造一条 legacy 描述符链.
@@ -504,9 +724,10 @@ namespace virtio {
         Result<void> write_driver_features(u64 features) noexcept;
 
         ProbeInfo _probe_info;
-        volatile CommonConfig *_regs = nullptr;
-        u64 _device_features         = 0;
-        u64 _negotiated_features     = 0;
+        util::owner<Transport *> _transport =
+            util::owner<Transport *>(nullptr);
+        u64 _device_features     = 0;
+        u64 _negotiated_features = 0;
         std::vector<VirtQueueLegacy> _queues;
     };
 
@@ -550,18 +771,16 @@ namespace virtio {
      */
     class VirtioMmioFactory final : public driver::IDeviceFactory {
     public:
-        /**
-         * @brief 返回该工厂服务的主 compatible.
-         */
         [[nodiscard]]
-        std::string_view compatible() const noexcept override;
+        const driver::DeviceId &device_id() const noexcept override;
 
         /**
          * @brief 在普通设备工厂匹配阶段识别合法 virtio-mmio 节点.
          */
         [[nodiscard]]
         bool probe(const device::DeviceNode &node,
-                   device::DeviceModel &model) const noexcept override;
+                   device::DeviceModel &model,
+                   b64 driver_flag) const noexcept override;
 
         /**
          * @brief 执行通用探测并向对应 virtio 子工厂转发创建请求.
@@ -569,7 +788,8 @@ namespace virtio {
         [[nodiscard]]
         Result<driver::DriverBase *> create(
             const device::DeviceNode &node,
-            device::DeviceModel &model) const override;
+            device::DeviceModel &model,
+            b64 driver_flag) const override;
     };
 
     /**

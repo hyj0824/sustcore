@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <fwd.h>
 #include <device/cpu.h>
 #include <device/device.h>
 #include <device/platform.h>
@@ -27,10 +28,6 @@
 #include <vector>
 
 namespace device {
-    class DeviceModel;
-}
-
-namespace device {
     class DeviceProvider {
     public:
         virtual ~DeviceProvider() = default;
@@ -40,7 +37,8 @@ namespace device {
          *
          * @param model 目标设备模型.
          */
-        virtual void register_device(DeviceModel &model) const = 0;
+        [[nodiscard]]
+        virtual Result<void> register_device(DeviceModel &model) const = 0;
 
         [[nodiscard]]
         virtual const char *name() const = 0;
@@ -151,10 +149,26 @@ namespace device {
             return _clock_virq;
         }
 
-        void register_provider(util::owner<DeviceProvider *> provider) {
+        [[nodiscard]]
+        Result<void> register_provider(
+            util::owner<DeviceProvider *> provider) noexcept {
+            if (provider.get() == nullptr) {
+                loggers::DEVICE::ERROR("注册设备提供者失败: provider 为空");
+                unexpect_return(ErrCode::NULLPTR);
+            }
+
+            auto *raw = provider.get();
+            auto register_res = raw->register_device(*this);
+            if (!register_res.has_value()) {
+                loggers::DEVICE::ERROR(
+                    "注册设备提供者失败: provider=%s err=%s", raw->name(),
+                    to_cstring(register_res.error()));
+                propagate_return(register_res);
+            }
+
             _providers.push_back(std::move(provider));
-            provider->register_device(*this);
-            loggers::DEVICE::INFO("已注册设备提供者: %s", provider->name());
+            loggers::DEVICE::INFO("已注册设备提供者: %s", raw->name());
+            void_return();
         }
 
         DeviceModel(const DeviceModel &)            = delete;
@@ -226,7 +240,8 @@ namespace device {
 
     class KernelProvider : public DeviceProvider {
     public:
-        void register_device(DeviceModel &model) const override;
+        [[nodiscard]]
+        Result<void> register_device(DeviceModel &model) const override;
         [[nodiscard]]
         const char *name() const override {
             return "kernel";

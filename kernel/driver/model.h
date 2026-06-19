@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <fwd.h>
 #include <cap/cholder.h>
 #include <device/device.h>
 #include <driver/base.h>
@@ -18,10 +19,6 @@
 #include <sus/owner.h>
 
 #include <vector>
-
-namespace device {
-    class DeviceModel;
-}
 
 namespace driver {
     /**
@@ -111,6 +108,18 @@ namespace driver {
         Result<DriverBase *> create_irq_driver(device::DeviceNode *node) noexcept;
 
         /**
+         * @brief 在运行时接入一个新登记的统一设备节点.
+         *
+         * 供晚注册的 DeviceProvider 使用，使新增节点进入 devfs 与后续驱动
+         * 匹配视图。
+         *
+         * @param node 新设备节点非拥有指针.
+         * @return Result<void> 接入结果.
+         */
+        [[nodiscard]]
+        Result<void> register_runtime_device(device::DeviceNode *node) noexcept;
+
+        /**
          * @brief 获取普通设备工厂注册表只读引用.
          *
          * @return const DeviceFactoryRegistry& 普通工厂注册表.
@@ -135,7 +144,8 @@ namespace driver {
             device::DeviceNode *node          = nullptr;
             DriverBase *driver                = nullptr;
             const IDeviceFactory *factory     = nullptr;
-            int compatible_index              = -1;
+            int match_index                   = -1;
+            b64 driver_flag                   = 0;
             CapIdx devdir                     = 0;
             util::owner<cap::CHolder *> holder = util::owner<cap::CHolder *>(
                 nullptr);
@@ -149,7 +159,8 @@ namespace driver {
         Result<void> _register_device_directory(device::DeviceNode &node) noexcept;
         [[nodiscard]]
         Result<void> _bind_device_with_factory(device::DeviceNode &node,
-                                               const IDeviceFactory &factory) noexcept;
+                                               const IDeviceFactory &factory,
+                                               MatchResult match) noexcept;
         [[nodiscard]]
         Result<void> _probe_new_factory(const IDeviceFactory &factory) noexcept;
         [[nodiscard]]
@@ -160,14 +171,10 @@ namespace driver {
             const device::DeviceNode &node) const noexcept;
         [[nodiscard]]
         Result<DriverBase *> _create_driver(device::DeviceNode &node,
-                                            const IDeviceFactory &factory) noexcept;
+                                            const IDeviceFactory &factory,
+                                            b64 driver_flag) noexcept;
         [[nodiscard]]
         Result<CapIdx> _open_devdir(const char *name, cap::CHolder &holder) noexcept;
-        [[nodiscard]]
-        static bool _is_better_match(const device::DeviceNode &node,
-                                     std::string_view candidate,
-                                     int current_index) noexcept;
-
         static DriverModel _INSTANCE;
         static bool _initialized;
 

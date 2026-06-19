@@ -11,21 +11,23 @@
 
 #pragma once
 
+#include <fwd.h>
 #include <device/device.h>
 #include <sus/owner.h>
 #include <sustcore/addr.h>
 
 #include <vector>
-
 namespace device {
-    class DevResManager;
-    class MMIOManager;
-
     /**
      * @brief 统一设备节点导出的单个虚拟中断资源.
      */
     class VIrqResource {
     public:
+        [[nodiscard]]
+        static util::owner<VIrqResource *> make(driver::virq_t virq) noexcept {
+            return util::owner<VIrqResource *>(new VIrqResource(virq));
+        }
+
         /**
          * @brief 获取资源中包含的唯一 virq.
          *
@@ -84,6 +86,11 @@ namespace device {
      */
     class MMIOResource {
     public:
+        [[nodiscard]]
+        static util::owner<MMIOResource *> make(PhyArea region) noexcept {
+            return util::owner<MMIOResource *>(new MMIOResource(region));
+        }
+
         /**
          * @brief 获取资源中包含的唯一 MMIO 区域.
          *
