@@ -29,10 +29,13 @@ qemu-rtc-args ?= -rtc base=localtime
 
 qemu-debug-args ?= -s -S
 
-.PHONY: run
-run:
-	$(qemu) $(qemu-memory-args) $(qemu-args) $(qemu-serial-args) $(qemu-rtc-args) $(qemu-attached-args)
+qemu-run-command = $(qemu) $(qemu-memory-args) $(qemu-args) $(qemu-serial-args) $(qemu-rtc-args) $(qemu-attached-args)
+qemu-dbg-command = $(qemu-run-command) $(qemu-debug-args)
 
-.PHONY: run_dbg
-run_dbg:
-	$(qemu) $(qemu-memory-args) $(qemu-args) $(qemu-serial-args) $(qemu-rtc-args) $(qemu-attached-args) $(qemu-debug-args)
+.PHONY: run-only
+run-only:
+	$(qemu-run-command)
+
+.PHONY: dbg-only
+dbg-only:
+	$(qemu-dbg-command)

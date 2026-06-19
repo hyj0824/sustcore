@@ -36,7 +36,7 @@ include $(path-script)/tool.mk
 include $(path-script)/util.mk
 include $(path-script)/run.mk
 
-.PHONY: build mount umount image __image stat_code all autotest kernel-rv kernel-la run-local dbg clean FORCE
+.PHONY: build mount umount image __image stat_code all autotest kernel-rv kernel-la run dbg clean FORCE
 .PHONY: build-libs build-mods build-kernel make-initrd
 
 build-mode ?= release
@@ -92,7 +92,7 @@ kernel/logger.h: FORCE $(config-json) kernel/logger.json tools/logger_gen/logger
 kernel/feature.mk: FORCE $(config-json) kernel/feature.json tools/feature_gen/feature_gen.py
 	$(q)python3 tools/feature_gen/feature_gen.py kernel/feature.json kernel/feature.mk $(config-json) $(config-arch-override)
 
-build-mods: build-libs
+build-mods: make-initrd build-libs
 	$(q)$(MAKE) -f $(module-component-makefile.default) $(arg-basic) build
 	$(q)$(MAKE) -f $(module-component-makefile.init) $(arg-basic) build
 	$(q)$(MAKE) -f $(module-component-makefile.test_endpoint_master) $(arg-basic) build
@@ -120,11 +120,11 @@ make-initrd:
 	cp -r ./tools/ $(path-initrd)/src/tools/
 	$(q)echo "initrd path created"
 
-build-kernel:
+build-kernel: build-mods
 	$(q)$(copy) ./LICENSE $(path-initrd)/license
 	$(q)$(MAKE) -f $(path-e)/kernel/Makefile $(arg-basic) build
 
-build: make-initrd build-mods build-kernel
+build: build-kernel
 
 mount:
 	$(q)$(MAKE) -f $(path-script)/image/Makefile.image global-env=$(global-env) loop=$(loop-b) start-image
@@ -153,15 +153,15 @@ stat_code:
 	$(q)$(comments-stat)
 
 
-build-and-run:
-	$(q)$(MAKE) -s build && $(MAKE) run
+run: build
+	$(qemu-run-command)
 
-build-and-dbg:
-	$(q)$(MAKE) -s build && $(MAKE) run_dbg
+dbg: build
+	$(qemu-dbg-command)
 
 clean:
 	rm -rf $(path-e)/build kernel-rv kernel-la
 
-build-libs build-mods make-initrd build-kernel build all autotest kernel-rv kernel-la build-and-run build-and-dbg run run_dbg image __image mount umount: config.mk kernel/logger.h kernel/feature.mk
+build-libs build-mods make-initrd build-kernel build all autotest kernel-rv kernel-la run dbg run-only dbg-only image __image mount umount: config.mk kernel/logger.h kernel/feature.mk
 
 include $(path-script)/setup.mk

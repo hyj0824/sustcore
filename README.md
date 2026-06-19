@@ -14,11 +14,11 @@
 
 ## 运行
 
-输入 `make run` 即可运行. 更推荐 `make all`, 编译并运行.
+输入 `make run` 即可编译并运行. 如果只想启动已有内核, 使用 `make run-only`.
 
 ## 调试
 
-输入 `make run_dbg` 即可运行. 更推荐 `make dbg`, 编译并调试.
+输入 `make dbg` 即可编译并启动调试. 如果只想调试启动已有内核, 使用 `make dbg-only`.
 需要用 gdb 连接到 `localhost:1234` 上. 可参考我给出的配置文件在VSCode上进行配置.
 
 # 代码规范
