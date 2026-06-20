@@ -201,6 +201,16 @@ namespace virtio {
             default: break;
         }
 
+        if (!result.has_value()) {
+            loggers::DEVICE::ERROR(
+                "virtio-blk request failed: node=%s op=%u lba=%u cnt=%u block_size=%u sector_size=%u err=%s",
+                name(), static_cast<unsigned>(req.op),
+                static_cast<unsigned>(req.lba),
+                static_cast<unsigned>(req.block_count),
+                static_cast<unsigned>(_block_size),
+                static_cast<unsigned>(_sector_size),
+                to_cstring(result.error()));
+        }
         auto complete_res =
             _queue->complete(util::nnullforce(&req), std::move(result));
         propagate(complete_res);
@@ -298,6 +308,12 @@ namespace virtio {
         if (_block_size == 0 || _sector_size == 0 ||
             (_block_size % _sector_size) != 0)
         {
+            loggers::DEVICE::ERROR(
+                "virtio-blk read 参数非法: node=%s lba=%u block_count=%u block_size=%u sector_size=%u",
+                name(), static_cast<unsigned>(lba),
+                static_cast<unsigned>(block_count),
+                static_cast<unsigned>(_block_size),
+                static_cast<unsigned>(_sector_size));
             unexpect_return(ErrCode::INVALID_PARAM);
         }
         const auto total_blocks = block_cnt();
@@ -305,6 +321,11 @@ namespace virtio {
         if (lba >= total_blocks.value() ||
             block_count > total_blocks.value() - lba)
         {
+            loggers::DEVICE::ERROR(
+                "virtio-blk read 越界: node=%s lba=%u block_count=%u total_blocks=%u",
+                name(), static_cast<unsigned>(lba),
+                static_cast<unsigned>(block_count),
+                static_cast<unsigned>(total_blocks.value()));
             unexpect_return(ErrCode::OUT_OF_BOUNDARY);
         }
 

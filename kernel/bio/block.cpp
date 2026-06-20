@@ -25,9 +25,15 @@ Result<void> RamDiskDevice::process_request(blk::BlockRequest &req) {
     switch (req.op) {
         case blk::BlockOp::READ:
             result = read_blocks(req.lba, req.buffer, req.block_count);
+            if (result.has_value()) {
+                result = result.value() * D_block_size;
+            }
             break;
         case blk::BlockOp::WRITE:
             result = write_blocks(req.lba, req.buffer, req.block_count);
+            if (result.has_value()) {
+                result = result.value() * D_block_size;
+            }
             break;
         case blk::BlockOp::FLUSH: {
             auto sync_res = sync();
@@ -39,6 +45,15 @@ Result<void> RamDiskDevice::process_request(blk::BlockRequest &req) {
             break;
         }
         default: break;
+    }
+    if (!result.has_value()) {
+        loggers::SUSTCORE::ERROR(
+            "RamDisk request failed: op=%u lba=%u cnt=%u block_size=%u blocks=%u err=%s",
+            static_cast<unsigned>(req.op), static_cast<unsigned>(req.lba),
+            static_cast<unsigned>(req.block_count),
+            static_cast<unsigned>(D_block_size),
+            static_cast<unsigned>(D_block_count),
+            to_cstring(result.error()));
     }
     if (_queue == nullptr) {
         unexpect_return(ErrCode::NULLPTR);

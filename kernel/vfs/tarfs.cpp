@@ -217,7 +217,7 @@ namespace tarfs {
 		}
 		for (size_t blkno = 0; blkno < block_cnt_res.value(); ++blkno) {
 			auto future = cache->get_buffer_async(blkno);
-			auto handler_res = wait::kthread_wait_for(future);
+			auto handler_res = wait::blocking_wait_for(future);
 			if (!handler_res.has_value()) {
 				delete[] data;
 				propagate_return(handler_res);
@@ -265,7 +265,7 @@ namespace tarfs {
 			}
 			for (size_t blkno = 0; blkno < block_cnt_res.value(); ++blkno) {
 				auto future = cache->get_buffer_async(blkno);
-				auto handler_res = wait::kthread_wait_for(future);
+				auto handler_res = wait::blocking_wait_for(future);
 				if (!handler_res.has_value()) {
 					delete[] data;
 					propagate_return(handler_res);

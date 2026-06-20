@@ -474,7 +474,7 @@ namespace slub {
 
         static constexpr size_t get_pages(size_t rsz) {
             constexpr size_t least_pages = 1;
-            return std::max(least_pages, rsz / PAGESIZE);
+            return std::max(least_pages, (rsz + PAGESIZE - 1) / PAGESIZE);
         }
 
         static void *large_malloc(size_t rsz) {

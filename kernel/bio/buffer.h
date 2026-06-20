@@ -44,6 +44,7 @@ namespace blk {
         bool valid;     // data 中是否包含有效数据(读完成标志)
         bool inflight;  // 是否存在未完成请求
         int refcnt;     // 引用计数
+        wait::wd_t wait_wd;  // 等待该 buffer 的 inflight 请求完成
 
         // 这里以后可能会有一个锁
 

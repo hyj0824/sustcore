@@ -31,6 +31,7 @@ namespace flags {
     constexpr oflg_t O_READ    = 0b0001;
     constexpr oflg_t O_WRITE   = 0b0010;
     constexpr oflg_t O_EXECUTE = 0b0100;
+    constexpr oflg_t O_CREAT   = 0b1000;
 
     // posix permission flags
     using ppflg_t                     = size_t;

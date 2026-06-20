@@ -285,6 +285,54 @@ sys_vfs_mkdir:
     ecall
     ret
 
+    .global sys_vfs_unlink
+    .type sys_vfs_unlink, @function
+sys_vfs_unlink:
+    /* a0 = parent dir cap, a1 = name */
+    li a7, SYS_VFS_UNLINK
+    ecall
+    ret
+
+    .global sys_vfs_rmdir
+    .type sys_vfs_rmdir, @function
+sys_vfs_rmdir:
+    /* a0 = parent dir cap, a1 = name */
+    li a7, SYS_VFS_RMDIR
+    ecall
+    ret
+
+    .global sys_vfs_truncate
+    .type sys_vfs_truncate, @function
+sys_vfs_truncate:
+    /* a0 = file cap, a1 = new_size */
+    li a7, SYS_VFS_TRUNCATE
+    ecall
+    ret
+
+    .global sys_vfs_rename
+    .type sys_vfs_rename, @function
+sys_vfs_rename:
+    /* a0 = old_parent_cap, a1 = old_name, a2 = new_parent_cap, a3 = new_name */
+    li a7, SYS_VFS_RENAME
+    ecall
+    ret
+
+    .global sys_vfs_symlink
+    .type sys_vfs_symlink, @function
+sys_vfs_symlink:
+    /* a0 = parent_dir_cap, a1 = name, a2 = target */
+    li a7, SYS_VFS_SYMLINK
+    ecall
+    ret
+
+    .global sys_vfs_link
+    .type sys_vfs_link, @function
+sys_vfs_link:
+    /* a0 = parent_dir_cap, a1 = name, a2 = target_inode */
+    li a7, SYS_VFS_LINK
+    ecall
+    ret
+
     .global sys_vfs_read
     .type sys_vfs_read, @function
 sys_vfs_read:

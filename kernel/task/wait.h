@@ -1210,6 +1210,10 @@ namespace wait {
 
     template <typename T>
     typename detail::future_wait_result_t<T> kthread_wait_for(Future<T> &future);
+    Result<bool> current_thread_is_kernel() noexcept;
+    template <typename T>
+    typename detail::future_wait_result_t<T> blocking_wait_for(
+        Future<T> &future);
 }  // namespace wait
 
 template <typename T>
@@ -1479,5 +1483,16 @@ namespace wait {
             propagate(wait_res);
         }
         return take_wait_result(future);
+    }
+
+    template <typename T>
+    inline typename detail::future_wait_result_t<T> blocking_wait_for(
+        Future<T> &future) {
+        auto kernel_res = current_thread_is_kernel();
+        propagate(kernel_res);
+        if (kernel_res.value()) {
+            return kthread_wait_for(future);
+        }
+        return wait_for(future);
     }
 }  // namespace wait

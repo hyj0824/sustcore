@@ -178,6 +178,12 @@ namespace wait {
         void_return();
     }
 
+    Result<bool> current_thread_is_kernel() noexcept {
+        auto current_res = current_waiter();
+        propagate(current_res);
+        return current_res.value()->is_kernel;
+    }
+
     WaitReasonManager &WaitReasonManager::inst() {
         if (!initialized()) {
             panic("WaitReasonManager 未初始化!");

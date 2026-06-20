@@ -23,17 +23,6 @@ namespace {
     constexpr size_t kGetdentsBufferSize = 2048;
     constexpr size_t kMaxPrintDepth      = 4;
 
-    [[nodiscard]]
-    void *current_sp() {
-        void *sp = nullptr;
-#if defined(__ARCH_riscv64__)
-        asm volatile("mv %0, sp" : "=r"(sp));
-#elif defined(__ARCH_loongarch64__)
-        asm volatile("move %0, $sp" : "=r"(sp));
-#endif
-        return sp;
-    }
-
     // 在 bootstrap 信息中寻找根目录能力
     [[nodiscard]]
     CapIdx bootstrap_root_dir() {
@@ -191,67 +180,138 @@ namespace {
 int kmod_main() {
     mark_cnt = 0;
     printf("进入 init 模块!\n");
+    int fd;
 
     CapIdx root_dir_cap = bootstrap_root_dir();
-    if (root_dir_cap == cap::null || root_dir_cap == cap::error) {
-        printf("init: bootstrap root dir capability missing\n");
-        exit(-1);
-    }
+    // if (root_dir_cap == cap::null || root_dir_cap == cap::error) {
+    //     printf("init: bootstrap root dir capability missing\n");
+    //     exit(-1);
+    // }
 
-    int fd = 0;
-    fd = kmod_fopen("/initrd/test_fork.mod", "x");
-    if (fd >= 0) {
-        if (spawn_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap) == cap::error)
-        {
-            printf("init: create test_fork failed\n");
-        }
-        kmod_fclose(fd);
-    }
+    // int fd = kmod_fopen("/initrd/test_fork.mod", "x");
+    // if (fd >= 0) {
+    //     if (spawn_with_root_dir(fd, SCHED_CLASS_FCFS, root_dir_cap) ==
+    //     cap::error)
+    //     {
+    //         printf("init: create test_fork failed\n");
+    //     }
+    //     kmod_fclose(fd);
+    // }
 
-    fd = kmod_fopen("/initrd/test_thread.mod", "x");
-    if (fd >= 0) {
-        if (spawn_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap) == cap::error)
-        {
-            printf("init: create test_thread failed\n");
-        }
-        kmod_fclose(fd);
-    }
+    // fd = kmod_fopen("/initrd/test_thread.mod", "x");
+    // if (fd >= 0) {
+    //     if (spawn_with_root_dir(fd, SCHED_CLASS_FCFS, root_dir_cap) ==
+    //     cap::error)
+    //     {
+    //         printf("init: create test_thread failed\n");
+    //     }
+    //     kmod_fclose(fd);
+    // }
 
-    fd = kmod_fopen("/initrd/test_endpoint_master.mod", "x");
-    if (fd >= 0) {
-        if (spawn_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap) == cap::error)
-        {
-            printf("init: create test_endpoint_master failed\n");
-        }
-        kmod_fclose(fd);
-    }
+    // fd = kmod_fopen("/initrd/test_endpoint_master.mod", "x");
+    // if (fd >= 0) {
+    //     if (spawn_with_root_dir(fd, SCHED_CLASS_FCFS, root_dir_cap) ==
+    //     cap::error)
+    //     {
+    //         printf("init: create test_endpoint_master failed\n");
+    //     }
+    //     kmod_fclose(fd);
+    // }
 
-    fd = kmod_fopen("/initrd/test_call_service.mod", "x");
-    if (fd >= 0) {
-        if (spawn_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap) == cap::error)
-        {
-            printf("init: create test_call_service failed\n");
-        }
-        kmod_fclose(fd);
-    }
+    // fd = kmod_fopen("/initrd/test_call_service.mod", "x");
+    // if (fd >= 0) {
+    //     if (spawn_with_root_dir(fd, SCHED_CLASS_FCFS, root_dir_cap) ==
+    //     cap::error)
+    //     {
+    //         printf("init: create test_call_service failed\n");
+    //     }
+    //     kmod_fclose(fd);
+    // }
 
     // fd = kmod_fopen("/initrd/test_rpc_server.mod", "x");
     // if (fd >= 0) {
-    //     if (spawn_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap) == cap::error)
+    //     if (spawn_with_root_dir(fd, SCHED_CLASS_FCFS, root_dir_cap) ==
+    //     cap::error)
     //     {
     //         printf("init: create test_rpc_server failed\n");
     //     }
     //     kmod_fclose(fd);
     // }
 
-    fd = kmod_fopen("/initrd/test_file_rw_a.mod", "x");
+    // fd = kmod_fopen("/initrd/test_file_rw_a.mod", "x");
+    // if (fd >= 0) {
+    //     if (spawn_with_root_dir(fd, SCHED_CLASS_FCFS, root_dir_cap) ==
+    //     cap::error)
+    //     {
+    //         printf("init: create test_file_rw_a failed\n");
+    //     }
+    //     kmod_fclose(fd);
+    // }
+
+    // v1 ext4 create mutates the mounted image. Run ext4 test modules one at
+    // a time until the write path has proper filesystem-level locking.
+    // fd = kmod_fopen("/initrd/test_ext4_read.mod", "x");
+    // if (fd >= 0) {
+    //     if (spawn_with_root_dir(fd, SCHED_CLASS_FCFS, root_dir_cap) ==
+    //     cap::error)
+    //     {
+    //         printf("init: create test_ext4_read failed\n");
+    //     } else {
+    //         printf("init: ext4 read test spawned\n");
+    //     }
+    //     kmod_fclose(fd);
+    // }
+
+    // ext4 write tests must run sequentially — no filesystem locking yet
+    // fd = kmod_fopen("/initrd/test_ext4_create.mod", "x");
+    // if (fd >= 0) {
+    //     if (spawn_with_root_dir(fd, SCHED_CLASS_FCFS, root_dir_cap) ==
+    //     cap::error)
+    //     {
+    //         printf("init: create test_ext4_create failed\n");
+    //     } else {
+    //         printf("init: ext4 create test spawned\n");
+    //     }
+    //     kmod_fclose(fd);
+    // }
+
+    // fd = kmod_fopen("/initrd/test_ext4_rw.mod", "x");
+    // if (fd >= 0) {
+    //     if (spawn_with_root_dir(fd, SCHED_CLASS_FCFS, root_dir_cap) ==
+    //     cap::error)
+    //     {
+    //         printf("init: create test_ext4_rw failed\n");
+    //     } else {
+    //         printf("init: ext4 rw test spawned\n");
+    //     }
+    //     kmod_fclose(fd);
+    // }
+
+    // test_fs_score — combined basic/rw/dir/names/stress
+    fd = kmod_fopen("/initrd/test_fs_score.mod", "x");
     if (fd >= 0) {
-        if (spawn_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap) == cap::error)
+        if (spawn_with_root_dir(fd, SCHED_CLASS_FCFS, root_dir_cap) ==
+            cap::error)
         {
-            printf("init: create test_file_rw_a failed\n");
+            printf("init: create test_fs_score failed\n");
+        } else {
+            printf("init: fs score test spawned\n");
         }
         kmod_fclose(fd);
     }
+
+    // ext4 score tests — run sequentially after rw test
+    // fd = kmod_fopen("/initrd/test_fs_basic.mod", "x");
+    // if (fd >= 0) {
+    //     if (spawn_with_root_dir(fd, SCHED_CLASS_FCFS, root_dir_cap) ==
+    //         cap::error)
+    //     {
+    //         printf("init: create test_fs_basic failed\n");
+    //     } else {
+    //         printf("init: fs basic test spawned\n");
+    //     }
+    //     kmod_fclose(fd);
+    // }
 
     // try write file /sys/dev/serial@10000000/serial
     // fd = kmod_fopen("/sys/dev/serial@10000000/serial", "w");

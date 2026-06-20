@@ -3,6 +3,7 @@ path-script := $(path-e)/script
 path-tools := $(path-e)/tools
 path-mount ?= /mnt/sustcore
 path-img ?= $(path-e)/sustcore.img
+path-ext4-img ?= $(path-e)/alpine-linux-riscv64-ext4fs.img
 path-lib := $(path-e)/libs
 path-include := $(path-e)/include
 path-third_party := $(path-e)/third_party

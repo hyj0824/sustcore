@@ -33,34 +33,6 @@
 
 namespace syscall {
     namespace {
-        void log_getdents_probe(const char *stage,
-                                util::nonnull<task::TCB *> tcb) {
-            if (tcb->task == nullptr || tcb->task->tmm == nullptr) {
-                return;
-            }
-
-            constexpr VirAddr kPcbCapAddr(0x0000000080005520ULL);
-            auto vma_res = tcb->task->tmm->locate(kPcbCapAddr);
-            if (!vma_res.has_value() || vma_res.value()->memory == nullptr) {
-                return;
-            }
-
-            auto *vma      = vma_res.value().get();
-            size_t mem_off = vma->mem_offset + (kPcbCapAddr - vma->varea.begin);
-            CapIdx value   = cap::null;
-            auto read_res  = vma->memory->read(mem_off, &value, sizeof(value));
-            if (!read_res.has_value()) {
-                return;
-            }
-
-            loggers::SYSCALL::INFO(
-                "dispatch probe[%s]: pid=%lu vaddr=%p vma=[%p,%p) type=%d "
-                "mem=%p mem_off=%lu value=%p",
-                stage, tcb->task->pid, kPcbCapAddr.addr(),
-                vma->varea.begin.addr(), vma->varea.end.addr(),
-                static_cast<int>(vma->type), vma->memory, mem_off, value);
-        }
-
         /**
          * @brief 生成布尔型 syscall 返回包.
          *
@@ -213,6 +185,12 @@ namespace syscall {
             case SYS_VFS_SYNC:            return "SYS_VFS_SYNC";
             case SYS_VFS_MKFILE:          return "SYS_VFS_MKFILE";
             case SYS_VFS_MKDIR:           return "SYS_VFS_MKDIR";
+            case SYS_VFS_UNLINK:          return "SYS_VFS_UNLINK";
+            case SYS_VFS_RMDIR:           return "SYS_VFS_RMDIR";
+            case SYS_VFS_TRUNCATE:        return "SYS_VFS_TRUNCATE";
+            case SYS_VFS_RENAME:          return "SYS_VFS_RENAME";
+            case SYS_VFS_SYMLINK:         return "SYS_VFS_SYMLINK";
+            case SYS_VFS_LINK:           return "SYS_VFS_LINK";
             default:                      return "UNKNOWN_SYSCALL";
         }
     }
@@ -335,6 +313,40 @@ namespace syscall {
             case SYS_VFS_MKDIR: {
                 UString path((VirAddr)arg0, MAX_SYSCALL_PATH);
                 ret = result_value_ret("mkdir", vfs_mkdir(capidx, path, arg1));
+                break;
+            }
+            case SYS_VFS_UNLINK: {
+                UString path((VirAddr)arg0, MAX_SYSCALL_PATH);
+                ret = result_void_ret("unlink", vfs_unlink(capidx, path));
+                break;
+            }
+            case SYS_VFS_RMDIR: {
+                UString path((VirAddr)arg0, MAX_SYSCALL_PATH);
+                ret = result_void_ret("rmdir", vfs_rmdir(capidx, path));
+                break;
+            }
+            case SYS_VFS_TRUNCATE: {
+                ret = result_void_ret("truncate", vfs_truncate(capidx, arg0));
+                break;
+            }
+            case SYS_VFS_RENAME: {
+                UString old_name((VirAddr)arg0, MAX_SYSCALL_PATH);
+                UString new_name((VirAddr)arg2, MAX_SYSCALL_PATH);
+                ret = result_void_ret("rename",
+                    vfs_rename(capidx, old_name, arg1, new_name));
+                break;
+            }
+            case SYS_VFS_SYMLINK: {
+                UString path((VirAddr)arg0, MAX_SYSCALL_PATH);
+                UString target((VirAddr)arg1, MAX_SYSCALL_PATH);
+                ret = result_value_ret(
+                    "symlink", vfs_symlink(capidx, path, target));
+                break;
+            }
+            case SYS_VFS_LINK: {
+                UString path((VirAddr)arg0, MAX_SYSCALL_PATH);
+                ret = result_void_ret(
+                    "link", vfs_link(capidx, path, arg1));
                 break;
             }
             case SYS_VFS_READ: {

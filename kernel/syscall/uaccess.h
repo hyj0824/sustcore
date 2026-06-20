@@ -228,8 +228,11 @@ namespace syscall {
          * @return Result<void> 成功返回空结果, 失败返回错误码.
          */
         [[nodiscard]]
-        Result<void> commit_to_user() noexcept {
-            if (_kbuf == nullptr || _len == 0) {
+        Result<void> commit_to_user(size_t len) noexcept {
+            if (len > _len) {
+                unexpect_return(ErrCode::OUT_OF_BOUNDARY);
+            }
+            if (_kbuf == nullptr || len == 0) {
                 void_return();
             }
 
@@ -244,11 +247,11 @@ namespace syscall {
                             schd::Scheduler::inst().current_tcb()->task != nullptr
                         ? schd::Scheduler::inst().current_tcb()->task->pid
                         : 0,
-                    _uaddr.addr(), _len, _memory, _mem_offset,
+                    _uaddr.addr(), len, _memory, _mem_offset,
                     first_page_res.value().addr());
             }
             
-            auto write_res = _memory->write(_mem_offset, _kbuf, _len);
+            auto write_res = _memory->write(_mem_offset, _kbuf, len);
             if (!write_res.has_value()) {
                 loggers::SYSCALL::ERROR(
                     "UBuffer: 提交到用户空间失败: %s",
@@ -257,6 +260,11 @@ namespace syscall {
             }
             
             void_return();
+        }
+
+        [[nodiscard]]
+        Result<void> commit_to_user() noexcept {
+            return commit_to_user(_len);
         }
 
         /**

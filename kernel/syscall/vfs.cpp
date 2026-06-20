@@ -20,13 +20,16 @@
 namespace syscall {
     namespace {
         [[nodiscard]]
+        size_t dir_entry_record_size(const DirectoryEntryInfo &entry) {
+            return sizeof(dir_entry_header) + entry.name.size() + 1;
+        }
+
+        [[nodiscard]]
         Result<size_t> encode_dir_entry(const DirectoryEntryInfo &entry,
                                         size_t startpos, void *buf,
                                         size_t buflen) {
-            // 首先预估该项大小
-            size_t record_size =
-                sizeof(dir_entry_header) + entry.name.size() + 1;
-            if ((startpos + record_size) >= buflen) {
+            size_t record_size = dir_entry_record_size(entry);
+            if ((startpos + record_size) > buflen) {
                 unexpect_return(ErrCode::INVALID_PARAM);
             }
 
@@ -57,18 +60,24 @@ namespace syscall {
             char *_buf = static_cast<char *>(buf);
 
             for (size_t i = offset; i < entries.size(); i++) {
+                size_t record_size = dir_entry_record_size(entries[i]);
+                if (pos + record_size > buflen) {
+                    if (pos == 0) {
+                        unexpect_return(ErrCode::INVALID_PARAM);
+                    }
+                    break;
+                }
                 auto encode_res =
                     encode_dir_entry(entries[i], pos, buf, buflen);
                 propagate(encode_res);
-                size_t record_size = encode_res.value();
-                if (pos + record_size >= buflen) {
-                    break;
-                }
                 auto *header =
                     reinterpret_cast<dir_entry_header *>(_buf + pos);
                 // 设置下一项的偏移
                 header->next_offset = record_size;
                 pos += record_size;
+                if (pos == buflen) {
+                    break;
+                }
             }
 
             return pos;
@@ -143,7 +152,7 @@ namespace syscall {
         cap::VFileObject obj(util::nnullforce(cap_res.value()));
         auto read_res = obj.read(offset, buf.kbuf(), len);
         propagate(read_res);
-        auto commit_res = buf.commit_to_user();
+        auto commit_res = buf.commit_to_user(read_res.value());
         propagate(commit_res);
         return read_res.value();
     }
@@ -172,8 +181,27 @@ namespace syscall {
     Result<size_t> vfs_getdents(CapIdx dir_cap, UBuffer &&buf, size_t buflen,
                                 size_t offset) {
         auto cap_res = lookup_current_cap(dir_cap);
-        propagate(cap_res);
-        if (cap_res.value()->payload()->type_id() != PayloadType::VDIR) {
+        if (!cap_res.has_value()) {
+            loggers::SYSCALL::ERROR(
+                "getdents cap lookup failed: cap=0x%lx offset=%lu buflen=%lu err=%s",
+                static_cast<unsigned long>(dir_cap),
+                static_cast<unsigned long>(offset),
+                static_cast<unsigned long>(buflen),
+                to_cstring(cap_res.error()));
+            propagate_return(cap_res);
+        }
+        auto *payload = cap_res.value()->payload();
+        if (payload == nullptr || payload->type_id() != PayloadType::VDIR) {
+            auto *current = schd::Scheduler::inst().current_tcb();
+            loggers::SYSCALL::ERROR(
+                "getdents cap type mismatch: pid=%lu cap=0x%lx type=%s offset=%lu buflen=%lu payload=%p",
+                current != nullptr && current->task != nullptr
+                    ? current->task->pid
+                    : 0,
+                static_cast<unsigned long>(dir_cap),
+                payload != nullptr ? to_string(payload->type_id()) : "NULL",
+                static_cast<unsigned long>(offset),
+                static_cast<unsigned long>(buflen), payload);
             unexpect_return(ErrCode::TYPE_NOT_MATCHED);
         }
 
@@ -185,7 +213,7 @@ namespace syscall {
             entries_res.value(), buf.kbuf(), buflen, offset);
         propagate(dents_res);
 
-        auto commit_res = buf.commit_to_user();
+        auto commit_res = buf.commit_to_user(dents_res.value());
         propagate(commit_res);
         
         return dents_res.value();
@@ -207,6 +235,67 @@ namespace syscall {
             return true;
         }
         unexpect_return(ErrCode::TYPE_NOT_MATCHED);
+    }
+
+    Result<void> vfs_unlink(CapIdx parent_dir_cap, const UString &relpath) {
+        auto holder_res = current_holder_for_vfs();
+        propagate(holder_res);
+        auto parent_res = lookup_current_cap(parent_dir_cap);
+        propagate(parent_res);
+        return VFS::inst().unlink(*parent_res.value(), relpath.kbuf());
+    }
+
+    Result<void> vfs_rmdir(CapIdx parent_dir_cap, const UString &relpath) {
+        auto holder_res = current_holder_for_vfs();
+        propagate(holder_res);
+        auto parent_res = lookup_current_cap(parent_dir_cap);
+        propagate(parent_res);
+        return VFS::inst().rmdir(*parent_res.value(), relpath.kbuf());
+    }
+
+    Result<void> vfs_truncate(CapIdx file_cap, size_t new_size) {
+        auto cap_res = lookup_current_cap(file_cap);
+        propagate(cap_res);
+        return VFS::inst().truncate(*cap_res.value(), new_size);
+    }
+
+    Result<void> vfs_rename(CapIdx old_parent_cap, const UString &old_name,
+                            CapIdx new_parent_cap, const UString &new_name) {
+        auto holder_res = current_holder_for_vfs();
+        propagate(holder_res);
+        auto old_parent_res = lookup_current_cap(old_parent_cap);
+        propagate(old_parent_res);
+        auto new_parent_res = lookup_current_cap(new_parent_cap);
+        propagate(new_parent_res);
+        return VFS::inst().rename(*old_parent_res.value(), old_name.kbuf(),
+                                   *new_parent_res.value(), new_name.kbuf());
+    }
+
+    Result<CapIdx> vfs_symlink(CapIdx parent_dir_cap, const UString &relpath,
+                               const UString &target) {
+        auto holder_res = current_holder_for_vfs();
+        propagate(holder_res);
+        auto parent_res = lookup_current_cap(parent_dir_cap);
+        propagate(parent_res);
+        return VFS::inst().symlink(*parent_res.value(), relpath.kbuf(),
+                                   target.kbuf(), *holder_res.value());
+    }
+
+    Result<void> vfs_link(CapIdx parent_dir_cap, const UString &relpath,
+                          CapIdx target_file_cap) {
+        auto holder_res = current_holder_for_vfs();
+        propagate(holder_res);
+        auto parent_res = lookup_current_cap(parent_dir_cap);
+        propagate(parent_res);
+        auto target_res = lookup_current_cap(target_file_cap);
+        propagate(target_res);
+        auto *vf = target_res.value()->payload_as<VFile>();
+        if (vf == nullptr) {
+            unexpect_return(ErrCode::TYPE_NOT_MATCHED);
+        }
+        inode_t target_inode = vf->vinode()->inode()->inode_id();
+        return VFS::inst().link(*parent_res.value(), relpath.kbuf(),
+                                target_inode);
     }
 
 }  // namespace syscall

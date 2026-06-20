@@ -76,6 +76,7 @@ public:
         return *_fsd;
     }
     Result<util::refc_ptr<VINode>> get_vnode(inode_t inode_id);
+    void evict_inode(inode_t inode_id);
     void on_death();
 };
 
@@ -290,6 +291,26 @@ public:
     [[nodiscard]]
     Result<CapIdx> mkdir(cap::Capability &parent_dir_cap, const char *relpath,
                          flags::oflg_t oflags, cap::CHolder &holder);
+    [[nodiscard]]
+    Result<void> unlink(cap::Capability &parent_dir_cap,
+                        const char *relpath);
+    [[nodiscard]]
+    Result<void> rmdir(cap::Capability &parent_dir_cap,
+                       const char *relpath);
+    [[nodiscard]]
+    Result<void> truncate(cap::Capability &file_cap, size_t new_size);
+    [[nodiscard]]
+    Result<void> link(cap::Capability &parent_dir_cap,
+                      const char *relpath, inode_t target);
+    [[nodiscard]]
+    Result<void> rename(cap::Capability &old_parent_cap,
+                        const char *old_name,
+                        cap::Capability &new_parent_cap,
+                        const char *new_name);
+    [[nodiscard]]
+    Result<CapIdx> symlink(cap::Capability &parent_dir_cap,
+                           const char *relpath, const char *target,
+                           cap::CHolder &holder);
     [[nodiscard]]
     Result<CapIdx> open_dir(const char *filepath, cap::CHolder &holder,
                             b64 perm);

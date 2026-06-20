@@ -251,3 +251,39 @@ sys_vfs_getdents:
 sys_vfs_sync:
     li.d $a7, SYS_VFS_SYNC
     do_syscall
+
+    .global sys_vfs_unlink
+    .type sys_vfs_unlink, @function
+sys_vfs_unlink:
+    li.d $a7, SYS_VFS_UNLINK
+    do_syscall
+
+    .global sys_vfs_rmdir
+    .type sys_vfs_rmdir, @function
+sys_vfs_rmdir:
+    li.d $a7, SYS_VFS_RMDIR
+    do_syscall
+
+    .global sys_vfs_truncate
+    .type sys_vfs_truncate, @function
+sys_vfs_truncate:
+    li.d $a7, SYS_VFS_TRUNCATE
+    do_syscall
+
+    .global sys_vfs_rename
+    .type sys_vfs_rename, @function
+sys_vfs_rename:
+    li.d $a7, SYS_VFS_RENAME
+    do_syscall
+
+    .global sys_vfs_symlink
+    .type sys_vfs_symlink, @function
+sys_vfs_symlink:
+    li.d $a7, SYS_VFS_SYMLINK
+    do_syscall
+
+    .global sys_vfs_link
+    .type sys_vfs_link, @function
+sys_vfs_link:
+    li.d $a7, SYS_VFS_LINK
+    do_syscall

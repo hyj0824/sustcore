@@ -29,7 +29,14 @@ namespace {
 }  // namespace
 
 VSuperblock::~VSuperblock() {
-    on_death();
+    for (auto &entry : _inode_cache) {
+        if (entry.second != nullptr) {
+            entry.second->release();
+        }
+    }
+    _inode_cache.clear();
+    delete _sb.get();
+    _sb = util::owner<ISuperblock *>(nullptr);
 }
 
 Result<util::refc_ptr<VINode>> VSuperblock::get_vnode(inode_t inode_id) {
@@ -43,7 +50,12 @@ Result<util::refc_ptr<VINode>> VSuperblock::get_vnode(inode_t inode_id) {
     }
 
     auto inode_res = sb()->get_inode(inode_id);
-    propagate(inode_res);
+    if (!inode_res.has_value()) {
+        loggers::VFS::ERROR("VSuperblock get_vnode get_inode failed: inode=%u err=%s",
+                            static_cast<unsigned>(inode_id),
+                            to_cstring(inode_res.error()));
+        propagate_return(inode_res);
+    }
 
     auto *vnode = new VINode(inode_res.value(), vfsd(), *this);
     if (vnode == nullptr) {
@@ -59,15 +71,12 @@ Result<util::refc_ptr<VINode>> VSuperblock::get_vnode(inode_t inode_id) {
     return util::refc_ptr(vnode);
 }
 
+void VSuperblock::evict_inode(inode_t inode_id) {
+    _inode_cache.erase(inode_id);
+}
+
 void VSuperblock::on_death() {
-    for (auto &entry : _inode_cache) {
-        if (entry.second != nullptr) {
-            entry.second->release();
-        }
-    }
-    _inode_cache.clear();
-    delete _sb.get();
-    _sb = util::owner<ISuperblock *>(nullptr);
+    // MountRecord owns mounted superblocks; zero vnode refs must not unmount.
 }
 
 VFile::VFile(VINode &vind, const util::Path &mount_path, VFS &vfs)
@@ -285,7 +294,7 @@ Result<void> VFS::umount(const char *mountpoint) {
         propagate(cache_res);
         auto cache_sync_future = cache_res.value()->sync_all();
         auto cache_sync_res =
-            wait::kthread_wait_for(cache_sync_future);
+            wait::blocking_wait_for(cache_sync_future);
         propagate(cache_sync_res);
     }
 
@@ -322,7 +331,7 @@ namespace {
     [[nodiscard]]
     Result<void> validate_file_oflags(flags::oflg_t oflags) {
         using namespace flags;
-        constexpr oflg_t valid_mask = O_READ | O_WRITE | O_EXECUTE;
+        constexpr oflg_t valid_mask = O_READ | O_WRITE | O_EXECUTE | O_CREAT;
         if ((oflags & ~valid_mask) != 0 || oflags == 0) {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
@@ -490,19 +499,36 @@ Result<VDirectory *> VFS::_open_dir_at(VINode &parent,
                                        const util::Path &mount_path,
                                        const util::Path &base_path,
                                        const char *relpath) {
+    (void)mount_path;
+    (void)parent;
     auto valid_res = validate_relpath(relpath);
     propagate(valid_res);
 
-    VDirectory base_dir(parent, mount_path, base_path, *this);
-    auto global_res = _global_target_path(base_dir, relpath);
-    propagate(global_res);
-    auto global_path = global_res.value().second;
+    const util::Path normalized_base = base_path.normalize();
+    const util::Path absolute_base =
+        normalized_base.view().empty() || !normalized_base.is_absolute()
+            ? util::Path("/")
+            : normalized_base;
+    const util::Path global_path =
+        (absolute_base / util::Path::from(relpath)).normalize();
 
     util::Path target_mount_path;
     auto target_res = _resolve_inode(global_path, target_mount_path);
-    propagate(target_res);
+    if (!target_res.has_value()) {
+        loggers::VFS::ERROR("VFS opendir_at resolve failed: global=%s err=%s",
+                            global_path.c_str(),
+                            to_cstring(target_res.error()));
+        propagate_return(target_res);
+    }
     auto dir_res = target_res.value()->inode()->as_directory();
-    propagate(dir_res);
+    if (!dir_res.has_value()) {
+        loggers::VFS::ERROR(
+            "VFS opendir_at target is not directory: global=%s mount=%s inode=%u err=%s",
+            global_path.c_str(), target_mount_path.c_str(),
+            static_cast<unsigned>(target_res.value()->inode()->inode_id()),
+            to_cstring(dir_res.error()));
+        propagate_return(dir_res);
+    }
 
     auto *dir =
         new VDirectory(*target_res.value().get(), target_mount_path,
@@ -564,7 +590,18 @@ Result<VDirectory *> VFS::_open_dir(const char *filepath) {
         _resolve_inode(util::Path::from(filepath).normalize(), mount_path);
     propagate(vind_res);
     auto dir_res = vind_res.value()->inode()->as_directory();
-    propagate(dir_res);
+    if (!dir_res.has_value()) {
+        // stale VINode cache after inode reuse
+        inode_t stale_id = vind_res.value()->inode()->inode_id();
+        loggers::VFS::INFO("_open_dir: evict stale inode=%u and retry",
+                            static_cast<unsigned>(stale_id));
+        vind_res.value()->superblock().evict_inode(stale_id);
+        vind_res =
+            _resolve_inode(util::Path::from(filepath).normalize(), mount_path);
+        propagate(vind_res);
+        dir_res = vind_res.value()->inode()->as_directory();
+        propagate(dir_res);
+    }
 
     auto *dir =
         new VDirectory(*vind_res.value().get(), mount_path,
@@ -615,7 +652,8 @@ Result<CapIdx> VFS::open(cap::Capability &parent_dir_cap, const char *relpath,
     propagate(global_res);
     auto file_res = _open_file(global_res.value().second.c_str());
     if (!file_res.has_value() && file_res.error() == ErrCode::ENTRY_NOT_FOUND &&
-        (oflags & flags::O_EXECUTE) == 0)
+        (oflags & flags::O_EXECUTE) == 0 &&
+        (oflags & flags::O_CREAT) != 0)
     {
         auto create_res = mkfile(parent_dir_cap, relpath, oflags, holder);
         propagate(create_res);
@@ -677,32 +715,21 @@ Result<CapIdx> VFS::mkfile(cap::Capability &parent_dir_cap, const char *relpath,
 
     auto inode_res = target_dir_res.value()->mkfile(target.name, nullptr);
     propagate(inode_res);
+    (void)inode_res;
 
-    auto vnode_res =
-        parent->vinode()->superblock().get_vnode(inode_res.value());
-    propagate(vnode_res);
-    auto file_res = vnode_res.value()->inode()->as_file();
+    // evict parent dir VINode cache so _open_file sees the new entry
+    create_parent_res.value()->superblock().evict_inode(
+        create_parent_res.value()->inode()->inode_id());
+
+    auto global_res = _global_target_path(*parent, relpath);
+    propagate(global_res);
+    auto file_res = _open_file(global_res.value().second.c_str());
     propagate(file_res);
 
-    auto *file =
-        new VFile(*vnode_res.value().get(), parent->mount_path(), *this);
-    if (file == nullptr) {
-        unexpect_return(ErrCode::ALLOCATION_FAILED);
-    }
-
-    auto key_res = _build_mount_key(parent->mount_path());
-    propagate(key_res);
-    auto mount_res = _lookup_mount_record(key_res.value().first);
-    if (!mount_res.has_value()) {
-        delete file;
-        unexpect_return(ErrCode::FS_ERROR);
-    }
-    mount_res.value()->active_files++;
-
     auto insert_res =
-        holder.insert_to_free(file, file_perm_from_oflags(oflags));
+        holder.insert_to_free(file_res.value(), file_perm_from_oflags(oflags));
     if (!insert_res.has_value()) {
-        file->destruct();
+        file_res.value()->destruct();
         propagate_return(insert_res);
     }
     return insert_res.value();
@@ -730,34 +757,156 @@ Result<CapIdx> VFS::mkdir(cap::Capability &parent_dir_cap, const char *relpath,
 
     auto inode_res = target_dir_res.value()->mkdir(target.name, nullptr);
     propagate(inode_res);
+    (void)inode_res;
 
-    auto vnode_res =
-        parent->vinode()->superblock().get_vnode(inode_res.value());
-    propagate(vnode_res);
-    auto dir_res = vnode_res.value()->inode()->as_directory();
+    auto global_res = _global_target_path(*parent, relpath);
+    propagate(global_res);
+    auto dir_res = _open_dir(global_res.value().second.c_str());
     propagate(dir_res);
 
-    auto *dir =
-        new VDirectory(*vnode_res.value().get(), parent->mount_path(),
-                       (parent->global_path() / util::Path(target.name)).normalize(),
-                       *this);
-    if (dir == nullptr) {
-        unexpect_return(ErrCode::ALLOCATION_FAILED);
-    }
-
-    auto key_res = _build_mount_key(parent->mount_path());
-    propagate(key_res);
-    auto mount_res = _lookup_mount_record(key_res.value().first);
-    if (!mount_res.has_value()) {
-        delete dir;
-        unexpect_return(ErrCode::FS_ERROR);
-    }
-    mount_res.value()->active_files++;
-
     auto insert_res =
-        holder.insert_to_free(dir, dir_perm_from_oflags(oflags));
+        holder.insert_to_free(dir_res.value(), dir_perm_from_oflags(oflags));
     if (!insert_res.has_value()) {
-        dir->destruct();
+        dir_res.value()->destruct();
+        propagate_return(insert_res);
+    }
+    return insert_res.value();
+}
+
+Result<void> VFS::unlink(cap::Capability &parent_dir_cap,
+                        const char *relpath) {
+    auto *parent = parent_dir_cap.payload_as<VDirectory>();
+    if (parent == nullptr) {
+        unexpect_return(ErrCode::TYPE_NOT_MATCHED);
+    }
+    auto target_res = parse_create_target(relpath);
+    propagate(target_res);
+    auto create_parent_res = _ensure_parent_directory(*parent, relpath);
+    propagate(create_parent_res);
+    auto target_dir_res = create_parent_res.value()->inode()->as_directory();
+    propagate(target_dir_res);
+
+    // lookup target inode before delete so we can evict its VINode cache
+    auto lookup_res = target_dir_res.value()->lookup(target_res.value().name);
+    propagate(lookup_res);
+    auto unlink_res = target_dir_res.value()->unlink(target_res.value().name);
+    propagate(unlink_res);
+    // evict the freed inode's VINode from cache
+    create_parent_res.value()->superblock().evict_inode(lookup_res.value());
+    void_return();
+}
+
+Result<void> VFS::rmdir(cap::Capability &parent_dir_cap,
+                       const char *relpath) {
+    auto *parent = parent_dir_cap.payload_as<VDirectory>();
+    if (parent == nullptr) {
+        unexpect_return(ErrCode::TYPE_NOT_MATCHED);
+    }
+    auto target_res = parse_create_target(relpath);
+    propagate(target_res);
+    auto create_parent_res = _ensure_parent_directory(*parent, relpath);
+    propagate(create_parent_res);
+    auto target_dir_res = create_parent_res.value()->inode()->as_directory();
+    propagate(target_dir_res);
+
+    auto lookup_res = target_dir_res.value()->lookup(target_res.value().name);
+    propagate(lookup_res);
+    auto rmdir_res = target_dir_res.value()->rmdir(target_res.value().name);
+    propagate(rmdir_res);
+    create_parent_res.value()->superblock().evict_inode(lookup_res.value());
+    void_return();
+}
+
+Result<void> VFS::truncate(cap::Capability &file_cap, size_t new_size) {
+    auto *vfile = file_cap.payload_as<VFile>();
+    if (vfile == nullptr) {
+        unexpect_return(ErrCode::TYPE_NOT_MATCHED);
+    }
+    auto file_res = vfile->vinode()->inode()->as_file();
+    propagate(file_res);
+    return file_res.value()->truncate(new_size);
+}
+
+Result<void> VFS::link(cap::Capability &parent_dir_cap,
+                      const char *relpath, inode_t target) {
+    auto *parent = parent_dir_cap.payload_as<VDirectory>();
+    if (parent == nullptr) {
+        unexpect_return(ErrCode::TYPE_NOT_MATCHED);
+    }
+    auto target_res = parse_create_target(relpath);
+    propagate(target_res);
+    auto create_parent_res = _ensure_parent_directory(*parent, relpath);
+    propagate(create_parent_res);
+    auto target_dir_res = create_parent_res.value()->inode()->as_directory();
+    propagate(target_dir_res);
+    return target_dir_res.value()->link(target_res.value().name, target);
+}
+
+Result<void> VFS::rename(cap::Capability &old_parent_cap,
+                          const char *old_name,
+                          cap::Capability &new_parent_cap,
+                          const char *new_name) {
+    auto *old_parent = old_parent_cap.payload_as<VDirectory>();
+    auto *new_parent = new_parent_cap.payload_as<VDirectory>();
+    if (old_parent == nullptr || new_parent == nullptr) {
+        unexpect_return(ErrCode::TYPE_NOT_MATCHED);
+    }
+    auto old_target_res = parse_create_target(old_name);
+    propagate(old_target_res);
+    auto new_target_res = parse_create_target(new_name);
+    propagate(new_target_res);
+
+    auto old_dir_parent = _ensure_parent_directory(*old_parent, old_name);
+    propagate(old_dir_parent);
+    auto new_dir_parent = _ensure_parent_directory(*new_parent, new_name);
+    propagate(new_dir_parent);
+
+    auto old_dir_res = old_dir_parent.value()->inode()->as_directory();
+    propagate(old_dir_res);
+    auto new_dir_res = new_dir_parent.value()->inode()->as_directory();
+    propagate(new_dir_res);
+
+    return old_dir_res.value()->rename(old_target_res.value().name,
+                                        *new_dir_res.value(),
+                                        new_target_res.value().name);
+}
+
+Result<CapIdx> VFS::symlink(cap::Capability &parent_dir_cap,
+                            const char *relpath, const char *target,
+                            cap::CHolder &holder) {
+    auto *parent = parent_dir_cap.payload_as<VDirectory>();
+    if (parent == nullptr) {
+        unexpect_return(ErrCode::TYPE_NOT_MATCHED);
+    }
+    if (target == nullptr || target[0] == '\0') {
+        unexpect_return(ErrCode::INVALID_PARAM);
+    }
+
+    auto create_target_res = parse_create_target(relpath);
+    propagate(create_target_res);
+    const auto &ctgt = create_target_res.value();
+
+    auto create_parent_res = _ensure_parent_directory(*parent, relpath);
+    propagate(create_parent_res);
+
+    auto target_dir_res =
+        create_parent_res.value()->inode()->as_directory();
+    propagate(target_dir_res);
+
+    auto inode_res =
+        target_dir_res.value()->symlink(ctgt.name, target);
+    propagate(inode_res);
+    (void)inode_res;
+
+    auto global_res = _global_target_path(*parent, relpath);
+    propagate(global_res);
+    auto dir_res = _open_dir(global_res.value().second.c_str());
+    propagate(dir_res);
+
+    auto insert_res = holder.insert_to_free(dir_res.value(),
+                                            flags::O_READ);
+    if (!insert_res.has_value()) {
+        dir_res.value()->destruct();
         propagate_return(insert_res);
     }
     return insert_res.value();
@@ -839,9 +988,14 @@ Result<std::pair<util::Path, util::Path>> VFS::_global_target_path(
     const VDirectory &base, const char *relpath) const {
     auto valid_res = validate_relpath(relpath);
     propagate(valid_res);
+    const util::Path normalized_base = base.global_path().normalize();
+    const util::Path base_path =
+        normalized_base.view().empty() || !normalized_base.is_absolute()
+            ? util::Path("/")
+            : normalized_base;
     auto normalized =
-        (base.global_path() / util::Path::from(relpath)).normalize();
-    return std::make_pair(base.global_path(), normalized);
+        (base_path / util::Path::from(relpath)).normalize();
+    return std::make_pair(base_path, normalized);
 }
 
 Result<util::refc_ptr<VINode>> VFS::_ensure_directory_path(
@@ -958,16 +1112,35 @@ Result<util::refc_ptr<VINode>> VFS::_resolve_inode(const util::Path &path,
             mount_path = mount_res.value()->mount_path;
             vsb        = mount_res.value()->superblock.get();
             auto next_root_res = vsb->sb()->root();
-            propagate(next_root_res);
+            if (!next_root_res.has_value()) {
+                loggers::VFS::ERROR(
+                    "VFS resolve_inode mount root failed: mount=%s err=%s",
+                    mount_path.c_str(), to_cstring(next_root_res.error()));
+                propagate_return(next_root_res);
+            }
             auto next_root_vnode = vsb->get_vnode(next_root_res.value());
-            propagate(next_root_vnode);
+            if (!next_root_vnode.has_value()) {
+                loggers::VFS::ERROR(
+                    "VFS resolve_inode mount root vnode failed: mount=%s root_inode=%u err=%s",
+                    mount_path.c_str(),
+                    static_cast<unsigned>(next_root_res.value()),
+                    to_cstring(next_root_vnode.error()));
+                propagate_return(next_root_vnode);
+            }
             current = next_root_vnode.value();
             continue;
         }
 
         auto lookup_res = current->inode()->as_directory().and_then(
             [entry](IDirectory *dir) { return dir->lookup(entry); });
-        propagate(lookup_res);
+        if (!lookup_res.has_value()) {
+            loggers::VFS::ERROR(
+                "VFS resolve_inode lookup failed: entry=%.*s current_inode=%u err=%s",
+                static_cast<int>(entry.size()), entry.data(),
+                static_cast<unsigned>(current->inode()->inode_id()),
+                to_cstring(lookup_res.error()));
+            propagate_return(lookup_res);
+        }
 
         auto next_vind = vsb->get_vnode(lookup_res.value());
         propagate(next_vind);

@@ -15,6 +15,7 @@ config-ref/*.tar.xz
 setup.sh
 build-setup.sh
 gdb-setup.sh
+.github/
 documents/
 .cache/
 compile_commands.json
@@ -23,6 +24,7 @@ config.json
 .sisyphus/
 *.bak
 *.img
+tmp/
 
 os_serial_out_rv.txt
 kernel-rv

@@ -274,6 +274,90 @@ int kmod_mkdir(const char *path) {
     return 0;
 }
 
+int kmod_unlink(const char *path) {
+    auto base = resolve_open_base(path);
+    if (base.cap == cap::null || base.relpath == nullptr ||
+        *base.relpath == '\0')
+    {
+        return -1;
+    }
+    return sys_vfs_unlink(base.cap, base.relpath) ? 0 : -1;
+}
+
+int kmod_rmdir(const char *path) {
+    auto base = resolve_open_base(path);
+    if (base.cap == cap::null || base.relpath == nullptr ||
+        *base.relpath == '\0')
+    {
+        return -1;
+    }
+    return sys_vfs_rmdir(base.cap, base.relpath) ? 0 : -1;
+}
+
+int kmod_truncate(const char *path, size_t new_size) {
+    auto base = resolve_open_base(path);
+    if (base.cap == cap::null || base.relpath == nullptr ||
+        *base.relpath == '\0')
+    {
+        return -1;
+    }
+    CapIdx cap = sys_vfs_open(base.cap, base.relpath, flags::O_WRITE);
+    if (cap == cap::error || cap == cap::null) return -1;
+    bool ok = sys_vfs_truncate(cap, new_size);
+    sys_cap_remove(cap);
+    return ok ? 0 : -1;
+}
+
+int kmod_rename(const char *old_path, const char *new_path) {
+    auto old_base = resolve_open_base(old_path);
+    auto new_base = resolve_open_base(new_path);
+    if (old_base.cap == cap::null || old_base.relpath == nullptr ||
+        *old_base.relpath == '\0' ||
+        new_base.cap == cap::null || new_base.relpath == nullptr ||
+        *new_base.relpath == '\0')
+    {
+        return -1;
+    }
+    return sys_vfs_rename(old_base.cap, old_base.relpath,
+                          new_base.cap, new_base.relpath) ? 0 : -1;
+}
+
+int kmod_symlink(const char *path, const char *target) {
+    auto base = resolve_open_base(path);
+    if (base.cap == cap::null || base.relpath == nullptr ||
+        *base.relpath == '\0' || target == nullptr || target[0] == '\0')
+    {
+        return -1;
+    }
+    CapIdx cap = sys_vfs_symlink(base.cap, base.relpath, target);
+    if (cap == cap::error || cap == cap::null) {
+        return -1;
+    }
+    sys_cap_remove(cap);
+    return 0;
+}
+
+int kmod_link(const char *path, const char *target_path) {
+    auto base = resolve_open_base(path);
+    if (base.cap == cap::null || base.relpath == nullptr ||
+        *base.relpath == '\0')
+    {
+        return -1;
+    }
+    auto target_base = resolve_open_base(target_path);
+    if (target_base.cap == cap::null || target_base.relpath == nullptr ||
+        *target_base.relpath == '\0')
+    {
+        return -1;
+    }
+    CapIdx target = sys_vfs_open(target_base.cap, target_base.relpath,
+                                 flags::O_READ);
+    if (target == cap::error || target == cap::null) return -1;
+    bool ok = sys_vfs_link(base.cap, base.relpath, target);
+    sys_cap_remove(target);
+    return ok ? 0 : -1;
+}
+
 int kmod_mkfile(const char *path, const char *options) {
     flags::oflg_t oflags = 0;
     bool append          = false;

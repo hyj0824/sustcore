@@ -69,6 +69,14 @@ CapIdx sys_vfs_mkfile(CapIdx parent_dir_cap, const char *path,
                       flags::oflg_t oflags);
 CapIdx sys_vfs_mkdir(CapIdx parent_dir_cap, const char *path,
                      flags::oflg_t oflags);
+bool sys_vfs_unlink(CapIdx parent_dir_cap, const char *name);
+bool sys_vfs_rmdir(CapIdx parent_dir_cap, const char *name);
+bool sys_vfs_truncate(CapIdx file_cap, size_t new_size);
+bool sys_vfs_rename(CapIdx old_parent_cap, const char *old_name,
+                    CapIdx new_parent_cap, const char *new_name);
+CapIdx sys_vfs_symlink(CapIdx parent_dir_cap, const char *name,
+                       const char *target);
+bool sys_vfs_link(CapIdx parent_dir_cap, const char *name, CapIdx target);
 size_t sys_vfs_read(CapIdx file_cap, size_t offset, void *buf, size_t len);
 size_t sys_vfs_write(CapIdx file_cap, size_t offset, const void *buf,
                      size_t len);
@@ -146,6 +154,12 @@ size_t kmod_fread(int fd, void *buf, size_t len);
 size_t kmod_fwrite(int fd, const void *buf, size_t len);
 int kmod_mkdir(const char *path);
 int kmod_mkfile(const char *path, const char *options);
+int kmod_unlink(const char *path);
+int kmod_rmdir(const char *path);
+int kmod_truncate(const char *path, size_t new_size);
+int kmod_rename(const char *old_path, const char *new_path);
+int kmod_symlink(const char *path, const char *target);
+int kmod_link(const char *path, const char *target_path);
 CapIdx kmod_getcap(int fd);
 void kmod_fclose(int fd);
 }

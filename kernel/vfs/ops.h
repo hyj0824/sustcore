@@ -176,6 +176,11 @@ public:
      */
     [[nodiscard]]
     virtual Result<void> sync() = 0;
+    [[nodiscard]]
+    virtual Result<void> truncate(size_t new_size) {
+        (void)new_size;
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
     /**
      * @brief 获取文件内容缓存策略
      *
@@ -218,6 +223,34 @@ public:
     virtual Result<size_t> entry_count() = 0;
     [[nodiscard]]
     virtual Result<DirectoryEntryInfo> entry_at(size_t index) = 0;
+    [[nodiscard]]
+    virtual Result<void> unlink(std::string_view name) {
+        (void)name;
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+    [[nodiscard]]
+    virtual Result<void> rmdir(std::string_view name) {
+        (void)name;
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+    [[nodiscard]]
+    virtual Result<void> link(std::string_view name, inode_t target) {
+        (void)name; (void)target;
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+    [[nodiscard]]
+    virtual Result<void> rename(std::string_view old_name,
+                                IDirectory &new_parent,
+                                std::string_view new_name) {
+        (void)old_name; (void)new_parent; (void)new_name;
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+    [[nodiscard]]
+    virtual Result<inode_t> symlink(std::string_view name,
+                                    std::string_view target) {
+        (void)name; (void)target;
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
     /**
      * @brief 同步目录数据到存储设备
      *
@@ -259,6 +292,11 @@ public:
      * @return Result<util::owner<INode *>> inode对象
      */
     virtual Result<util::owner<IINode *>> get_inode(inode_t inode_id) = 0;
+    [[nodiscard]]
+    virtual Result<uint16_t> inode_mode(inode_t inode_id) {
+        (void)inode_id;
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
     // 分配一个新的 inode（通常由目录的创建操作调用）
     [[nodiscard]]
     virtual Result<inode_t> alloc_inode(INodeType type) = 0;

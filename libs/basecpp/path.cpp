@@ -44,7 +44,7 @@ namespace util {
 
     // 其他可能的成员函数, 如获取文件名、扩展名等
     bool Path::is_absolute() const {
-        return path_[0] == '/';
+        return !path_.empty() && path_[0] == '/';
     }
 
     bool Path::is_relative() const {

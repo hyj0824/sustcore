@@ -1,1 +1,1 @@
-sources += vfs.cpp tarfs.cpp tmpfs.cpp device.cpp
+sources += vfs.cpp tarfs.cpp tmpfs.cpp device.cpp ext4.cpp

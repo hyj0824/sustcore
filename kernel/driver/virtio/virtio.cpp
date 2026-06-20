@@ -1065,6 +1065,14 @@ namespace virtio {
                 auto free_res = queue_free_chain_legacy(
                     queue, static_cast<u16>(used_res.value().id));
                 if (!free_res.has_value()) {
+                    loggers::DEVICE::ERROR(
+                        "virtio used chain free failed: node=%s queue=%u head=%u used_id=%u used_len=%u free_count=%u err=%s",
+                        name(), static_cast<unsigned>(queue.queue_index),
+                        static_cast<unsigned>(head_desc),
+                        static_cast<unsigned>(used_res.value().id),
+                        static_cast<unsigned>(used_res.value().len),
+                        static_cast<unsigned>(queue.free_count),
+                        to_cstring(free_res.error()));
                     propagate_return(free_res);
                 }
                 return used_res.value();
