@@ -49,16 +49,19 @@ namespace {
     }
 
     // 创建新进程并传递根目录能力
+    // 返回值: 新进程的 pid
+    constexpr size_t INVALID_PID = 0xFFFFFFFFFFFFFFFF;
+
     [[nodiscard]]
-    CapIdx spawn_with_root_dir(int fd, size_t sched_class,
+    size_t spawn_with_root_dir(int fd, size_t sched_class,
                                CapIdx root_dir_cap) {
         if (fd < 0 || root_dir_cap == cap::null || root_dir_cap == cap::error) {
-            return cap::error;
+            return INVALID_PID;
         }
 
         CapIdx child_root_cap = sys_cap_clone(root_dir_cap);
         if (child_root_cap == cap::null || child_root_cap == cap::error) {
-            return cap::error;
+            return INVALID_PID;
         }
 
         struct RootDirBootstrap {
@@ -80,7 +83,12 @@ namespace {
             sys_create_process(kmod_getcap(fd), initial_caps, 1, sched_class,
                                &bootstrap, sizeof(bootstrap));
         sys_cap_remove(child_root_cap);
-        return child_pcb;
+
+        if (child_pcb != cap::error) {
+            size_t pid = sys_getpid(child_pcb);
+            return pid;
+        }
+        return INVALID_PID;
     }
 
     void print_indent(size_t depth) {
@@ -180,7 +188,6 @@ namespace {
 int kmod_main() {
     mark_cnt = 0;
     printf("进入 init 模块!\n");
-    int fd;
 
     CapIdx root_dir_cap = bootstrap_root_dir();
     // if (root_dir_cap == cap::null || root_dir_cap == cap::error) {
@@ -188,52 +195,63 @@ int kmod_main() {
     //     exit(-1);
     // }
 
-    // int fd = kmod_fopen("/initrd/test_fork.mod", "x");
-    // if (fd >= 0) {
-    //     if (spawn_with_root_dir(fd, SCHED_CLASS_FCFS, root_dir_cap) ==
-    //     cap::error)
-    //     {
-    //         printf("init: create test_fork failed\n");
-    //     }
-    //     kmod_fclose(fd);
-    // }
+    int fd = 0;
+    fd     = kmod_fopen("/initrd/test_fork.mod", "x");
+    if (fd >= 0) {
+        size_t pid = spawn_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap);
+        if (pid == INVALID_PID) {
+            printf("init: create test_fork failed\n");
+        } else {
+            printf("init: create test_fork pid=%lu\n",
+                   static_cast<unsigned long>(pid));
+        }
+        kmod_fclose(fd);
+    }
 
     // fd = kmod_fopen("/initrd/test_thread.mod", "x");
     // if (fd >= 0) {
-    //     if (spawn_with_root_dir(fd, SCHED_CLASS_FCFS, root_dir_cap) ==
-    //     cap::error)
-    //     {
+    //     size_t pid = spawn_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap);
+    //     if (pid == INVALID_PID) {
     //         printf("init: create test_thread failed\n");
+    //     } else {
+    //         printf("init: create test_thread pid=%lu\n",
+    //                static_cast<unsigned long>(pid));
     //     }
     //     kmod_fclose(fd);
     // }
 
-    // fd = kmod_fopen("/initrd/test_endpoint_master.mod", "x");
-    // if (fd >= 0) {
-    //     if (spawn_with_root_dir(fd, SCHED_CLASS_FCFS, root_dir_cap) ==
-    //     cap::error)
-    //     {
-    //         printf("init: create test_endpoint_master failed\n");
-    //     }
-    //     kmod_fclose(fd);
-    // }
+    fd = kmod_fopen("/initrd/test_endpoint_master.mod", "x");
+    if (fd >= 0) {
+        size_t pid = spawn_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap);
+        if (pid == INVALID_PID) {
+            printf("init: create test_endpoint_master failed\n");
+        } else {
+            printf("init: create test_endpoint_master pid=%lu\n",
+                   static_cast<unsigned long>(pid));
+        }
+        kmod_fclose(fd);
+    }
 
-    // fd = kmod_fopen("/initrd/test_call_service.mod", "x");
-    // if (fd >= 0) {
-    //     if (spawn_with_root_dir(fd, SCHED_CLASS_FCFS, root_dir_cap) ==
-    //     cap::error)
-    //     {
-    //         printf("init: create test_call_service failed\n");
-    //     }
-    //     kmod_fclose(fd);
-    // }
+    fd = kmod_fopen("/initrd/test_call_service.mod", "x");
+    if (fd >= 0) {
+        size_t pid = spawn_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap);
+        if (pid == INVALID_PID) {
+            printf("init: create test_call_service failed\n");
+        } else {
+            printf("init: create test_call_service pid=%lu\n",
+                   static_cast<unsigned long>(pid));
+        }
+        kmod_fclose(fd);
+    }
 
     // fd = kmod_fopen("/initrd/test_rpc_server.mod", "x");
     // if (fd >= 0) {
-    //     if (spawn_with_root_dir(fd, SCHED_CLASS_FCFS, root_dir_cap) ==
-    //     cap::error)
-    //     {
+    //     size_t pid = spawn_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap);
+    //     if (pid == INVALID_PID) {
     //         printf("init: create test_rpc_server failed\n");
+    //     } else {
+    //         printf("init: create test_rpc_server pid=%lu\n",
+    //                static_cast<unsigned long>(pid));
     //     }
     //     kmod_fclose(fd);
     // }
@@ -290,12 +308,12 @@ int kmod_main() {
     // test_fs_score — combined basic/rw/dir/names/stress
     fd = kmod_fopen("/initrd/test_fs_score.mod", "x");
     if (fd >= 0) {
-        if (spawn_with_root_dir(fd, SCHED_CLASS_FCFS, root_dir_cap) ==
-            cap::error)
-        {
-            printf("init: create test_fs_score failed\n");
+        size_t pid = spawn_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap);
+        if (pid == INVALID_PID) {
+            printf("init: create test_file_rw_a failed\n");
         } else {
-            printf("init: fs score test spawned\n");
+            printf("init: create test_file_rw_a pid=%lu\n",
+                   static_cast<unsigned long>(pid));
         }
         kmod_fclose(fd);
     }
@@ -325,8 +343,8 @@ int kmod_main() {
     //     printf("init: can't open `/sys/dev/serial@10000000/serial` !\n");
     // }
 
-    // printf("init: 打印目录树\n");
-    // print_tree(root_dir_cap, "/");
+    printf("init: 打印目录树\n");
+    print_tree(root_dir_cap, "/");
 
     printf("init: 启动完成, 退出\n");
     exit(0);

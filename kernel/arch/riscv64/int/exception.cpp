@@ -862,9 +862,6 @@ extern "C" void handle_trap(csr_scause_t scause, umb_t sepc, umb_t stval,
             ctx->sstatus.spp ? "smode" : "umode");
     }
     bool from_umode = !ctx->sstatus.spp;
-    if (task::TaskManager::initialized()) {
-        task::TaskManager::inst().reap_recycled();
-    }
     if (scause.interrupt) {
         interrupt::dispatch(scause, sepc, stval, ctx);
     } else {

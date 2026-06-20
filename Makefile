@@ -119,14 +119,9 @@ build-mods: make-initrd build-libs
 
 make-initrd:
 	$(call if_mkdir, $(path-initrd))
-	$(q)$(rm) -rf $(path-initrd)/src
-	$(call if_mkdir, $(path-initrd)/src)
-	cp -r ./include/ $(path-initrd)/src/include/
-	cp -r ./kernel/ $(path-initrd)/src/kernel/
-	cp -r ./libs/ $(path-initrd)/src/libs/
-	cp -r ./module/ $(path-initrd)/src/module/
-	cp -r ./script/ $(path-initrd)/src/script/
-	cp -r ./tools/ $(path-initrd)/src/tools/
+	$(q)$(rm) -rf $(path-initrd)/tmp
+	$(call if_mkdir, $(path-initrd)/tmp)
+	cp -r ./tmp/$(architecture)/* $(path-initrd)/tmp/
 	$(q)echo "initrd path created"
 
 build-kernel: build-mods

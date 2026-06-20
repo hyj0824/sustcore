@@ -668,11 +668,17 @@ namespace task {
             auto dequeue_res = schd::Scheduler::inst().dequeue(tcb);
             propagate(dequeue_res);
         }
-        if (tcb->basic_entity.state == ThreadState::WAITING &&
+        if ((tcb->basic_entity.state == ThreadState::WAITING ||
+             tcb->basic_entity.state == ThreadState::DYING) &&
             wait::WaitReasonManager::initialized())
         {
             auto remove_res = wait::WaitReasonManager::inst().remove(tcb.get());
-            propagate(remove_res);
+            if (!remove_res.has_value() &&
+                remove_res.error() != ErrCode::INVALID_PARAM &&
+                remove_res.error() != ErrCode::OUT_OF_BOUNDARY)
+            {
+                propagate_return(remove_res);
+            }
         }
 
         PCB *pcb = tcb->task;
@@ -744,6 +750,7 @@ namespace task {
             if (pcb == nullptr) {
                 continue;
             }
+            pcb->recycle_queued = false;
             loggers::TASK::INFO("回收退出进程: pid=%lu", pcb->pid);
             terminate_pcb(util::nnullforce(pcb));
         }

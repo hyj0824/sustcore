@@ -188,14 +188,12 @@ new_utask_trampoline:
 .globl __switch_to
 .type __switch_to, @function
 __switch_to:
-    csrr t0, sstatus
-    li   t1, ~0x2
-    and  t0, t0, t1
-    csrw sstatus, t0
     // store the context of the current thread into its kernel stack
     // ra refers to the return address of the caller
     ctx_store a0, CTX_RA_SLOT,  ra
     ctx_store a0, CTX_SP_SLOT,  sp
+    csrr t0, sstatus
+    ctx_store a0, CTX_SSTATUS_SLOT, t0
     ctx_store a0, CTX_S0_SLOT,  s0
     ctx_store a0, CTX_S1_SLOT,  s1
     ctx_store a0, CTX_S2_SLOT,  s2
@@ -212,6 +210,8 @@ __switch_to:
     // now, load the context of the next thread from its kernel stack
     ctx_load ra,  a1, CTX_RA_SLOT
     ctx_load sp,  a1, CTX_SP_SLOT
+    ctx_load t0,  a1, CTX_SSTATUS_SLOT
+    csrw sstatus, t0
     ctx_load s0,  a1, CTX_S0_SLOT
     ctx_load s1,  a1, CTX_S1_SLOT
     ctx_load s2,  a1, CTX_S2_SLOT
@@ -228,7 +228,4 @@ __switch_to:
     // ra has been resumed, and after switch function will return
     // to the caller of __switch_to, which is the next thread
 __after_switch:
-    csrr t0, sstatus
-    ori  t0, t0, 0x2
-    csrw sstatus, t0
     ret

@@ -583,9 +583,6 @@ extern "C" void handle_trap(umb_t era, csr_estat_t estat, Context *ctx) {
                               static_cast<unsigned long long>(estat.ecode),
                               (void *)era, ctx,
                               exception::from_umode() ? "umode" : "smode");
-    if (task::TaskManager::initialized()) {
-        task::TaskManager::inst().reap_recycled();
-    }
     if (estat.ecode == ECODE_INT) {
         interrupt::dispatch(estat, ctx);
     } else {

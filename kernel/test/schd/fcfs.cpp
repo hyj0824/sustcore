@@ -249,6 +249,94 @@ namespace test::schd_test::fcfs {
         }
     };
 
+    class CaseDyingTaskNotRequeued : public TestCase {
+    public:
+        CaseDyingTaskNotRequeued()
+            : TestCase("DYING 线程 schedule 时不应回填就绪队列") {}
+
+        struct FakeScheduler {
+            schd::rt::RT<task::TCB> rt_schd;
+            schd::rr::RR<task::TCB> rr_schd;
+            schd::fcfs::FCFS<task::TCB> fcfs_schd;
+            schd::idle::IDLE<task::TCB> idle_schd;
+            schd::init::INIT<task::TCB> init_schd;
+        };
+
+        void _run(void *env [[maybe_unused]]) const noexcept override {
+            env::HartContext hart_ctx{};
+            auto *previous_hart_ctx = env::hart_ctx;
+            env::hart_ctx           = &hart_ctx;
+
+            task::TCB current{};
+            task::TCB next{};
+            task::PCB next_pcb{};
+            FakeScheduler fake_scheduler{};
+
+            current.schd_class         = schd::ClassType::FCFS;
+            current.basic_entity.state = ThreadState::DYING;
+            current.basic_entity
+                .template flags_set<schd::SchedMeta::FLAGS_NEED_RESCHED>();
+            next.schd_class         = schd::ClassType::FCFS;
+            next.basic_entity.state = ThreadState::READY;
+            next.task               = &next_pcb;
+
+            auto rq = util::nnullforce(hart_ctx.rq());
+            tassert(fake_scheduler.fcfs_schd.enqueue(rq,
+                                                     util::nnullforce(&next))
+                        .has_value(),
+                    "候选线程入队成功");
+
+            hart_ctx.current_tcb() = &current;
+            hart_ctx.current_pcb() = nullptr;
+
+            auto &scheduler =
+                reinterpret_cast<schd::Scheduler &>(fake_scheduler);
+
+            expect("DYING 当前线程 schedule 时不应回填自己");
+            scheduler.schedule(true);
+            ttest(hart_ctx.current_tcb() == &next);
+            ttest(rq->fcfs_list.empty());
+            ttest(current.basic_entity.state == ThreadState::DYING);
+
+            env::hart_ctx = previous_hart_ctx;
+        }
+    };
+
+    class CaseDyingTaskNotWoken : public TestCase {
+    public:
+        CaseDyingTaskNotWoken()
+            : TestCase("wakeup_waiting 不应唤醒 DYING 线程") {}
+
+        struct FakeScheduler {
+            schd::rt::RT<task::TCB> rt_schd;
+            schd::rr::RR<task::TCB> rr_schd;
+            schd::fcfs::FCFS<task::TCB> fcfs_schd;
+            schd::idle::IDLE<task::TCB> idle_schd;
+            schd::init::INIT<task::TCB> init_schd;
+        };
+
+        void _run(void *env [[maybe_unused]]) const noexcept override {
+            env::HartContext hart_ctx{};
+            auto *previous_hart_ctx = env::hart_ctx;
+            env::hart_ctx           = &hart_ctx;
+
+            task::TCB dying{};
+            FakeScheduler fake_scheduler{};
+
+            dying.schd_class         = schd::ClassType::FCFS;
+            dying.basic_entity.state = ThreadState::DYING;
+
+            auto &scheduler =
+                reinterpret_cast<schd::Scheduler &>(fake_scheduler);
+
+            expect("DYING 线程不应被 wakeup_waiting 激活");
+            ttest(!scheduler.wakeup_waiting(&dying));
+            ttest(dying.basic_entity.state == ThreadState::DYING);
+
+            env::hart_ctx = previous_hart_ctx;
+        }
+    };
+
     class CaseGuardedLockPreempt : public TestCase {
     public:
         CaseGuardedLockPreempt()
@@ -460,6 +548,8 @@ namespace test::schd_test::fcfs {
         cases.push_back(new CaseScheduleReturnsWhenCurrentNull());
         cases.push_back(new CasePreemptDisableApi());
         cases.push_back(new CasePreemptDisabledSchedule());
+        cases.push_back(new CaseDyingTaskNotRequeued());
+        cases.push_back(new CaseDyingTaskNotWoken());
         cases.push_back(new CaseGuardedLockPreempt());
         cases.push_back(new CaseTestRunning());
         framework.add_category(new TestCategory("schd.fcfs", std::move(cases)));

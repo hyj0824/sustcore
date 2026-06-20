@@ -38,8 +38,7 @@ namespace key {
     };
 }  // namespace key
 
-extern "C"
-void __switch_to(Context *prev_ctx, Context *next_ctx);
+extern "C" void __switch_to(Context *prev_ctx, Context *next_ctx);
 
 namespace schd {
     using namespace task;
@@ -121,9 +120,7 @@ namespace schd {
     void Scheduler::switch_to(TCB *prev, TCB *next) {
         assert(prev != nullptr);
         assert(next != nullptr);
-        if (!Interrupt::enabled()) {
-            loggers::SUSTCORE::FATAL("禁止在关中断临界区内调用 switch_to");
-        }
+        prepare_switch(next);
         __switch_to(prev->kernel_context_ptr(), next->kernel_context_ptr());
     }
 
@@ -169,7 +166,9 @@ namespace schd {
     }
 
     Result<void> Scheduler::prepare_prev_task(TCB *tcb) noexcept {
-        if (tcb == nullptr || tcb->basic_entity.state == ThreadState::WAITING) {
+        if (tcb == nullptr || tcb->basic_entity.state == ThreadState::WAITING ||
+            tcb->basic_entity.state == ThreadState::DYING)
+        {
             void_return();
         }
         if (!can_schedule_tcb(tcb)) {
@@ -188,6 +187,9 @@ namespace schd {
         if (tcb == nullptr) {
             return false;
         }
+        if (tcb->basic_entity.state == ThreadState::DYING) {
+            return false;
+        }
         return true;
     }
 
@@ -196,8 +198,6 @@ namespace schd {
             auto next_res = pick_next_task();
             propagate(next_res);
             TCB *next = next_res.value();
-            prepare_switch(next);
-
             if (can_schedule_tcb(next)) {
                 return util::nnullforce(next);
             }
@@ -245,6 +245,7 @@ namespace schd {
     }
 
     void Scheduler::schedule(bool ignore_preempt_disabled) {
+        Interrupt::cli();
         // 首先获得当前正在运行的线程
         auto *current = current_tcb();
         if (current == nullptr) {
@@ -252,8 +253,8 @@ namespace schd {
             return;
         }
 
-        if (!ignore_preempt_disabled && current->basic_entity.state !=
-                                            ThreadState::WAITING &&
+        if (!ignore_preempt_disabled &&
+            current->basic_entity.state != ThreadState::WAITING &&
             current->basic_entity
                 .template flags_check<SchedMeta::FLAGS_PREEMPT_DISABLED>())
         {
@@ -278,7 +279,7 @@ namespace schd {
         }
 
         // 选择下一个要运行的线程
-        TCB *prev = current;
+        TCB *prev     = current;
         auto next_res = prepare_next_task();
         if (!next_res.has_value()) {
             loggers::SUSTCORE::ERROR("没有可运行的线程! 错误码: %s",
@@ -289,6 +290,7 @@ namespace schd {
         if (prev != next && prev != nullptr) {
             switch_to(prev, next);
         }
+        Interrupt::sti();
     }
 
     Result<void> Scheduler::enqueue(util::nonnull<TCB *> tcb) {
@@ -334,7 +336,13 @@ namespace schd {
     }
 
     bool Scheduler::wakeup_waiting(TCB *tcb) {
-        if (tcb == nullptr || tcb->basic_entity.state != ThreadState::WAITING) {
+        if (tcb == nullptr) {
+            return false;
+        }
+        if (tcb->basic_entity.state == ThreadState::DYING) {
+            return false;
+        }
+        if (tcb->basic_entity.state != ThreadState::WAITING) {
             return false;
         }
         tcb->basic_entity.state = ThreadState::EMPTY;
@@ -412,6 +420,7 @@ namespace schd {
             panic("调度器崩溃!");
         }
         auto next = next_res.value();
+        Interrupt::cli();
         prepare_switch(next);
         Context bootstrap_prev{};
         bootstrap_prev.sp() = 0;

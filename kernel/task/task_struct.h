@@ -116,8 +116,7 @@ namespace task {
         util::ListHead<TCB> list_head;
 
         // running information
-        constexpr static size_t KSTACK_PAGES =
-            16;  // 64KB kernel stack — ext4 read_directory call chain is deep
+        constexpr static size_t KSTACK_PAGES = 16;  // 64KB(16 pages) for kernel stack
         constexpr static size_t KSTACK_SIZE = KSTACK_PAGES * PAGESIZE;
         void *kstack_bottom;
         char *ksp;

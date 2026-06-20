@@ -63,9 +63,6 @@ namespace cap {
             void_return();
         }
         pcb->exiting = true;
-        if (pcb->cholder != nullptr) {
-            pcb->cholder->clear();
-        }
         for (auto &tcb : pcb->threads) {
             if (&tcb != current_tcb &&
                 tcb.basic_entity.state == ThreadState::READY)
@@ -77,10 +74,11 @@ namespace cap {
                                          tcb.tid, dequeue_res.error());
                 }
             }
-            tcb.basic_entity.state = ThreadState::WAITING;
+            tcb.basic_entity.state = ThreadState::DYING;
         }
+        task::TaskManager::inst().enqueue_recycle(pcb);
         if (killing_current) {
-            current_tcb->basic_entity.state = ThreadState::WAITING;
+            current_tcb->basic_entity.state = ThreadState::DYING;
             current_tcb->basic_entity
                 .template flags_set<schd::SchedMeta::FLAGS_NEED_RESCHED>();
             if (runtime_tcb == current_tcb) {
