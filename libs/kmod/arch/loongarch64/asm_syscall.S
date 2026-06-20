@@ -28,6 +28,12 @@ sys_pcb_create_process:
     li.d $a7, SYS_CREATE_PROCESS
     do_syscall
 
+    .global sys_pcb_create_posix_process
+    .type sys_pcb_create_posix_process, @function
+sys_pcb_create_posix_process:
+    li.d $a7, SYS_CREATE_POSIX_PROCESS
+    do_syscall
+
     .global sys_pcb_create_thread
     .type sys_pcb_create_thread, @function
 sys_pcb_create_thread:

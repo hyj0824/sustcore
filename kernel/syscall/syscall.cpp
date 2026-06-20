@@ -146,6 +146,7 @@ namespace syscall {
         switch (sysno) {
             case SYS_WRITE_SERIAL:        return "SYS_WRITE_SERIAL";
             case SYS_CREATE_PROCESS:      return "SYS_CREATE_PROCESS";
+            case SYS_CREATE_POSIX_PROCESS:return "SYS_CREATE_POSIX_PROCESS";
             case SYS_PCB_KILL:            return "SYS_PCB_KILL";
             case SYS_YIELD:               return "SYS_YIELD";
             case SYS_LOG:                 return "SYS_LOG";
@@ -193,6 +194,16 @@ namespace syscall {
             case SYS_VFS_LINK:           return "SYS_VFS_LINK";
             default:                      return "UNKNOWN_SYSCALL";
         }
+    }
+
+    bool is_linux_syscall_number(b64 sysno) noexcept {
+        if ((sysno & 0xFFFF0000ULL) == SYSCALL_BASE) {
+            return false;
+        }
+        if ((sysno & 0xFFC00000ULL) == SYS_UNSTABLE_BASE) {
+            return false;
+        }
+        return true;
     }
 
     RetPack dispatch_sync(util::nonnull<task::TCB *> tcb,
@@ -250,6 +261,31 @@ namespace syscall {
                                        startup_blob_size == 0 ? nullptr
                                                               : &startup_buf,
                                        startup_blob_size));
+                break;
+            }
+            case SYS_CREATE_POSIX_PROCESS: {
+                UBuffer caps_buf((VirAddr)arg1, arg2 * sizeof(CapIdx));
+                auto sync_res = caps_buf.sync_from_user();
+                if (!sync_res.has_value()) {
+                    ret = result_void_ret("同步POSIX进程能力列表", sync_res);
+                    break;
+                }
+                b64 startup_blob_size = arg5;
+                UBuffer startup_buf((VirAddr)arg4, startup_blob_size);
+                if (startup_blob_size != 0) {
+                    auto startup_sync_res = startup_buf.sync_from_user();
+                    if (!startup_sync_res.has_value()) {
+                        ret = result_void_ret("同步POSIX进程启动缓冲区",
+                                              startup_sync_res);
+                        break;
+                    }
+                }
+                ret = result_value_ret(
+                    "创建POSIX进程",
+                    pcb_create_posix_process(
+                        capidx, arg0, std::move(caps_buf), arg2, arg3,
+                        startup_blob_size == 0 ? nullptr : &startup_buf,
+                        startup_blob_size));
                 break;
             }
             case SYS_CREATE_THREAD: {

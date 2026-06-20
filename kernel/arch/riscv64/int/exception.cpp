@@ -750,6 +750,23 @@ namespace exception {
             "sepc=0x%016lx",
             args.args[4], args.args[5], args.args[6], sepc);
 
+        if (current_tcb->task != nullptr &&
+            current_tcb->task->is_posix_process &&
+            current_tcb->task->posix_subsystem_entry.nonnull() &&
+            syscall::is_linux_syscall_number(args.syscall_number))
+        {
+            ctx->t0   = sepc + 4;
+            ctx->sepc =
+                current_tcb->task->posix_subsystem_entry.arith();
+            loggers::SYSCALL::INFO(
+                "POSIX Linux syscall 重定向: pid=%lu sysno=%lu entry=%p ret=%p",
+                current_tcb->task->pid, args.syscall_number,
+                current_tcb->task->posix_subsystem_entry.addr(),
+                reinterpret_cast<void *>(ctx->t0));
+            env::inst().trap_context(env::key::trap_context()) = nullptr;
+            return true;
+        }
+
         ctx->sepc += 4;
         syscall::handle_user_ecall(util::nnullforce(current_tcb),
                                    util::nnullforce(ctx), args);

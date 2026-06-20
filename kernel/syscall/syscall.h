@@ -43,4 +43,7 @@ namespace syscall {
     void handle_user_ecall(util::nonnull<task::TCB *> tcb,
                            util::nonnull<Context *> trap_context,
                            const ArgPack &args) noexcept;
+
+    [[nodiscard]]
+    bool is_linux_syscall_number(b64 sysno) noexcept;
 }  // namespace syscall

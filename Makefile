@@ -47,8 +47,8 @@ arg-basic :=  q=$(q) build-mode=$(build-mode) architecture=$(architecture) \
 
 -include $(path-script)/config.mk
 
-library-components := sbi basecpp kmod rpc libfdt
-module-components := default init test_endpoint_master test_endpoint_slave test_call_service test_call_user \
+library-components := sbi basecpp kmod posix-sslibc rpc libfdt
+module-components := default init posix-subsystem test-posix test_endpoint_master test_endpoint_slave test_call_service test_call_user \
 	test_fork test_execve test_thread test_rpc_server test_rpc_client \
 	test_file_rw_a test_file_rw_b test_ext4_read test_ext4_create test_ext4_rw \
 	test_fs_score
@@ -56,11 +56,14 @@ module-components := default init test_endpoint_master test_endpoint_slave test_
 library-component-makefile.sbi := $(path-e)/libs/sbi/Makefile
 library-component-makefile.basecpp := $(path-e)/libs/basecpp/Makefile
 library-component-makefile.kmod := $(path-e)/libs/kmod/Makefile
+library-component-makefile.posix-sslibc := $(path-e)/libs/posix-sslibc/Makefile
 library-component-makefile.rpc := $(path-e)/libs/rpc/Makefile
 library-component-makefile.libfdt := $(path-e)/third_party/libs/libfdt/Makefile
 
 module-component-makefile.default := $(path-e)/module/default/Makefile
 module-component-makefile.init := $(path-e)/module/init/Makefile
+module-component-makefile.posix-subsystem := $(path-e)/module/posix-subsystem/Makefile
+module-component-makefile.test-posix := $(path-e)/module/test-posix/Makefile
 module-component-makefile.test_endpoint_master := $(path-e)/module/test_endpoint_master/Makefile
 module-component-makefile.test_endpoint_slave := $(path-e)/module/test_endpoint_slave/Makefile
 module-component-makefile.test_call_service := $(path-e)/module/test_call_service/Makefile
@@ -84,6 +87,7 @@ endif
 	$(q)$(MAKE) -f $(library-component-makefile.basecpp) $(arg-basic) build
 	$(q)$(MAKE) -f $(library-component-makefile.basecpp) $(arg-basic) build-basecpp-kernel
 	$(q)$(MAKE) -f $(library-component-makefile.kmod) $(arg-basic) build
+	$(q)$(MAKE) -f $(library-component-makefile.posix-sslibc) $(arg-basic) build
 # 	$(q)$(MAKE) -f $(library-component-makefile.rpc) $(arg-basic) build
 	$(q)$(MAKE) -f $(library-component-makefile.libfdt) $(arg-basic) build
 	$(q)echo "All libraries built successfully."
@@ -100,6 +104,8 @@ kernel/feature.mk: FORCE $(config-json) kernel/feature.json tools/feature_gen/fe
 build-mods: make-initrd build-libs
 	$(q)$(MAKE) -f $(module-component-makefile.default) $(arg-basic) build
 	$(q)$(MAKE) -f $(module-component-makefile.init) $(arg-basic) build
+	$(q)$(MAKE) -f $(module-component-makefile.posix-subsystem) $(arg-basic) build
+	$(q)$(MAKE) -f $(module-component-makefile.test-posix) $(arg-basic) build
 	$(q)$(MAKE) -f $(module-component-makefile.test_endpoint_master) $(arg-basic) build
 	$(q)$(MAKE) -f $(module-component-makefile.test_endpoint_slave) $(arg-basic) build
 	$(q)$(MAKE) -f $(module-component-makefile.test_call_service) $(arg-basic) build

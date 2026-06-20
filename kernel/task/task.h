@@ -246,12 +246,23 @@ namespace task {
                                     const void *startup_blob,
                                     size_t startup_blob_size, TaskSpec &spec,
                                     LoadPrm &prm);
+        Result<void> load_posix_task_spec(CapIdx image_cap,
+                                          cap::CHolder *holder,
+                                          CapIdx subsystem_image_cap,
+                                          const void *startup_blob,
+                                          size_t startup_blob_size,
+                                          TaskSpec &spec, LoadPrm &prm);
         /**
          * @brief 装载 ELF 并直接构造对应的用户进程.
          */
         Result<util::nonnull<PCB *>> load_task_image(
             CapIdx image_cap, cap::CHolder *holder, schd::ClassType schd_class,
             bool wakeup, const void *startup_blob = nullptr,
+            size_t startup_blob_size = 0);
+        Result<util::nonnull<PCB *>> load_posix_task_image(
+            CapIdx image_cap, cap::CHolder *holder, CapIdx subsystem_image_cap,
+            schd::ClassType schd_class, bool wakeup,
+            const void *startup_blob = nullptr,
             size_t startup_blob_size = 0);
 
     public:
@@ -403,6 +414,10 @@ namespace task {
         Result<util::nonnull<PCB *>> load_elf_into(
             CapIdx image_cap, cap::CHolder *holder, schd::ClassType schd_class,
             const void *startup_blob = nullptr, size_t startup_blob_size = 0);
+        Result<util::nonnull<PCB *>> load_posix_elf_into(
+            CapIdx image_cap, cap::CHolder *holder, CapIdx subsystem_image_cap,
+            schd::ClassType schd_class, const void *startup_blob = nullptr,
+            size_t startup_blob_size = 0);
         /**
          * @brief 加载并创建 init 进程的 PCB, 路径通常指向系统初始化程序.
          *

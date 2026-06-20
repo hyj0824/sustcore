@@ -49,12 +49,14 @@ namespace task {
         extern "C" [[noreturn]] void new_utask_trampoline();
 
         void init_user_context(Context *ctx, void *entrypoint, void *stack_top,
-                               void *kstack_top) noexcept {
+                               void *kstack_top,
+                               umb_t initial_t0 = 0) noexcept {
             assert(ctx != nullptr);
             *ctx = {};
             ctx->template setup_regs<SetupCase::USER_THREAD>();
             ctx->pc()         = reinterpret_cast<umb_t>(entrypoint);
             ctx->sp()         = reinterpret_cast<umb_t>(stack_top);
+            ctx->t0           = initial_t0;
             ctx->kstack_top() = reinterpret_cast<umb_t>(kstack_top);
         }
 
@@ -78,11 +80,12 @@ namespace task {
         }
 
         void build_user_contexts(util::nonnull<TCB *> tcb, void *entrypoint,
-                                 void *user_stack_top) noexcept {
+                                 void *user_stack_top,
+                                 umb_t initial_t0 = 0) noexcept {
             tcb->reset_kstack();
             auto *user_ctx = tcb->push<Context>();
             init_user_context(user_ctx, entrypoint, user_stack_top,
-                              tcb->kstack_top());
+                              tcb->kstack_top(), initial_t0);
             init_kernel_context<SetupCase::UTHREAD_TRAMPOLINE>(
                 tcb->kernel_context_ptr(),
                 reinterpret_cast<void *>(&new_utask_trampoline), user_ctx,
@@ -238,6 +241,7 @@ namespace task {
                 .tmm          = util::owner<TaskMemoryManager *>(nullptr),
                 .holder       = nullptr,
                 .entrypoint   = VirAddr(static_cast<addr_t>(0)),
+                .initial_t0   = VirAddr(static_cast<addr_t>(0)),
                 .startup_blob = util::owner<char *>(nullptr),
             };
         }
@@ -457,6 +461,9 @@ namespace task {
         pcb->tmm          = util::owner<TaskMemoryManager *>(nullptr);
         pcb->cholder      = nullptr;
         pcb->entrypoint   = VirAddr(static_cast<addr_t>(0));
+        pcb->posix_entrypoint = VirAddr(static_cast<addr_t>(0));
+        pcb->posix_subsystem_entry = VirAddr(static_cast<addr_t>(0));
+        pcb->is_posix_process = false;
         pcb->pcb_cap      = cap::null;
         pcb->main_tcb_cap = cap::null;
         void_return();
@@ -581,7 +588,8 @@ namespace task {
                              pcb->pid, stack_mem, stack_mem->allocated_size());
         reset_thread_runtime(tcb);
         build_user_contexts(tcb, pcb->entrypoint.addr(),
-                            stack_top_res.value().addr());
+                            stack_top_res.value().addr(),
+                            spec.initial_t0.arith());
         if (link_into_pcb) {
             pcb->threads.push_back(*tcb);
         }
@@ -610,6 +618,9 @@ namespace task {
         pcb->tmm        = spec.tmm;
         pcb->cholder    = spec.holder;
         pcb->entrypoint = spec.entrypoint;
+        pcb->posix_entrypoint = spec.initial_t0;
+        pcb->posix_subsystem_entry = spec.entrypoint;
+        pcb->is_posix_process = spec.initial_t0.nonnull();
 
         if (pcb->pcb_cap == cap::null) {
             auto pcb_cap_res = insert_pcb_cap(pcb);
@@ -1094,6 +1105,59 @@ namespace task {
         void_return();
     }
 
+    Result<void> TaskManager::load_posix_task_spec(CapIdx image_cap,
+                                                   cap::CHolder *holder,
+                                                   CapIdx subsystem_image_cap,
+                                                   const void *startup_blob,
+                                                   size_t startup_blob_size,
+                                                   TaskSpec &spec,
+                                                   LoadPrm &prm) {
+        if (holder == nullptr) {
+            unexpect_return(ErrCode::NULLPTR);
+        }
+
+        std::vector<BootstrapCapPathView> dir_records{};
+        std::vector<BootstrapCapPathView> file_records{};
+        auto bootstrap_res = build_bootstrap_blob(startup_blob,
+                                                  startup_blob_size,
+                                                  dir_records, file_records,
+                                                  spec);
+        propagate(bootstrap_res);
+
+        auto preload_res = preload_into(image_cap, holder, spec, prm);
+        if (!preload_res.has_value()) {
+            loggers::SUSTCORE::ERROR("预加载POSIX程序失败! 错误码: %s",
+                                     to_cstring(preload_res.error()));
+            propagate_return(preload_res);
+        }
+
+        auto load_posix_res = loader::elf::load_segments(spec, prm, true);
+        if (!load_posix_res.has_value()) {
+            loggers::SUSTCORE::ERROR("加载POSIX程序失败! 错误码: %s",
+                                     to_cstring(load_posix_res.error()));
+            unexpect_return(ErrCode::CREATION_FAILED);
+        }
+
+        VirAddr posix_entry = spec.entrypoint;
+
+        LoadPrm subsystem_prm{
+            .image_file_cap = subsystem_image_cap,
+            .src_path       = "<cap>",
+        };
+        spec.entrypoint = VirAddr(static_cast<addr_t>(0));
+        spec.initial_t0 = VirAddr(static_cast<addr_t>(0));
+        auto load_subsystem_res =
+            loader::elf::load_segments(spec, subsystem_prm, false);
+        if (!load_subsystem_res.has_value()) {
+            loggers::SUSTCORE::ERROR("加载POSIX子系统失败! 错误码: %s",
+                                     to_cstring(load_subsystem_res.error()));
+            unexpect_return(ErrCode::CREATION_FAILED);
+        }
+
+        spec.initial_t0 = posix_entry;
+        void_return();
+    }
+
     Result<util::nonnull<PCB *>> TaskManager::load_task_image(
         CapIdx image_cap, cap::CHolder *holder, schd::ClassType schd_class,
         bool wakeup, const void *startup_blob, size_t startup_blob_size) {
@@ -1101,6 +1165,33 @@ namespace task {
         LoadPrm load_prm{};
         auto load_spec_res = load_task_spec(image_cap, holder, startup_blob,
                                             startup_blob_size, spec, load_prm);
+        if (!load_spec_res.has_value()) {
+            destroy_unowned_task_memory(spec);
+            propagate_return(load_spec_res);
+        }
+
+        bool spec_owned = true;
+        auto spec_guard = util::Guard([&]() {
+            if (spec_owned) {
+                destroy_unowned_task_memory(spec);
+            }
+        });
+
+        auto task_res = create_loaded_user_task(spec, schd_class, wakeup);
+        propagate(task_res);
+        spec_owned = false;
+        return task_res.value();
+    }
+
+    Result<util::nonnull<PCB *>> TaskManager::load_posix_task_image(
+        CapIdx image_cap, cap::CHolder *holder, CapIdx subsystem_image_cap,
+        schd::ClassType schd_class, bool wakeup, const void *startup_blob,
+        size_t startup_blob_size) {
+        TaskSpec spec = empty_task_spec();
+        LoadPrm load_prm{};
+        auto load_spec_res = load_posix_task_spec(
+            image_cap, holder, subsystem_image_cap, startup_blob,
+            startup_blob_size, spec, load_prm);
         if (!load_spec_res.has_value()) {
             destroy_unowned_task_memory(spec);
             propagate_return(load_spec_res);
@@ -1129,6 +1220,15 @@ namespace task {
         const void *startup_blob, size_t startup_blob_size) {
         return load_task_image(image_cap, holder, schd_class, true,
                                startup_blob, startup_blob_size);
+    }
+
+    Result<util::nonnull<PCB *>> TaskManager::load_posix_elf_into(
+        CapIdx image_cap, cap::CHolder *holder, CapIdx subsystem_image_cap,
+        schd::ClassType schd_class, const void *startup_blob,
+        size_t startup_blob_size) {
+        return load_posix_task_image(image_cap, holder, subsystem_image_cap,
+                                     schd_class, true, startup_blob,
+                                     startup_blob_size);
     }
 
     Result<util::nonnull<PCB *>> TaskManager::load_init(const char *path) {

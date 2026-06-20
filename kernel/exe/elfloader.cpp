@@ -282,7 +282,8 @@ namespace loader::elf {
         void_return();
     }
 
-    Result<void> load(TaskSpec &spec, const LoadPrm &prm) {
+    Result<void> load_segments(TaskSpec &spec, const LoadPrm &prm,
+                               bool create_heap) {
         if (spec.tmm.get() == nullptr) {
             unexpect_return(ErrCode::NULLPTR);
         }
@@ -375,26 +376,29 @@ namespace loader::elf {
             }
         }
 
-        VirAddr heap_start = VirAddr(max_pload_end).page_align_up();
-        auto *heap_mem =
-            new cap::MemoryPayload(0, false, false, VMA::Growth::FLEXUP);
-        auto heap_cap_res = spec.holder->insert_to_free(heap_mem);
-        if (!heap_cap_res.has_value()) {
-            delete heap_mem;
-            propagate_return(heap_cap_res);
+        if (create_heap) {
+            VirAddr heap_start = VirAddr(max_pload_end).page_align_up();
+            auto *heap_mem =
+                new cap::MemoryPayload(0, false, false, VMA::Growth::FLEXUP);
+            auto heap_cap_res = spec.holder->insert_to_free(heap_mem);
+            if (!heap_cap_res.has_value()) {
+                delete heap_mem;
+                propagate_return(heap_cap_res);
+            }
+            auto heap_res = spec.tmm->add_vma(
+                VMA::Type::HEAP, VMA::Growth::FLEXUP,
+                VirArea(heap_start, heap_start), heap_mem, PageMan::RWX::RW);
+            if (!heap_res.has_value()) {
+                loggers::SUSTCORE::ERROR("无法初始化堆VMA: %d",
+                                         heap_res.error());
+                propagate_return(heap_res);
+            }
+            loggers::SUSTCORE::INFO(
+                "创建HEAP VMA: area=[%p,%p) mem=%p memsz=%lu",
+                heap_start.addr(), heap_start.addr(), heap_mem, 0UL);
+            spec.heap_vaddr   = heap_start;
+            spec.heap_mem_cap = heap_cap_res.value();
         }
-        auto heap_res = spec.tmm->add_vma(VMA::Type::HEAP, VMA::Growth::FLEXUP,
-                                          VirArea(heap_start, heap_start),
-                                          heap_mem, PageMan::RWX::RW);
-        if (!heap_res.has_value()) {
-            loggers::SUSTCORE::ERROR("无法初始化堆VMA: %d", heap_res.error());
-            propagate_return(heap_res);
-        }
-        loggers::SUSTCORE::INFO(
-            "创建HEAP VMA: area=[%p,%p) mem=%p memsz=%lu", heap_start.addr(),
-            heap_start.addr(), heap_mem, 0UL);
-        spec.heap_vaddr   = heap_start;
-        spec.heap_mem_cap = heap_cap_res.value();
 
         loggers::SUSTCORE::DEBUG("ELF加载完成, TM中的VMA列表:");
         for (const auto &vma : spec.tmm->vmas()) {
@@ -424,6 +428,10 @@ namespace loader::elf {
         }
 
         void_return();
+    }
+
+    Result<void> load(TaskSpec &spec, const LoadPrm &prm) {
+        return load_segments(spec, prm, true);
     }
 
 }  // namespace loader::elf

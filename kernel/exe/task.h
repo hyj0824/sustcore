@@ -49,6 +49,8 @@ struct TaskSpec {
     cap::CHolder *holder;
     // 入口点
     VirAddr entrypoint;
+    // 可选的首次进入用户态时写入 t0 的地址.
+    VirAddr initial_t0;
     // 堆的起始地址
     VirAddr heap_vaddr;
     CapIdx heap_mem_cap = cap::null;

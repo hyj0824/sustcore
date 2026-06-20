@@ -29,6 +29,15 @@ CapIdx sys_create_process(CapIdx image_cap, CapIdx *caps, size_t caps_sz,
                                   startup_blob, startup_blob_size);
 }
 
+CapIdx sys_create_posix_process(CapIdx image_cap, CapIdx *caps, size_t caps_sz,
+                                size_t sched_class,
+                                const void *startup_blob,
+                                size_t startup_blob_size) {
+    return sys_pcb_create_posix_process(__pcb_cap, image_cap, caps, caps_sz,
+                                        sched_class, startup_blob,
+                                        startup_blob_size);
+}
+
 CapIdx sys_create_thread(void (*entry)(), void *stack_addr,
                          size_t stack_size) {
     return sys_pcb_create_thread(__pcb_cap, entry, stack_addr, stack_size);

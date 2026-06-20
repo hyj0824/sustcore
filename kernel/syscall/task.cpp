@@ -26,12 +26,15 @@
 #include <syscall/uaccess.h>
 #include <task/scheduler.h>
 #include <task/task.h>
+#include <vfs/vfs.h>
 
 #include <cassert>
 #include <cstring>
 
 namespace syscall {
     namespace {
+        constexpr const char *POSIX_SUBSYSTEM_IMAGE = "/initrd/posix-subsystem.mod";
+
         [[nodiscard]]
         Result<task::TCB *> running_tcb() noexcept {
             auto *current = schd::Scheduler::inst().current_tcb();
@@ -256,6 +259,80 @@ namespace syscall {
         loggers::SYSCALL::DEBUG("创建进程成功: image_cap=%p, pid=%d", image_cap,
                                 pcb->pid);
         pcb_guard.release();
+        return ret_insert_res.value();
+    }
+
+    Result<CapIdx> pcb_create_posix_process(CapIdx pcb_cap, CapIdx image_cap,
+                                            UBuffer &&caps_buf, size_t caps_sz,
+                                            size_t sched_class,
+                                            UBuffer *startup_buf,
+                                            size_t startup_buf_sz) {
+        loggers::SYSCALL::DEBUG(
+            "创建POSIX进程: pcb=%p image_cap=%p, caps_uaddr=%p, caps_sz=%u, "
+            "sched_class=%u",
+            pcb_cap, image_cap, caps_buf.uaddr().addr(), caps_sz, sched_class);
+
+        cap::Capability *pcb_cap_obj = nullptr;
+        auto pcb_res                 = lookup_pcb(pcb_cap, &pcb_cap_obj);
+        propagate(pcb_res);
+        cap::PCBObject pcb_obj(util::nnullforce(pcb_cap_obj));
+        auto parent_res = pcb_obj.require_new_process_execute();
+        propagate(parent_res);
+        task::PCB *parent_pcb = parent_res.value();
+        if (parent_pcb->cholder == nullptr || parent_pcb->tmm == nullptr) {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+
+        auto sched_res = parse_user_sched_class(sched_class);
+        propagate(sched_res);
+        auto image_res = lookup_vfile(image_cap);
+        propagate(image_res);
+
+        auto current_holder_res = current_holder();
+        propagate(current_holder_res);
+        cap::CHolder *current_holder = current_holder_res.value();
+
+        auto child_holder_res = cap::CHolderManager::inst().create_holder();
+        propagate(child_holder_res);
+        cap::CHolder *child_holder = child_holder_res.value();
+        auto holder_guard          = util::Guard([child_holder]() {
+            auto rm_res =
+                cap::CHolderManager::inst().remove_holder(child_holder->id());
+            assert(rm_res.has_value());
+        });
+
+        auto copy_res = copy_initial_caps_in_place(
+            parent_pcb->cholder, parent_pcb->tmm.get(), child_holder,
+            caps_sz == 0 ? nullptr : &caps_buf, caps_sz);
+        propagate(copy_res);
+
+        auto child_image_cap_res = child_holder->insert_to_free(
+            image_res.value()->payload(), perm::vfile::EXEC);
+        propagate(child_image_cap_res);
+        auto subsystem_cap_res =
+            VFS::inst().open(POSIX_SUBSYSTEM_IMAGE, *child_holder);
+        propagate(subsystem_cap_res);
+
+        auto create_res = task::TaskManager::inst().load_posix_elf_into(
+            child_image_cap_res.value(), child_holder, subsystem_cap_res.value(),
+            sched_res.value(),
+            startup_buf_sz == 0 || startup_buf == nullptr
+                ? nullptr
+                : startup_buf->kbuf(),
+            startup_buf_sz);
+        propagate(create_res);
+        holder_guard.release();
+
+        auto *pcb = create_res.value().get();
+        auto child_pcb_cap_res = pcb->cholder->lookup(pcb->pcb_cap);
+        propagate(child_pcb_cap_res);
+        auto ret_insert_res = current_holder->insert_to_free(
+            child_pcb_cap_res.value()->payload(),
+            child_pcb_cap_res.value()->perm());
+        propagate(ret_insert_res);
+
+        loggers::SYSCALL::INFO("创建POSIX进程成功: image_cap=%p, pid=%d",
+                               image_cap, pcb->pid);
         return ret_insert_res.value();
     }
 
