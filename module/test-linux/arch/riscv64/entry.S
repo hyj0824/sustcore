@@ -1,7 +1,7 @@
     .text
     .global _start
     .type _start, @function
-    .extern test_posix_main
+    .extern test_linux_main
 
 _start:
     .option push
@@ -10,4 +10,4 @@ _start:
     auipc gp, %pcrel_hi(__global_pointer$)
     addi gp, gp, %pcrel_lo(1b)
     .option pop
-    j test_posix_main
+    j test_linux_main

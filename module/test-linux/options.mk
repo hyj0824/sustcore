@@ -1,10 +1,10 @@
 component-kind := module
-component-name := test-posix
-module-output := test-posix.mod
+component-name := test-linux
+module-output := test-linux.mod
 module-libc := placeholder-libc
 module-libraries :=
-module-linker-script := riscv64-posix.ld
-variant.loongarch64.script-ld := $(component-root)/loongarch64-posix.ld
+module-linker-script := riscv64.ld
+variant.loongarch64.script-ld := $(component-root)/loongarch64.ld
 
 flags-ld := $(flags-module-ld) $(flags-common-ld) $(flags-mode-ld)
 

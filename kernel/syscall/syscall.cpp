@@ -282,7 +282,7 @@ namespace syscall {
                 }
                 ret = result_value_ret(
                     "创建POSIX进程",
-                    pcb_create_posix_process(
+                    pcb_create_linux_process(
                         capidx, arg0, std::move(caps_buf), arg2, arg3,
                         startup_blob_size == 0 ? nullptr : &startup_buf,
                         startup_blob_size));

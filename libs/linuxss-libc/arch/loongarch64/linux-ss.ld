@@ -1,4 +1,4 @@
-/* posix subsystem libc linker script */
+/* linux subsystem libc linker script */
 ENTRY(_start)
 OUTPUT_ARCH(loongarch64)
 

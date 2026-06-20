@@ -14,7 +14,7 @@
 
 #include <cstddef>
 
-volatile bool g_posix_initialized = false;
+volatile bool g_linux_initialized = false;
 
 size_t strlen(const char *str) {
     size_t len = 0;
@@ -30,22 +30,22 @@ size_t puts(const char *str) {
     return len;
 }
 
-extern "C" void posix_init();
-extern "C" size_t posix_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
+extern "C" void linux_init();
+extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
                                  size_t a4, size_t a5, size_t a6, size_t a7);
 
-extern "C" size_t posix_ss_main(size_t a0, size_t a1, size_t a2, size_t a3,
+extern "C" size_t linux_ss_main(size_t a0, size_t a1, size_t a2, size_t a3,
                                 size_t a4, size_t a5, size_t a6, size_t a7) {
-    if (!g_posix_initialized) {
-        posix_init();
+    if (!g_linux_initialized) {
+        linux_init();
         return 0;
     }
-    return posix_dispatch(a0, a1, a2, a3, a4, a5, a6, a7);
+    return linux_dispatch(a0, a1, a2, a3, a4, a5, a6, a7);
 }
 
-extern "C" void posix_init() {
-    g_posix_initialized = true;
-    puts("posix-subsystem: initialized\n");
+extern "C" void linux_init() {
+    g_linux_initialized = true;
+    puts("linux-subsystem: initialized\n");
 }
 
 #define LINUX_SYS_WRITE 64
@@ -56,17 +56,17 @@ size_t linux_sys_write(size_t fd, const void *buf, size_t len) {
         sys_write_serial(reinterpret_cast<const char *>(buf), len);
         return len;
     }
-    puts("posix-subsystem: unsupported fd\n");
+    puts("linux-subsystem: unsupported fd\n");
     return INVALID_VALUE;
 }
 
-extern "C" size_t posix_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
+extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
                                  size_t a4, size_t a5, size_t a6, size_t a7) {
     switch (a7) {
         case LINUX_SYS_WRITE:
             return linux_sys_write(a0, reinterpret_cast<const void *>(a1), a2);
         default:
-            puts("posix-subsystem: unknown syscall\n");
+            puts("linux-subsystem: unknown syscall\n");
             return INVALID_VALUE;
     }
 }

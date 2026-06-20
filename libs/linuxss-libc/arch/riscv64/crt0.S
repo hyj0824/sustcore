@@ -1,12 +1,12 @@
-    .extern posix_ss_main
+    .extern linux_ss_main
 
     .text
     .global _start
-    .global posix_subsystem_entry
+    .global linux_subsystem_entry
     .type _start, @function
-    .type posix_subsystem_entry, @function
+    .type linux_subsystem_entry, @function
 _start:
-posix_subsystem_entry:
+linux_subsystem_entry:
 // Save registers that may be used by the C code
     addi sp, sp, -(16 * 8)
     sd ra, 0(sp)
@@ -33,7 +33,7 @@ posix_subsystem_entry:
     addi gp, gp, %pcrel_lo(1b)
     .option pop
 
-    call posix_ss_main
+    call linux_ss_main
 
 // Restore registers and return to caller
     ld ra, 0(sp)

@@ -92,7 +92,7 @@ namespace {
     }
 
     [[nodiscard]]
-    size_t spawn_posix_with_root_dir(int fd, size_t sched_class,
+    size_t spawn_linux_with_root_dir(int fd, size_t sched_class,
                                      CapIdx root_dir_cap) {
         if (fd < 0 || root_dir_cap == cap::null || root_dir_cap == cap::error) {
             return INVALID_PID;
@@ -118,7 +118,7 @@ namespace {
         };
 
         CapIdx initial_caps[] = {child_root_cap};
-        CapIdx child_pcb = sys_create_posix_process(
+        CapIdx child_pcb = sys_create_linux_process(
             kmod_getcap(fd), initial_caps, 1, sched_class, &bootstrap,
             sizeof(bootstrap));
         sys_cap_remove(child_root_cap);
@@ -306,14 +306,14 @@ int kmod_main() {
     //     kmod_fclose(fd);
     // }
 
-    fd = kmod_fopen("/initrd/test-posix.mod", "x");
+    fd = kmod_fopen("/initrd/test-linux.mod", "x");
     if (fd >= 0) {
         size_t pid =
-            spawn_posix_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap);
+            spawn_linux_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap);
         if (pid == INVALID_PID) {
-            printf("init: create test-posix failed\n");
+            printf("init: create test-linux failed\n");
         } else {
-            printf("init: create test-posix pid=%lu\n",
+            printf("init: create test-linux pid=%lu\n",
                    static_cast<unsigned long>(pid));
         }
         kmod_fclose(fd);
@@ -322,11 +322,11 @@ int kmod_main() {
     fd = kmod_fopen("/initrd/tmp/write", "x");
     if (fd >= 0) {
         size_t pid =
-            spawn_posix_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap);
+            spawn_linux_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap);
         if (pid == INVALID_PID) {
-            printf("init: create test-posix failed\n");
+            printf("init: create test-linux failed\n");
         } else {
-            printf("init: create test-posix pid=%lu\n",
+            printf("init: create test-linux pid=%lu\n",
                    static_cast<unsigned long>(pid));
         }
         kmod_fclose(fd);

@@ -1,6 +1,6 @@
-/* test posix module linker script */
+/* test linux module linker script */
 ENTRY(_start)
-OUTPUT_ARCH(riscv)
+OUTPUT_ARCH(loongarch64)
 
 BASE_ADDRESS = 0x00400000;
 
@@ -28,9 +28,6 @@ SECTIONS
         *(.sdata .sdata.*)
 
         . = ALIGN(8);
-        PROVIDE(__global_pointer$ = . + 0x800);
-
-        . = ALIGN(8);
         PROVIDE(__preinit_array_start = .);
         KEEP(*(.preinit_array))
         PROVIDE(__preinit_array_end = .);
@@ -43,6 +40,7 @@ SECTIONS
 
         . = ALIGN(8);
         PROVIDE(__fini_array_start = .);
+        KEEP(*(SORT_BY_INIT_PRIORITY(.fini_array.*)))
         KEEP(*(.fini_array))
         PROVIDE(__fini_array_end = .);
 

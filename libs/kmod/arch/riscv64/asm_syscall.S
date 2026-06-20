@@ -31,9 +31,9 @@ sys_pcb_create_process:
     ecall
     ret
 
-    .global sys_pcb_create_posix_process
-    .type   sys_pcb_create_posix_process, @function
-sys_pcb_create_posix_process:
+    .global sys_pcb_create_linux_process
+    .type   sys_pcb_create_linux_process, @function
+sys_pcb_create_linux_process:
     /* a0 = pcb cap slot, a1 = image cap, a2 = initial caps, a3 = size, a4 = sched,
        a5 = startup blob ptr, a6 = startup blob size */
     li a7, SYS_CREATE_POSIX_PROCESS

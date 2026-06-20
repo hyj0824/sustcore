@@ -752,18 +752,18 @@ namespace exception {
             args.args[4], args.args[5], args.args[6], sepc);
 
         if (current_tcb->task != nullptr &&
-            current_tcb->task->is_posix_process &&
-            current_tcb->task->posix_subsystem_entry.nonnull() &&
+            current_tcb->task->is_linux_process &&
+            current_tcb->task->linux_subsystem_entry.nonnull() &&
             syscall::is_linux_syscall_number(args.syscall_number))
         {
-            ctx->posix_ra() = sepc + 4;
+            ctx->linux_ra() = sepc + 4;
             ctx->pc()       =
-                current_tcb->task->posix_subsystem_entry.arith();
+                current_tcb->task->linux_subsystem_entry.arith();
             loggers::SYSCALL::DEBUG(
                 "POSIX Linux syscall 重定向: pid=%lu sysno=%lu entry=%p ret=%p",
                 current_tcb->task->pid, args.syscall_number,
-                current_tcb->task->posix_subsystem_entry.addr(),
-                reinterpret_cast<void *>(ctx->posix_ra()));
+                current_tcb->task->linux_subsystem_entry.addr(),
+                reinterpret_cast<void *>(ctx->linux_ra()));
             env::inst().trap_context(env::key::trap_context()) = nullptr;
             return true;
         }

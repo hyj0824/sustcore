@@ -122,9 +122,9 @@ namespace task {
         pcb->tmm                   = util::owner<TaskMemoryManager *>(nullptr);
         pcb->cholder               = nullptr;
         pcb->entrypoint            = VirAddr(static_cast<addr_t>(0));
-        pcb->posixproc_entrypoint  = VirAddr(static_cast<addr_t>(0));
-        pcb->posix_subsystem_entry = VirAddr(static_cast<addr_t>(0));
-        pcb->is_posix_process      = false;
+        pcb->linuxproc_entrypoint  = VirAddr(static_cast<addr_t>(0));
+        pcb->linux_subsystem_entry = VirAddr(static_cast<addr_t>(0));
+        pcb->is_linux_process      = false;
         pcb->pcb_cap               = cap::null;
         pcb->main_tcb_cap          = cap::null;
         void_return();

@@ -298,12 +298,12 @@ void kinit_runtime_entry() {
     }
     loggers::SUSTCORE::INFO("已初始化 DriverModel");
 
-    init_res = mount_test_img();
-    if (!init_res.has_value()) {
-        loggers::SUSTCORE::FATAL("kinit 挂载 ext4 测试镜像失败: %s",
-                                 to_cstring(init_res.error()));
-        panic("kinit 挂载 ext4 测试镜像失败");
-    }
+    // init_res = mount_test_img();
+    // if (!init_res.has_value()) {
+    //     loggers::SUSTCORE::FATAL("kinit 挂载 ext4 测试镜像失败: %s",
+    //                              to_cstring(init_res.error()));
+    //     panic("kinit 挂载 ext4 测试镜像失败");
+    // }
 
 #ifdef __CONF_KERNEL_TIMEKEEPER_TEST
     register_timekeeper_log_test();

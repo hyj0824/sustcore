@@ -33,13 +33,13 @@ namespace task {
 
         void init_user_context(Context *ctx, void *entrypoint, void *stack_top,
                                void *kstack_top,
-                               umb_t posixproc_entrypoint = 0) noexcept {
+                               umb_t linuxproc_entrypoint = 0) noexcept {
             assert(ctx != nullptr);
             *ctx = {};
             ctx->setup_regs<SetupCase::USER_THREAD>();
             ctx->pc()         = reinterpret_cast<umb_t>(entrypoint);
             ctx->sp()         = reinterpret_cast<umb_t>(stack_top);
-            ctx->posix_ra()   = posixproc_entrypoint;
+            ctx->linux_ra()   = linuxproc_entrypoint;
             ctx->kstack_top() = reinterpret_cast<umb_t>(kstack_top);
         }
 
@@ -64,11 +64,11 @@ namespace task {
 
         void build_user_contexts(util::nonnull<TCB *> tcb, void *entrypoint,
                                  void *user_stack_top,
-                                 umb_t posixproc_entrypoint = 0) noexcept {
+                                 umb_t linuxproc_entrypoint = 0) noexcept {
             tcb->reset_kstack();
             auto *user_ctx = tcb->push<Context>();
             init_user_context(user_ctx, entrypoint, user_stack_top,
-                              tcb->kstack_top(), posixproc_entrypoint);
+                              tcb->kstack_top(), linuxproc_entrypoint);
             init_kernel_context<SetupCase::UTHREAD_TRAMPOLINE>(
                 tcb->kernel_context_ptr(),
                 reinterpret_cast<void *>(&new_utask_trampoline), user_ctx,
@@ -85,13 +85,13 @@ namespace task {
         void prepare_user_thread(util::nonnull<TCB *> tcb, void *entrypoint,
                                  void *user_stack_top,
                                  schd::ClassType schd_class,
-                                 umb_t posixproc_entrypoint = 0) noexcept {
+                                 umb_t linuxproc_entrypoint = 0) noexcept {
             tcb->is_kernel  = false;
             tcb->boot_role  = BootThreadRole::NONE;
             tcb->schd_class = schd_class;
             reset_thread_runtime(tcb);
             build_user_contexts(tcb, entrypoint, user_stack_top,
-                                posixproc_entrypoint);
+                                linuxproc_entrypoint);
         }
 
         void prepare_kernel_thread(util::nonnull<TCB *> tcb, void *entrypoint,
@@ -259,7 +259,7 @@ namespace task {
                 .tmm          = util::owner<TaskMemoryManager *>(nullptr),
                 .holder       = nullptr,
                 .entrypoint   = VirAddr(static_cast<addr_t>(0)),
-                .posixproc_entrypoint = VirAddr(static_cast<addr_t>(0)),
+                .linuxproc_entrypoint = VirAddr(static_cast<addr_t>(0)),
                 .startup_blob = util::owner<char *>(nullptr),
             };
         }
@@ -402,7 +402,7 @@ namespace task {
                              pcb->pid, stack_mem, stack_mem->allocated_size());
         prepare_user_thread(tcb, pcb->entrypoint.addr(),
                             stack_top_res.value().addr(), tcb->schd_class,
-                            spec.posixproc_entrypoint.arith());
+                            spec.linuxproc_entrypoint.arith());
         if (link_into_pcb) {
             pcb->threads.push_back(*tcb);
         }
@@ -448,9 +448,9 @@ namespace task {
         pcb->tmm                   = spec.tmm;
         pcb->cholder               = spec.holder;
         pcb->entrypoint            = spec.entrypoint;
-        pcb->posixproc_entrypoint  = spec.posixproc_entrypoint;
-        pcb->posix_subsystem_entry = spec.entrypoint;
-        pcb->is_posix_process      = spec.posixproc_entrypoint.nonnull();
+        pcb->linuxproc_entrypoint  = spec.linuxproc_entrypoint;
+        pcb->linux_subsystem_entry = spec.entrypoint;
+        pcb->is_linux_process      = spec.linuxproc_entrypoint.nonnull();
 
         if (pcb->pcb_cap == cap::null) {
             auto pcb_cap_res = insert_pcb_cap(pcb);
@@ -647,12 +647,12 @@ namespace task {
         return task_res.value();
     }
 
-    Result<util::nonnull<PCB *>> TaskManager::load_posix_task_image(
+    Result<util::nonnull<PCB *>> TaskManager::load_linux_task_image(
         CapIdx image_cap, cap::CHolder *holder, CapIdx subsystem_image_cap,
         schd::ClassType schd_class, bool wakeup, const void *startup_blob,
         size_t startup_blob_size) {
         auto spec_res = load_task_spec_impl(
-            *this, &TaskManager::load_posix_task_spec, image_cap, holder,
+            *this, &TaskManager::load_linux_task_spec, image_cap, holder,
             subsystem_image_cap, startup_blob, startup_blob_size);
         propagate(spec_res);
         TaskSpec spec = std::move(spec_res.value());
@@ -675,11 +675,11 @@ namespace task {
                                startup_blob, startup_blob_size);
     }
 
-    Result<util::nonnull<PCB *>> TaskManager::load_posix_elf_into(
+    Result<util::nonnull<PCB *>> TaskManager::load_linux_elf_into(
         CapIdx image_cap, cap::CHolder *holder, CapIdx subsystem_image_cap,
         schd::ClassType schd_class, const void *startup_blob,
         size_t startup_blob_size) {
-        return load_posix_task_image(image_cap, holder, subsystem_image_cap,
+        return load_linux_task_image(image_cap, holder, subsystem_image_cap,
                                      schd_class, true, startup_blob,
                                      startup_blob_size);
     }

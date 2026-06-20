@@ -294,7 +294,7 @@ namespace task {
         void_return();
     }
 
-    Result<void> TaskManager::load_posix_task_spec(
+    Result<void> TaskManager::load_linux_task_spec(
         CapIdx image_cap, cap::CHolder *holder, CapIdx subsystem_image_cap,
         const void *startup_blob, size_t startup_blob_size, TaskSpec &spec,
         LoadPrm &prm) {
@@ -315,20 +315,20 @@ namespace task {
             propagate_return(preload_res);
         }
 
-        auto load_posix_res = loader::elf::load_segments(spec, prm, true);
-        if (!load_posix_res.has_value()) {
+        auto load_linux_res = loader::elf::load_segments(spec, prm, true);
+        if (!load_linux_res.has_value()) {
             loggers::SUSTCORE::ERROR("加载POSIX程序失败! 错误码: %s",
-                                     to_cstring(load_posix_res.error()));
+                                     to_cstring(load_linux_res.error()));
             unexpect_return(ErrCode::CREATION_FAILED);
         }
 
-        VirAddr posix_entry = spec.entrypoint;
+        VirAddr linux_entry = spec.entrypoint;
         LoadPrm subsystem_prm{
             .image_file_cap = subsystem_image_cap,
             .src_path       = "<cap>",
         };
         spec.entrypoint           = VirAddr(static_cast<addr_t>(0));
-        spec.posixproc_entrypoint = VirAddr(static_cast<addr_t>(0));
+        spec.linuxproc_entrypoint = VirAddr(static_cast<addr_t>(0));
         auto load_subsystem_res =
             loader::elf::load_segments(spec, subsystem_prm, false);
         if (!load_subsystem_res.has_value()) {
@@ -337,7 +337,7 @@ namespace task {
             unexpect_return(ErrCode::CREATION_FAILED);
         }
 
-        spec.posixproc_entrypoint = posix_entry;
+        spec.linuxproc_entrypoint = linux_entry;
         void_return();
     }
 }  // namespace task

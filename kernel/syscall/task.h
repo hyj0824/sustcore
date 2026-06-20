@@ -29,7 +29,7 @@ namespace syscall {
                                       UBuffer *startup_buf = nullptr,
                                       size_t startup_buf_sz = 0);
     [[nodiscard]]
-    Result<CapIdx> pcb_create_posix_process(CapIdx pcb_cap, CapIdx image_cap,
+    Result<CapIdx> pcb_create_linux_process(CapIdx pcb_cap, CapIdx image_cap,
                                             UBuffer &&caps_buf, size_t caps_sz,
                                             size_t sched_class,
                                             UBuffer *startup_buf = nullptr,

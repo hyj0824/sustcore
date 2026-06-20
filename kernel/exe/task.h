@@ -50,7 +50,7 @@ struct TaskSpec {
     // 入口点
     VirAddr entrypoint;
     // 可选的 POSIX 程序真实入口地址, 供 subsystem 返回时使用.
-    VirAddr posixproc_entrypoint;
+    VirAddr linuxproc_entrypoint;
     // 堆的起始地址
     VirAddr heap_vaddr;
     CapIdx heap_mem_cap = cap::null;

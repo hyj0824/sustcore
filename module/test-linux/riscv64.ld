@@ -1,8 +1,8 @@
-/* posix subsystem libc linker script */
+/* test linux module linker script */
 ENTRY(_start)
 OUTPUT_ARCH(riscv)
 
-BASE_ADDRESS = 0x01000000;
+BASE_ADDRESS = 0x00400000;
 
 SECTIONS
 {

@@ -1,7 +1,7 @@
 component-kind := static-library
-component-name := posix-sslibc
-component-target := $(path-bin)/libs/$(architecture)/libposix-sslibc.a
-component-objdir := $(path-objects)/posix-sslibc/$(architecture)
+component-name := linuxss-libc
+component-target := $(path-bin)/libs/$(architecture)/liblinuxss-libc.a
+component-objdir := $(path-objects)/linuxss-libc/$(architecture)
 
 library-is-libc := true
 libc-crt0 := arch/$(architecture)/crt0.o

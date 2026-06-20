@@ -1,7 +1,7 @@
 /**
  * @file syscall.h
  * @author theflysong (song_of_the_fly@163.com)
- * @brief posix subsystem libc syscall declarations
+ * @brief linux subsystem libc syscall declarations
  * @version alpha-1.0.0
  * @date 2026-06-21
  *

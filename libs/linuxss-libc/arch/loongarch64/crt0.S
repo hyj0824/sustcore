@@ -1,12 +1,12 @@
-    .extern posix_ss_main
+    .extern linux_ss_main
 
     .text
     .global _start
-    .global posix_subsystem_entry
+    .global linux_subsystem_entry
     .type _start, @function
-    .type posix_subsystem_entry, @function
+    .type linux_subsystem_entry, @function
 _start:
-posix_subsystem_entry:
+linux_subsystem_entry:
     addi.d $sp, $sp, -(13 * 8)
     st.d $ra, $sp, 0
     st.d $tp, $sp, 8
@@ -22,7 +22,7 @@ posix_subsystem_entry:
     st.d $s7, $sp, 88
     st.d $s8, $sp, 96
 
-    bl posix_ss_main
+    bl linux_ss_main
 
     ld.d $ra, $sp, 0
     ld.d $tp, $sp, 8

@@ -43,7 +43,7 @@ CapIdx sys_pcb_create_process(CapIdx pcb_cap, CapIdx image_cap, CapIdx *caps,
                               size_t caps_sz, size_t sched_class,
                               const void *startup_blob,
                               size_t startup_blob_size);
-CapIdx sys_pcb_create_posix_process(CapIdx pcb_cap, CapIdx image_cap,
+CapIdx sys_pcb_create_linux_process(CapIdx pcb_cap, CapIdx image_cap,
                                     CapIdx *caps, size_t caps_sz,
                                     size_t sched_class,
                                     const void *startup_blob,
@@ -51,7 +51,7 @@ CapIdx sys_pcb_create_posix_process(CapIdx pcb_cap, CapIdx image_cap,
 CapIdx sys_create_process(CapIdx image_cap, CapIdx *caps, size_t caps_sz,
                           size_t sched_class, const void *startup_blob = nullptr,
                           size_t startup_blob_size = 0);
-CapIdx sys_create_posix_process(CapIdx image_cap, CapIdx *caps, size_t caps_sz,
+CapIdx sys_create_linux_process(CapIdx image_cap, CapIdx *caps, size_t caps_sz,
                                 size_t sched_class,
                                 const void *startup_blob = nullptr,
                                 size_t startup_blob_size = 0);

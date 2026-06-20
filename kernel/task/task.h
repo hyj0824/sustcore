@@ -254,7 +254,7 @@ namespace task {
                                     const void *startup_blob,
                                     size_t startup_blob_size, TaskSpec &spec,
                                     LoadPrm &prm);
-        Result<void> load_posix_task_spec(CapIdx image_cap,
+        Result<void> load_linux_task_spec(CapIdx image_cap,
                                           cap::CHolder *holder,
                                           CapIdx subsystem_image_cap,
                                           const void *startup_blob,
@@ -267,7 +267,7 @@ namespace task {
             CapIdx image_cap, cap::CHolder *holder, schd::ClassType schd_class,
             bool wakeup, const void *startup_blob = nullptr,
             size_t startup_blob_size = 0);
-        Result<util::nonnull<PCB *>> load_posix_task_image(
+        Result<util::nonnull<PCB *>> load_linux_task_image(
             CapIdx image_cap, cap::CHolder *holder, CapIdx subsystem_image_cap,
             schd::ClassType schd_class, bool wakeup,
             const void *startup_blob = nullptr, size_t startup_blob_size = 0);
@@ -421,7 +421,7 @@ namespace task {
         Result<util::nonnull<PCB *>> load_elf_into(
             CapIdx image_cap, cap::CHolder *holder, schd::ClassType schd_class,
             const void *startup_blob = nullptr, size_t startup_blob_size = 0);
-        Result<util::nonnull<PCB *>> load_posix_elf_into(
+        Result<util::nonnull<PCB *>> load_linux_elf_into(
             CapIdx image_cap, cap::CHolder *holder, CapIdx subsystem_image_cap,
             schd::ClassType schd_class, const void *startup_blob = nullptr,
             size_t startup_blob_size = 0);

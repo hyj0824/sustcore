@@ -1,8 +1,8 @@
 component-kind := module
-component-name := posix-subsystem
-module-output := posix-subsystem.mod
-module-libc := posix-sslibc
-module-libraries := posix-sslibc
+component-name := linux-subsystem
+module-output := linux-subsystem.mod
+module-libc := linuxss-libc
+module-libraries := linuxss-libc
 
 flags-ld := $(flags-module-ld) $(flags-common-ld) $(flags-mode-ld)
 
@@ -10,7 +10,7 @@ flags-c := $(flags-common-c) -nostdinc++ $(flags-mode-c)
 include-c := -I$(path-include) -I$(path-include)/std \
 	-I$(path-third_party)/include -I$(path-third_party)/include/libfdt \
 	-I$(path-third_party)/include/std -I$(component-root) -I$(path-include)/arch \
-	-I$(path-e)/libs/posix-sslibc
+	-I$(path-e)/libs/linuxss-libc
 defs-c := -DASSERT_IMPLEMENTED=0 $(defs-mode-c)
 
 flags-cpp := $(flags-common-cpp) -nostdinc $(flags-no-rtti-cpp) $(flags-no-exceptions-cpp) \
@@ -18,7 +18,7 @@ flags-cpp := $(flags-common-cpp) -nostdinc $(flags-no-rtti-cpp) $(flags-no-excep
 include-cpp := -I$(path-include) -I$(path-include)/std -I$(path-include)/std/c++ \
 	-I$(path-third_party)/include -I$(path-third_party)/include/libfdt \
 	-I$(path-third_party)/include/std -I$(component-root) -I$(path-include)/arch \
-	-I$(path-e)/libs/posix-sslibc
+	-I$(path-e)/libs/linuxss-libc
 defs-cpp := -DASSERT_IMPLEMENTED=0 $(defs-mode-cpp)
 
 # ifeq ($(architecture),loongarch64)

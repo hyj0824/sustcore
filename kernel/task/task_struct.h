@@ -205,9 +205,9 @@ namespace task {
 
         // initialization information
         VirAddr entrypoint;
-        VirAddr posixproc_entrypoint;
-        VirAddr posix_subsystem_entry;
-        bool is_posix_process;
+        VirAddr linuxproc_entrypoint;
+        VirAddr linux_subsystem_entry;
+        bool is_linux_process;
         CapIdx pcb_cap;
         CapIdx main_tcb_cap;
 

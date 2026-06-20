@@ -11,9 +11,9 @@ libc.kmod.module-linker-script.riscv64 := $(path-e)/libs/kmod/arch/riscv64/kmod.
 libc.kmod.module-linker-script.loongarch64 := $(path-e)/libs/kmod/arch/loongarch64/kmod.ld
 libc.kmod.module-linker-script := $(or $(libc.kmod.module-linker-script.$(architecture)),$(path-e)/libs/kmod/arch/riscv64/kmod.ld)
 
-libc.posix-sslibc.crt-head := $(path-objects)/posix-sslibc/$(architecture)/arch/$(architecture)/crt0.o \
-	$(path-objects)/posix-sslibc/$(architecture)/arch/$(architecture)/crti.o
-libc.posix-sslibc.crt-tail := $(path-objects)/posix-sslibc/$(architecture)/arch/$(architecture)/crtn.o
-libc.posix-sslibc.module-linker-script.riscv64 := $(path-e)/libs/posix-sslibc/arch/riscv64/posix-ss.ld
-libc.posix-sslibc.module-linker-script.loongarch64 := $(path-e)/libs/posix-sslibc/arch/loongarch64/posix-ss.ld
-libc.posix-sslibc.module-linker-script := $(or $(libc.posix-sslibc.module-linker-script.$(architecture)),$(path-e)/libs/posix-sslibc/arch/riscv64/posix-ss.ld)
+libc.linuxss-libc.crt-head := $(path-objects)/linuxss-libc/$(architecture)/arch/$(architecture)/crt0.o \
+	$(path-objects)/linuxss-libc/$(architecture)/arch/$(architecture)/crti.o
+libc.linuxss-libc.crt-tail := $(path-objects)/linuxss-libc/$(architecture)/arch/$(architecture)/crtn.o
+libc.linuxss-libc.module-linker-script.riscv64 := $(path-e)/libs/linuxss-libc/arch/riscv64/linux-ss.ld
+libc.linuxss-libc.module-linker-script.loongarch64 := $(path-e)/libs/linuxss-libc/arch/loongarch64/linux-ss.ld
+libc.linuxss-libc.module-linker-script := $(or $(libc.linuxss-libc.module-linker-script.$(architecture)),$(path-e)/libs/linuxss-libc/arch/riscv64/linux-ss.ld)

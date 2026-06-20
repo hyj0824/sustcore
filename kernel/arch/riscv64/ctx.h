@@ -67,11 +67,11 @@ namespace rv64 {
         }
 
         [[nodiscard]]
-        constexpr umb_t &posix_ra() {
+        constexpr umb_t &linux_ra() {
             return t0;
         }
         [[nodiscard]]
-        constexpr const umb_t &posix_ra() const {
+        constexpr const umb_t &linux_ra() const {
             return t0;
         }
 

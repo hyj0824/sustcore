@@ -33,7 +33,7 @@
 
 namespace syscall {
     namespace {
-        constexpr const char *POSIX_SUBSYSTEM_IMAGE = "/initrd/posix-subsystem.mod";
+        constexpr const char *POSIX_SUBSYSTEM_IMAGE = "/initrd/linux-subsystem.mod";
 
         [[nodiscard]]
         Result<task::TCB *> running_tcb() noexcept {
@@ -262,7 +262,7 @@ namespace syscall {
         return ret_insert_res.value();
     }
 
-    Result<CapIdx> pcb_create_posix_process(CapIdx pcb_cap, CapIdx image_cap,
+    Result<CapIdx> pcb_create_linux_process(CapIdx pcb_cap, CapIdx image_cap,
                                             UBuffer &&caps_buf, size_t caps_sz,
                                             size_t sched_class,
                                             UBuffer *startup_buf,
@@ -313,7 +313,7 @@ namespace syscall {
             VFS::inst().open(POSIX_SUBSYSTEM_IMAGE, *child_holder);
         propagate(subsystem_cap_res);
 
-        auto create_res = task::TaskManager::inst().load_posix_elf_into(
+        auto create_res = task::TaskManager::inst().load_linux_elf_into(
             child_image_cap_res.value(), child_holder, subsystem_cap_res.value(),
             sched_res.value(),
             startup_buf_sz == 0 || startup_buf == nullptr
