@@ -319,6 +319,19 @@ int kmod_main() {
         kmod_fclose(fd);
     }
 
+    fd = kmod_fopen("/initrd/tmp/write", "x");
+    if (fd >= 0) {
+        size_t pid =
+            spawn_posix_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap);
+        if (pid == INVALID_PID) {
+            printf("init: create test-posix failed\n");
+        } else {
+            printf("init: create test-posix pid=%lu\n",
+                   static_cast<unsigned long>(pid));
+        }
+        kmod_fclose(fd);
+    }
+
     // ext4 score tests — run sequentially after rw test
     // fd = kmod_fopen("/initrd/test_fs_basic.mod", "x");
     // if (fd >= 0) {

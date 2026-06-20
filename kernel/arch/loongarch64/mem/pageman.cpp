@@ -121,9 +121,9 @@ void PageMan::protect_cow(PTE *pte, RWX original_rwx) {
         return;
     }
 
-    PageFlags cow_flags = page_flags(without_write(original_rwx),
-                                     is_user_accessible(*pte),
-                                     is_global(*pte), is_present(*pte));
+    PageFlags cow_flags =
+        page_flags(without_write(original_rwx), is_user_accessible(*pte),
+                   is_global(*pte), is_present(*pte));
     modify_pte<Modifier::RWX | Modifier::U | Modifier::G | Modifier::P>(
         pte, cow_flags);
     pte->basic.d = false;
@@ -145,9 +145,9 @@ void PageMan::set_paddr(PTE *pte, PhyAddr paddr) {
         return;
     }
 
-    umb_t new_val = paddr.arith() & PAGE_ADDR_MASK;
-    pte->value &= ~PAGE_ADDR_MASK;
-    pte->value |= new_val;
+    umb_t new_val  = paddr.arith() & PAGE_ADDR_MASK;
+    pte->value    &= ~PAGE_ADDR_MASK;
+    pte->value    |= new_val;
 }
 
 PhyAddr PageMan::read_root() {
@@ -167,7 +167,11 @@ void PageMan::__switch_root(PhyAddr root) {
 }
 
 void PageMan::flush_tlb() {
-    asm volatile("dbar 0\n\tinvtlb 0x0, $zero, $zero\n\tibar 0" ::: "memory");
+    asm volatile(
+        "    dbar 0\n"
+        "    invtlb 0x0, $zero, $zero\n"
+        "    ibar 0" ::
+        : "memory");
 }
 
 Result<PageMan::QueryResult> PageMan::query_page(VirAddr vaddr) {

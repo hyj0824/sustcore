@@ -365,7 +365,6 @@ namespace loader::elf {
                                          add_res.error());
                 while (true);
             }
-            add_res->get()->loading = true;  // 标记该VMA正在加载
             loggers::SUSTCORE::INFO(
                 "创建ELF VMA: type=%s area=[%p,%p) mem=%p memsz=%lu mem_off=%lu",
                 to_string(vma_type), segvaddr.addr(), segvend.addr(),
@@ -411,7 +410,6 @@ namespace loader::elf {
         propagate(load_res);
 
         for (auto &vma : spec.tmm->vmas()) {
-            vma.loading      = false;
             PageMan::RWX rwx = VMA::seg2rwx(vma.type);
             spec.tmm->pman().modify_range_flags<PageMan::make_mask(0b001111)>(
                 vma.varea.begin, vma.size(),

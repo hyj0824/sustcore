@@ -103,8 +103,8 @@ namespace schd {
     void switch_pgd(TaskMemoryManager *tmm) {
         // 只在页表不为null且不等于当前页表时才切换
         if (tmm->pgd().nonnull() && tmm->pgd() != env::inst().pgd()) {
-            PageMan(tmm->pgd()).switch_root();
-            PageMan(tmm->pgd()).flush_tlb();
+            tmm->pman().switch_root();
+            tmm->pman().flush_tlb();
         }
         // 更新 environment 中的 task memory
         env::inst().tmm(key::schd()) = tmm;

@@ -1,8 +1,8 @@
 component-kind := module
 component-name := test-posix
 module-output := test-posix.mod
-module-libc := kmod
-module-libraries := basecpp kmod
+module-libc := placeholder-libc
+module-libraries :=
 module-linker-script := riscv64-posix.ld
 variant.loongarch64.script-ld := $(component-root)/loongarch64-posix.ld
 

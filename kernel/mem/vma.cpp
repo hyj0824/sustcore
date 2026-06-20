@@ -337,6 +337,8 @@ bool TaskMemoryManager::on_np(const NoPresentEvent &e) {
     loggers::PAGING::DEBUG(
         "TM::on_np: access_address=%p, tm_pgd=%p, pman_root=%p",
         e.access_address.addr(), _pgd.addr(), _pman.get_root().addr());
+
+    // locate the vma
     auto locate_res = locate(e.access_address);
     if (!locate_res.has_value()) {
         loggers::PAGING::ERROR(
@@ -346,8 +348,10 @@ bool TaskMemoryManager::on_np(const NoPresentEvent &e) {
     }
     VMA *vma = locate_res.value();
 
+    // locate the page in memory
     VirAddr aligned_vaddr = e.access_address.page_align_down();
     size_t mem_offset     = memory_offset_for_page(*vma, aligned_vaddr);
+    // 保证这个页在 vma->memory 中存在
     auto ensure_res       = vma->memory->ensure_page(mem_offset);
     if (!ensure_res.has_value()) {
         loggers::TASK::ERROR("无法处理缺页异常: err=%d", ensure_res.error());
@@ -361,47 +365,49 @@ bool TaskMemoryManager::on_np(const NoPresentEvent &e) {
     PhyAddr paddr = page_res.value();
     assert(paddr.nonnull());
 
-    // 如果正在加载, 此时应当给予读写权限
-    PageMan::RWX rwx  = vma->loading ? PageMan::RWX::RW : vma->rwx;
+    // load the page
+    PageMan::RWX rwx  = vma->rwx;
     auto refcount_res = vma->memory->page_refcount(mem_offset);
     if (!refcount_res.has_value()) {
         loggers::PAGING::ERROR("TM::on_np: 无法获取页共享计数: addr=%p err=%d",
                                aligned_vaddr.addr(), refcount_res.error());
         return false;
     }
-    bool cow_page = !vma->memory->shared && PageMan::is_writable(rwx) &&
-                    refcount_res.value() > 1;
+    // 是否需要 cow 标记
+    bool cow_page = !vma->memory->shared && PageMan::is_writable(rwx) && refcount_res.value() > 1;
     PageMan::RWX map_rwx = cow_page ? PageMan::without_write(rwx) : rwx;
-    bool u = !vma->loading;  // 加载过程中按内核页处理, 加载完成后按用户页处理
 
+    // 映射该页
     _pman.map_page<PageMan::PageSize::_4K>(
-        aligned_vaddr, paddr, PageMan::page_flags(map_rwx, u, false));
+        aligned_vaddr, paddr, PageMan::page_flags(map_rwx, true, false));
     if (cow_page) {
+        // cow 需要 cow 标记
         auto query_res = _pman.query_page(aligned_vaddr);
         if (query_res.has_value()) {
             PageMan::protect_cow(query_res.value().pte, rwx);
         }
     }
+    // 刷新 tlb
     _pman.flush_tlb();
     loggers::PAGING::DEBUG("TM::on_np: mapped addr=%p page=%p cow=%d",
                            e.access_address.addr(), aligned_vaddr.addr(),
                            cow_page);
 
     // 调试: 使用当前硬件页表根再次查询该页
-    PhyAddr hw_root = PageMan::read_root();
-    PageMan verify_pman(hw_root);
-    auto verify_res = verify_pman.query_page(aligned_vaddr);
-    if (!verify_res.has_value()) {
-        loggers::PAGING::ERROR(
-            "TM::on_np: 映射后在当前页表中仍查不到该页: vaddr=%p, "
-            "err=%d, hw_root=%p, tm_pgd=%p",
-            aligned_vaddr.addr(), verify_res.error(), hw_root.addr(),
-            _pgd.addr());
-    } else {
-        loggers::PAGING::DEBUG(
-            "TM::on_np: 页映射成功: vaddr=%p, hw_root=%p, tm_pgd=%p",
-            aligned_vaddr.addr(), hw_root.addr(), _pgd.addr());
-    }
+    // PhyAddr hw_root = PageMan::read_root();
+    // PageMan verify_pman(hw_root);
+    // auto verify_res = verify_pman.query_page(aligned_vaddr);
+    // if (!verify_res.has_value()) {
+    //     loggers::PAGING::ERROR(
+    //         "TM::on_np: 映射后在当前页表中仍查不到该页: vaddr=%p, "
+    //         "err=%d, hw_root=%p, tm_pgd=%p",
+    //         aligned_vaddr.addr(), verify_res.error(), hw_root.addr(),
+    //         _pgd.addr());
+    // } else {
+    //     loggers::PAGING::DEBUG(
+    //         "TM::on_np: 页映射成功: vaddr=%p, hw_root=%p, tm_pgd=%p",
+    //         aligned_vaddr.addr(), hw_root.addr(), _pgd.addr());
+    // }
     return true;
 }
 

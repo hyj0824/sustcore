@@ -83,8 +83,6 @@ struct VMA {
     /// VMA 起始地址对应的 Memory 内偏移. 
     size_t mem_offset          = 0;
     VirArea varea;
-    bool loading =
-        false;  // 是否正在加载 (如ELF加载）, 用于处理缺页异常时区分是正常访问还是加载过程中访问
     util::ListHead<VMA> list_head = {};
 
     constexpr VMA() = default;
@@ -128,7 +126,6 @@ struct VMA {
           rwx(other.rwx),
           mem_offset(other.mem_offset),
           varea(other.varea),
-          loading(other.loading),
           list_head({}) {
         assert(memory != nullptr);
         memory->keep();
