@@ -80,7 +80,7 @@ namespace {
         g_dir_bindings_loaded = true;
         int binding_count     = 0;
         (void)bootstrap_foreach_record(
-            __startup_data, __startup_size, [&](const BootstrapRecordView &view) {
+            __bsargv, __bsargc, [&](const BootstrapRecordView &view) {
                 if (view.header->type != BOOTSTRAP_TYPE_DIRCAPEXPLAIN ||
                     binding_count >= MAX_DIR_BINDINGS)
                 {
@@ -101,7 +101,7 @@ namespace {
                 g_dir_bindings[binding_count++] = DirBinding{
                     .cap          = cap_path.cap,
                     .path         = cap_path.path,
-                    .path_len     = strlen(cap_path.path),
+                    .path_len     = static_cast<size_t>(strlen(cap_path.path)),
                     .from_bootstrap = true,
                 };
             });

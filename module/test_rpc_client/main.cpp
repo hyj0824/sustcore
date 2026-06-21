@@ -48,10 +48,10 @@ public:
 
 static CapIdx bootstrap_endpoint() {
     CapIdx endpoint = cap::null;
-    if (!bootstrap_find_single_cap(__startup_data, __startup_size,
-                                   kBootstrapTypeEndpoint, endpoint))
+    if (!bootstrap_find_single_cap(__bsargv, __bsargc, kBootstrapTypeEndpoint,
+                                   endpoint))
     {
-        printf("test_rpc_client: 启动参数无效 size=%u\n", __startup_size);
+        printf("test_rpc_client: 启动参数无效 bsargc=%u\n", __bsargc);
         exit(-1);
     }
     return endpoint;
@@ -62,7 +62,12 @@ static void fail(const char *msg) {
     exit(-1);
 }
 
-int kmod_main() {
+extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
+              const bsheader *bsargv[]) {
+    (void)argc;
+    (void)argv;
+    (void)envp;
+    (void)bsargv;
     printf("test_rpc_client: start pid=%u\n", sys_getpid(__pcb_cap));
     CapIdx endpoint = bootstrap_endpoint();
 

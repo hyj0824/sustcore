@@ -41,7 +41,12 @@ public:
     }
 };
 
-int kmod_main() {
+extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
+              const bsheader *bsargv_in[]) {
+    (void)argc;
+    (void)argv;
+    (void)envp;
+    (void)bsargv_in;
     CapIdx endpoint = sys_endpoint_create();
     if (endpoint == cap::error) {
         printf("Failed to create endpoint\n");
@@ -51,14 +56,15 @@ int kmod_main() {
     SampleServer server(endpoint);
     printf("Server is running endpoint=%p\n", (void *)endpoint);
 
-    CapIdx initial_caps[] = {endpoint};
+    CapIdx initial_caps[] = {endpoint, cap::null};
     BootstrapSingleCapRecord<kBootstrapTypeEndpoint> bootstrap(endpoint);
+    const char *bsargv[] = {reinterpret_cast<const char *>(&bootstrap),
+                            nullptr};
     int fd                = kmod_fopen("/initrd/test_rpc_client.mod", "x");
     CapIdx client_pcb     =
         fd < 0 ? cap::error
-               : sys_create_process(kmod_getcap(fd), initial_caps, 1,
-                                    SCHED_CLASS_FCFS, &bootstrap,
-                                    sizeof(bootstrap));
+               : sys_create_process(kmod_getcap(fd), SCHED_CLASS_FCFS,
+                                    initial_caps, nullptr, nullptr, bsargv);
     if (fd >= 0) {
         kmod_fclose(fd);
     }

@@ -123,7 +123,7 @@ PCB 和 TCB 都使用 KOP 对象池，`task::init_kop()` 会初始化 `kop::pcb`
 
 `load_elf(image_cap, schd_class)` 会创建新的 holder、预加载、加载 ELF，再创建进程。
 
-`load_elf_into(image_cap, holder, schd_class, startup_blob, startup_blob_size)` 使用调用方已经配置好的 holder。该接口主要用于 syscall 创建子进程时先复制初始 capability，再加载新镜像。
+`load_elf_into(image_cap, holder, schd_class, argv, envp, bsargv)` 使用调用方已经配置好的 holder。该接口主要用于 syscall 创建子进程时先复制初始 capability，再按 Linux 风格用户栈布局准备启动参数并加载新镜像。
 
 ## fork
 

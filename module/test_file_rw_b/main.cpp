@@ -19,7 +19,12 @@ namespace {
     constexpr size_t BUFFER_SIZE     = 512;
 }
 
-int kmod_main() {
+extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
+              const bsheader *bsargv[]) {
+    (void)argc;
+    (void)argv;
+    (void)envp;
+    (void)bsargv;
     printf("test_file_rw_b: start pid=%u\n", sys_getpid(__pcb_cap));
 
     int fd = kmod_fopen(TMPFS_FILE, "r");

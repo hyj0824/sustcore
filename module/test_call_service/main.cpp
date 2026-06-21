@@ -62,7 +62,12 @@ static void serve_one(CapIdx endpoint) {
     endpoint_reply(packet.caplist[0], &reply);
 }
 
-int kmod_main() {
+extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
+              const bsheader *bsargv_in[]) {
+    (void)argc;
+    (void)argv;
+    (void)envp;
+    (void)bsargv_in;
     printf("test_call_service: start pid=%u\n", sys_getpid(__pcb_cap));
     CapIdx endpoint = sys_endpoint_create();
     if (endpoint == cap::error) {
@@ -70,14 +75,15 @@ int kmod_main() {
         exit(-1);
     }
 
-    CapIdx initial_caps[] = {endpoint};
+    CapIdx initial_caps[] = {endpoint, cap::null};
     BootstrapSingleCapRecord<kBootstrapTypeEndpoint> bootstrap(endpoint);
+    const char *bsargv[] = {reinterpret_cast<const char *>(&bootstrap),
+                            nullptr};
     int fd                = kmod_fopen("/initrd/test_call_user.mod", "x");
     CapIdx user_pcb       =
         fd < 0 ? cap::error
-               : sys_create_process(kmod_getcap(fd), initial_caps, 1,
-                                    SCHED_CLASS_RR, &bootstrap,
-                                    sizeof(bootstrap));
+               : sys_create_process(kmod_getcap(fd), SCHED_CLASS_RR,
+                                    initial_caps, nullptr, nullptr, bsargv);
     if (fd >= 0) {
         kmod_fclose(fd);
     }

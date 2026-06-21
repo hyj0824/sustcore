@@ -23,6 +23,8 @@
 #include <vfs/vfs.h>
 
 #include <cassert>
+#include <cstring>
+#include <string>
 #include <unordered_set>
 #include <utility>
 #include <vector>
@@ -254,13 +256,133 @@ namespace task {
             void_return();
         }
 
+        struct StartupStackBuilder {
+            cap::MemoryPayload &stack_mem;
+            VirAddr sp;
+            std::vector<VirAddr> argv_ptrs{};
+            std::vector<VirAddr> envp_ptrs{};
+            std::vector<task::KmodAuxvEntry> auxv_entries{};
+            std::vector<VirAddr> bsargv_ptrs{};
+        };
+
+        [[nodiscard]]
+        Result<VirAddr> push_bytes(StartupStackBuilder &builder,
+                                   const void *src, size_t len,
+                                   size_t align = 1) {
+            if (len == 0) {
+                return builder.sp;
+            }
+            if (src == nullptr) {
+                unexpect_return(ErrCode::NULLPTR);
+            }
+
+            addr_t sp = builder.sp.arith();
+            if (sp < len) {
+                unexpect_return(ErrCode::OUT_OF_BOUNDARY);
+            }
+            sp -= len;
+            if (align > 1) {
+                sp &= ~(static_cast<addr_t>(align - 1));
+            }
+            if (sp < USER_STACK_BOTTOM.arith()) {
+                unexpect_return(ErrCode::OUT_OF_BOUNDARY);
+            }
+
+            VirAddr dst(sp);
+            auto write_res =
+                builder.stack_mem.write(dst - USER_STACK_BOTTOM, src, len);
+            propagate(write_res);
+            builder.sp = dst;
+            return dst;
+        }
+
+        [[nodiscard]]
+        Result<void> build_argv(StartupStackBuilder &builder,
+                                const std::vector<std::string> &argv) {
+            builder.argv_ptrs.clear();
+            for (size_t i = argv.size(); i > 0; --i) {
+                const auto &arg = argv[i - 1];
+                auto string_sp_res = push_bytes(
+                    builder, arg.c_str(), arg.size() + 1, alignof(char));
+                propagate(string_sp_res);
+                builder.argv_ptrs.push_back(string_sp_res.value());
+            }
+            for (size_t i = 0, j = builder.argv_ptrs.size(); i < j / 2; ++i) {
+                auto tmp                    = builder.argv_ptrs[i];
+                builder.argv_ptrs[i]        = builder.argv_ptrs[j - 1 - i];
+                builder.argv_ptrs[j - 1 - i] = tmp;
+            }
+            void_return();
+        }
+
+        [[nodiscard]]
+        Result<void> build_envp(StartupStackBuilder &builder,
+                                const std::vector<std::string> &envp) {
+            builder.envp_ptrs.clear();
+            for (size_t i = envp.size(); i > 0; --i) {
+                const auto &env = envp[i - 1];
+                auto string_sp_res = push_bytes(
+                    builder, env.c_str(), env.size() + 1, alignof(char));
+                propagate(string_sp_res);
+                builder.envp_ptrs.push_back(string_sp_res.value());
+            }
+            for (size_t i = 0, j = builder.envp_ptrs.size(); i < j / 2; ++i) {
+                auto tmp                    = builder.envp_ptrs[i];
+                builder.envp_ptrs[i]        = builder.envp_ptrs[j - 1 - i];
+                builder.envp_ptrs[j - 1 - i] = tmp;
+            }
+            void_return();
+        }
+
+        [[nodiscard]]
+        Result<void> build_auxv(StartupStackBuilder &builder,
+                                const std::vector<task::KmodAuxvEntry> &auxv) {
+            builder.auxv_entries = auxv;
+            if (builder.auxv_entries.empty() ||
+                builder.auxv_entries.back().a_type != task::KMOD_AT_NULL)
+            {
+                builder.auxv_entries.push_back(task::KmodAuxvEntry{
+                    .a_type = task::KMOD_AT_NULL,
+                    .a_val  = 0,
+                });
+            }
+            void_return();
+        }
+
+        [[nodiscard]]
+        Result<void> build_bsargv(
+            StartupStackBuilder &builder,
+            const std::vector<TaskSpec::BootstrapRecordData> &bsargv) {
+            builder.bsargv_ptrs.clear();
+            for (size_t i = bsargv.size(); i > 0; --i) {
+                const auto &record = bsargv[i - 1];
+                if (record.bytes.size() < sizeof(bsheader)) {
+                    unexpect_return(ErrCode::INVALID_PARAM);
+                }
+                auto *header =
+                    reinterpret_cast<const bsheader *>(record.bytes.data());
+                if (header->size != record.bytes.size() || header->type == 0) {
+                    unexpect_return(ErrCode::INVALID_PARAM);
+                }
+                auto record_sp_res = push_bytes(builder, record.bytes.data(),
+                                                record.bytes.size(), 8);
+                propagate(record_sp_res);
+                builder.bsargv_ptrs.push_back(record_sp_res.value());
+            }
+            for (size_t i = 0, j = builder.bsargv_ptrs.size(); i < j / 2; ++i) {
+                auto tmp                     = builder.bsargv_ptrs[i];
+                builder.bsargv_ptrs[i]       = builder.bsargv_ptrs[j - 1 - i];
+                builder.bsargv_ptrs[j - 1 - i] = tmp;
+            }
+            void_return();
+        }
+
         TaskSpec make_empty_task_spec() {
             return TaskSpec{
                 .tmm          = util::owner<TaskMemoryManager *>(nullptr),
                 .holder       = nullptr,
                 .entrypoint   = VirAddr(static_cast<addr_t>(0)),
                 .linuxproc_entrypoint = VirAddr(static_cast<addr_t>(0)),
-                .startup_blob = util::owner<char *>(nullptr),
             };
         }
 
@@ -270,11 +392,6 @@ namespace task {
                 delete spec.tmm;
                 GFP::put_page(pgd, 1);
                 spec.tmm = util::owner<TaskMemoryManager *>(nullptr);
-            }
-            if (spec.startup_blob != nullptr) {
-                delete[] spec.startup_blob.get();
-                spec.startup_blob      = util::owner<char *>(nullptr);
-                spec.startup_blob_size = 0;
             }
         }
 
@@ -314,55 +431,89 @@ namespace task {
 
     Result<VirAddr> TaskManager::build_user_stack(
         cap::MemoryPayload &stack_mem, VirAddr stack_top,
-        const task::StartupInfo &startup_info, const void *startup_blob,
-        size_t startup_blob_size) {
+        TaskSpec &spec, CapIdx pcb_cap, CapIdx main_tcb_cap,
+        CapIdx stack_mem_cap) {
         if (!stack_top.nonnull()) {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
-        if (startup_blob_size != 0 && startup_blob == nullptr) {
-            unexpect_return(ErrCode::NULLPTR);
-        }
 
         constexpr size_t STACK_ALIGN = 16;
-        addr_t stack_arith           = stack_top.arith();
-        size_t total_size =
-            sizeof(size_t) + sizeof(task::StartupInfo) + startup_blob_size;
-        if (stack_arith < total_size) {
-            unexpect_return(ErrCode::OUT_OF_BOUNDARY);
-        }
+        StartupStackBuilder builder{
+            .stack_mem = stack_mem,
+            .sp        = stack_top,
+        };
 
-        addr_t raw_sp     = stack_arith - total_size;
-        addr_t aligned_sp = raw_sp & ~(static_cast<addr_t>(STACK_ALIGN - 1));
-        if (aligned_sp < USER_STACK_BOTTOM.arith()) {
-            unexpect_return(ErrCode::OUT_OF_BOUNDARY);
-        }
+        spec.auxv = {
+            task::KmodAuxvEntry{
+                .a_type = task::KMOD_AT_SUS_HEAP_BASE,
+                .a_val  = spec.heap_vaddr.arith(),
+            },
+            task::KmodAuxvEntry{
+                .a_type = task::KMOD_AT_SUS_PCB_CAP,
+                .a_val  = pcb_cap,
+            },
+            task::KmodAuxvEntry{
+                .a_type = task::KMOD_AT_SUS_MAIN_TCB,
+                .a_val  = main_tcb_cap,
+            },
+            task::KmodAuxvEntry{
+                .a_type = task::KMOD_AT_SUS_HEAP_MEM,
+                .a_val  = spec.heap_mem_cap,
+            },
+            task::KmodAuxvEntry{
+                .a_type = task::KMOD_AT_SUS_STACK_MEM,
+                .a_val  = stack_mem_cap,
+            },
+        };
+        auto argv_res  = build_argv(builder, spec.argv);
+        auto envp_res  = build_envp(builder, spec.envp);
+        auto auxv_res  = build_auxv(builder, spec.auxv);
+        auto bsargv_res = build_bsargv(builder, spec.bsargv);
+        propagate(argv_res);
+        propagate(envp_res);
+        propagate(auxv_res);
+        propagate(bsargv_res);
 
-        VirAddr user_sp(aligned_sp);
-        size_t mem_offset = user_sp - USER_STACK_BOTTOM;
-        auto size_write_res =
-            stack_mem.write(mem_offset, &total_size, sizeof(total_size));
-        propagate(size_write_res);
-        auto info_write_res = stack_mem.write(
-            mem_offset + sizeof(size_t), &startup_info, sizeof(startup_info));
-        propagate(info_write_res);
-        if (startup_blob_size != 0) {
-            auto blob_write_res = stack_mem.write(
-                mem_offset + sizeof(size_t) + sizeof(startup_info),
-                startup_blob, startup_blob_size);
-            propagate(blob_write_res);
+        std::vector<uint64_t> layout{};
+        layout.reserve(1 + builder.argv_ptrs.size() + 1 +
+                       builder.envp_ptrs.size() + 1 +
+                       builder.auxv_entries.size() * 2 + 1 +
+                       builder.bsargv_ptrs.size() + 1);
+        layout.push_back(builder.argv_ptrs.size());
+        for (auto ptr : builder.argv_ptrs) {
+            layout.push_back(ptr.arith());
         }
-        loggers::TASK::DEBUG(
-            "build_user_stack: stack_top=%p raw_sp=%p aligned_sp=%p "
-            "mem_off=%lu total=%lu blob=%lu",
-            stack_top.addr(), reinterpret_cast<void *>(raw_sp), user_sp.addr(),
-            mem_offset, total_size, startup_blob_size);
-        return user_sp;
+        layout.push_back(0);
+        for (auto ptr : builder.envp_ptrs) {
+            layout.push_back(ptr.arith());
+        }
+        layout.push_back(0);
+        for (const auto &entry : builder.auxv_entries) {
+            layout.push_back(entry.a_type);
+            layout.push_back(entry.a_val);
+        }
+        layout.push_back(builder.bsargv_ptrs.size());
+        for (auto ptr : builder.bsargv_ptrs) {
+            layout.push_back(ptr.arith());
+        }
+        layout.push_back(0);
+
+        auto table_sp_res =
+            push_bytes(builder, layout.data(), layout.size() * sizeof(uint64_t),
+                       STACK_ALIGN);
+        propagate(table_sp_res);
+        loggers::TASK::DEBUG("build_user_stack: stack_top=%p final_sp=%p argc=%lu "
+                             "envc=%lu bsargc=%lu",
+                             stack_top.addr(), builder.sp.addr(),
+                             builder.argv_ptrs.size(),
+                             builder.envp_ptrs.size(),
+                             builder.bsargv_ptrs.size());
+        return builder.sp;
     }
 
     Result<util::nonnull<TCB *>> TaskManager::setup_user_main_thread(
         util::nonnull<PCB *> pcb, util::nonnull<TCB *> tcb, TaskSpec &spec,
-        task::StartupInfo startup_info, bool link_into_pcb,
-        const char *log_tag) {
+        task::StartupInfo startup_info, bool link_into_pcb, const char *log_tag) {
         if (pcb->cholder == nullptr || pcb->tmm.get() == nullptr) {
             unexpect_return(ErrCode::NULLPTR);
         }
@@ -395,8 +546,8 @@ namespace task {
         startup_info.main_tcb_cap  = pcb->main_tcb_cap;
         startup_info.stack_mem_cap = stack_cap_res.value();
         auto stack_top_res =
-            build_user_stack(*stack_mem, USER_STACK_TOP, startup_info,
-                             spec.startup_blob.get(), spec.startup_blob_size);
+            build_user_stack(*stack_mem, USER_STACK_TOP, spec, pcb->pcb_cap,
+                             pcb->main_tcb_cap, stack_cap_res.value());
         propagate(stack_top_res);
         loggers::TASK::DEBUG("栈内存分配: pid=%lu 栈内存地址=%p 已分配=%lu",
                              pcb->pid, stack_mem, stack_mem->allocated_size());
@@ -410,11 +561,6 @@ namespace task {
                             pcb->entrypoint.addr(),
                             stack_top_res.value().addr());
 
-        if (spec.startup_blob != nullptr) {
-            delete[] spec.startup_blob.get();
-            spec.startup_blob      = util::owner<char *>(nullptr);
-            spec.startup_blob_size = 0;
-        }
         return tcb;
     }
 
@@ -634,10 +780,12 @@ namespace task {
 
     Result<util::nonnull<PCB *>> TaskManager::load_task_image(
         CapIdx image_cap, cap::CHolder *holder, schd::ClassType schd_class,
-        bool wakeup, const void *startup_blob, size_t startup_blob_size) {
+        bool wakeup, const std::vector<std::string> &argv,
+        const std::vector<std::string> &envp,
+        const std::vector<TaskSpec::BootstrapRecordData> &bsargv) {
         auto spec_res =
             load_task_spec_impl(*this, &TaskManager::load_task_spec, image_cap,
-                                holder, startup_blob, startup_blob_size);
+                                holder, argv, envp, bsargv);
         propagate(spec_res);
         TaskSpec spec = std::move(spec_res.value());
         TaskSpecGuard spec_guard(spec);
@@ -649,11 +797,13 @@ namespace task {
 
     Result<util::nonnull<PCB *>> TaskManager::load_linux_task_image(
         CapIdx image_cap, cap::CHolder *holder, CapIdx subsystem_image_cap,
-        schd::ClassType schd_class, bool wakeup, const void *startup_blob,
-        size_t startup_blob_size) {
+        schd::ClassType schd_class, bool wakeup,
+        const std::vector<std::string> &argv,
+        const std::vector<std::string> &envp,
+        const std::vector<TaskSpec::BootstrapRecordData> &bsargv) {
         auto spec_res = load_task_spec_impl(
             *this, &TaskManager::load_linux_task_spec, image_cap, holder,
-            subsystem_image_cap, startup_blob, startup_blob_size);
+            subsystem_image_cap, argv, envp, bsargv);
         propagate(spec_res);
         TaskSpec spec = std::move(spec_res.value());
         TaskSpecGuard spec_guard(spec);
@@ -670,18 +820,20 @@ namespace task {
 
     Result<util::nonnull<PCB *>> TaskManager::load_elf_into(
         CapIdx image_cap, cap::CHolder *holder, schd::ClassType schd_class,
-        const void *startup_blob, size_t startup_blob_size) {
-        return load_task_image(image_cap, holder, schd_class, true,
-                               startup_blob, startup_blob_size);
+        const std::vector<std::string> &argv,
+        const std::vector<std::string> &envp,
+        const std::vector<TaskSpec::BootstrapRecordData> &bsargv) {
+        return load_task_image(image_cap, holder, schd_class, true, argv, envp,
+                               bsargv);
     }
 
     Result<util::nonnull<PCB *>> TaskManager::load_linux_elf_into(
         CapIdx image_cap, cap::CHolder *holder, CapIdx subsystem_image_cap,
-        schd::ClassType schd_class, const void *startup_blob,
-        size_t startup_blob_size) {
+        schd::ClassType schd_class, const std::vector<std::string> &argv,
+        const std::vector<std::string> &envp,
+        const std::vector<TaskSpec::BootstrapRecordData> &bsargv) {
         return load_linux_task_image(image_cap, holder, subsystem_image_cap,
-                                     schd_class, true, startup_blob,
-                                     startup_blob_size);
+                                     schd_class, true, argv, envp, bsargv);
     }
 
     Result<util::nonnull<PCB *>> TaskManager::load_init(const char *path) {
@@ -706,23 +858,26 @@ namespace task {
                                  perm::vdir::READ | perm::vdir::WRITE |
                                      perm::vdir::EXEC | perm::basic::CLONE);
         propagate(root_res);
-        std::vector<BootstrapCapPathView> dir_records{};
-        std::vector<BootstrapCapPathView> file_records{};
-        dir_records.push_back(BootstrapCapPathView{
-            .cap  = root_res.value(),
-            .path = "/",
-        });
-
-        TaskSpec spec = make_empty_task_spec();
-        TaskSpecGuard spec_guard(spec);
-        auto bootstrap_res =
-            build_bootstrap_blob(nullptr, 0, dir_records, file_records, spec);
-        propagate(bootstrap_res);
+        std::vector<TaskSpec::BootstrapRecordData> bsargv{};
+        {
+            std::vector<char> payload(sizeof(CapIdx) + 2);
+            memcpy(payload.data(), &root_res.value(), sizeof(CapIdx));
+            memcpy(payload.data() + sizeof(CapIdx), "/", 2);
+            bsargv.push_back(TaskSpec::BootstrapRecordData{
+                .type  = BOOTSTRAP_TYPE_DIRCAPEXPLAIN,
+                .bytes = std::vector<char>(sizeof(bsheader) + payload.size()),
+            });
+            auto *header =
+                reinterpret_cast<bsheader *>(bsargv.back().bytes.data());
+            header->size = bsargv.back().bytes.size();
+            header->type = BOOTSTRAP_TYPE_DIRCAPEXPLAIN;
+            memcpy(bsargv.back().bytes.data() + sizeof(bsheader),
+                   payload.data(), payload.size());
+        }
         auto loaded_spec_res = load_task_spec_impl(
             *this, &TaskManager::load_task_spec, image_res.value(), holder,
-            spec.startup_blob.get(), spec.startup_blob_size);
+            std::vector<std::string>{}, std::vector<std::string>{}, bsargv);
         propagate(loaded_spec_res);
-        spec_guard.release();
 
         TaskSpec loaded_spec = std::move(loaded_spec_res.value());
         TaskSpecGuard loaded_spec_guard(loaded_spec);
@@ -928,23 +1083,23 @@ namespace task {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
         return exec_pcb(util::nnullforce(current_tcb->task), image_cap,
-                        reserved_caps, reserved_count, nullptr, 0);
+                        reserved_caps, reserved_count);
     }
 
     Result<void> TaskManager::exec_pcb(util::nonnull<PCB *> target,
                                        CapIdx image_cap,
                                        const CapIdx *reserved_caps,
                                        size_t reserved_count,
-                                       const void *startup_blob,
-                                       size_t startup_blob_size) {
+                                       const std::vector<std::string> &argv,
+                                       const std::vector<std::string> &envp,
+                                       const std::vector<
+                                           TaskSpec::BootstrapRecordData>
+                                           &bsargv) {
         PCB *pcb = target.get();
         if (pcb->is_kernel) {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
         if (pcb->tmm == nullptr || pcb->cholder == nullptr) {
-            unexpect_return(ErrCode::NULLPTR);
-        }
-        if (startup_blob_size != 0 && startup_blob == nullptr) {
             unexpect_return(ErrCode::NULLPTR);
         }
         auto *current_tcb = schd::Scheduler::inst().current_tcb();
@@ -962,9 +1117,8 @@ namespace task {
         TaskSpec spec = make_empty_task_spec();
         TaskSpecGuard spec_guard(spec);
         LoadPrm load_prm{};
-        auto load_spec_res =
-            load_task_spec(image_cap, pcb->cholder, startup_blob,
-                           startup_blob_size, spec, load_prm);
+        auto load_spec_res = load_task_spec(image_cap, pcb->cholder, argv, envp,
+                                            bsargv, spec, load_prm);
         propagate(load_spec_res);
 
         auto prune_res = remove_unreserved_caps(pcb->cholder, reserved);

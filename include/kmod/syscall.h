@@ -11,16 +11,21 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <kmod/bootstrap.h>
 #include <sustcore/capability.h>
 #include <sustcore/files.h>
 #include <sustcore/msg.h>
+#include <sustcore/startup.h>
 
 extern CapIdx __pcb_cap;
 extern CapIdx __main_tcb_cap;
 extern CapIdx __heap_mem_cap;
 extern CapIdx __stack_mem_cap;
-extern void *__startup_data;
-extern size_t __startup_size;
+extern size_t __argc;
+extern const char **__argv;
+extern const char **__envp;
+extern size_t __bsargc;
+extern const bsheader **__bsargv;
 
 enum KmodSchedClass : size_t {
     SCHED_CLASS_IDLE = 1,
@@ -34,41 +39,43 @@ struct MemQueryRet {
     size_t allocated;
 };
 
+extern const task::KmodAuxvEntry *__auxv;
+
 extern "C" {
 void sys_write_serial(const char *str, size_t len);
 bool sys_pcb_kill(CapIdx pcb_cap, int exit_code);
 bool sys_pcb_map(CapIdx pcb_cap, CapIdx mem_cap, void *vaddr, uint64_t rwx,
                  uint64_t growth);
-CapIdx sys_pcb_create_process(CapIdx pcb_cap, CapIdx image_cap, CapIdx *caps,
-                              size_t caps_sz, size_t sched_class,
-                              const void *startup_blob,
-                              size_t startup_blob_size);
+CapIdx sys_pcb_create_process(CapIdx pcb_cap, CapIdx image_cap,
+                              size_t sched_class, CapIdx caps[],
+                              const char *argv[], const char *envp[],
+                              const char *bsargv[]);
 CapIdx sys_pcb_create_linux_process(CapIdx pcb_cap, CapIdx image_cap,
-                                    CapIdx *caps, size_t caps_sz,
-                                    size_t sched_class,
-                                    const void *startup_blob,
-                                    size_t startup_blob_size);
-CapIdx sys_create_process(CapIdx image_cap, CapIdx *caps, size_t caps_sz,
-                          size_t sched_class, const void *startup_blob = nullptr,
-                          size_t startup_blob_size = 0);
-CapIdx sys_create_linux_process(CapIdx image_cap, CapIdx *caps, size_t caps_sz,
-                                size_t sched_class,
-                                const void *startup_blob = nullptr,
-                                size_t startup_blob_size = 0);
+                                    size_t sched_class, CapIdx caps[],
+                                    const char *argv[], const char *envp[],
+                                    const char *bsargv[]);
+CapIdx sys_create_process(CapIdx image_cap, size_t sched_class, CapIdx caps[],
+                          const char *argv[] = nullptr,
+                          const char *envp[] = nullptr,
+                          const char *bsargv[] = nullptr);
+CapIdx sys_create_linux_process(CapIdx image_cap, size_t sched_class,
+                                CapIdx caps[], const char *argv[] = nullptr,
+                                const char *envp[] = nullptr,
+                                const char *bsargv[] = nullptr);
 CapIdx sys_pcb_create_thread(CapIdx pcb_cap, void (*entry)(),
                              void *stack_addr, size_t stack_size);
 CapIdx sys_create_thread(void (*entry)(), void *stack_addr, size_t stack_size);
 size_t sys_pcb_fork(CapIdx pcb_cap, CapIdx *child_pcb_cap);
 size_t fork(CapIdx *child_pcb_cap);
-bool sys_pcb_execve(CapIdx pcb_cap, CapIdx image_cap, CapIdx *rsvdlst,
-                    size_t rsvdsz, const void *startup_blob,
-                    size_t startup_blob_size);
-bool sys_execve(CapIdx image_cap, CapIdx *rsvdlst, size_t rsvdsz,
-                const void *startup_blob = nullptr,
-                size_t startup_blob_size = 0);
-bool execve(CapIdx image_cap, CapIdx *rsvdlst, size_t rsvdsz,
-            const void *startup_blob = nullptr,
-            size_t startup_blob_size = 0);
+bool sys_pcb_execve(CapIdx pcb_cap, CapIdx image_cap, CapIdx rsvdlst[],
+                    const char *argv[], const char *envp[],
+                    const char *bsargv[]);
+bool sys_execve(CapIdx image_cap, CapIdx rsvdlst[],
+                const char *argv[] = nullptr,
+                const char *envp[] = nullptr,
+                const char *bsargv[] = nullptr);
+bool execve(CapIdx image_cap, CapIdx rsvdlst[], const char *argv[] = nullptr,
+            const char *envp[] = nullptr, const char *bsargv[] = nullptr);
 
 CapIdx sys_vfs_opendir(CapIdx parent_dir_cap, const char *path,
                        flags::oflg_t oflags);

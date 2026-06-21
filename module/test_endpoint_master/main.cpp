@@ -29,7 +29,12 @@ static uint64_t recv_u64(CapIdx endpoint, const char *tag) {
     return value;
 }
 
-int kmod_main() {
+extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
+              const bsheader *bsargv_in[]) {
+    (void)argc;
+    (void)argv;
+    (void)envp;
+    (void)bsargv_in;
     printf("test-endpoint-master: start\n");
     printf("test-endpoint-master: pid=%u\n", sys_getpid(__pcb_cap));
 
@@ -39,14 +44,15 @@ int kmod_main() {
         exit(-1);
     }
 
-    CapIdx initial_caps[] = {endpoint};
+    CapIdx initial_caps[] = {endpoint, cap::null};
     BootstrapSingleCapRecord<kBootstrapTypeEndpoint> bootstrap(endpoint);
+    const char *bsargv[] = {reinterpret_cast<const char *>(&bootstrap),
+                            nullptr};
     int fd = kmod_fopen("/initrd/test_endpoint_slave.mod", "x");
     CapIdx slave_pcb =
         fd < 0 ? cap::error
-               : sys_create_process(kmod_getcap(fd), (CapIdx *)initial_caps, 1,
-                                    SCHED_CLASS_RR, &bootstrap,
-                                    sizeof(bootstrap));
+               : sys_create_process(kmod_getcap(fd), SCHED_CLASS_RR,
+                                    initial_caps, nullptr, nullptr, bsargv);
     if (fd >= 0) {
         kmod_fclose(fd);
     }

@@ -13,11 +13,10 @@ constexpr uint32_t kBootstrapTypeEndpoint = 0xFFFF0001U;
 
 static CapIdx bootstrap_endpoint() {
     CapIdx endpoint = cap::null;
-    if (!bootstrap_find_single_cap(__startup_data, __startup_size,
-                                   kBootstrapTypeEndpoint, endpoint))
+    if (!bootstrap_find_single_cap(__bsargv, __bsargc, kBootstrapTypeEndpoint,
+                                   endpoint))
     {
-        printf("test-endpoint-slave: 启动参数无效 size=%u\n",
-               __startup_size);
+        printf("test-endpoint-slave: 启动参数无效 bsargc=%u\n", __bsargc);
         exit(-1);
     }
     return endpoint;
@@ -41,7 +40,12 @@ static uint64_t recv_u64(CapIdx endpoint, const char *tag) {
     return value;
 }
 
-int kmod_main() {
+extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
+              const bsheader *bsargv[]) {
+    (void)argc;
+    (void)argv;
+    (void)envp;
+    (void)bsargv;
     printf("test-endpoint-slave 启动! \n");
     printf("test-endpoint-slave: pid=%u\n", sys_getpid(__pcb_cap));
 

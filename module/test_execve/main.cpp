@@ -11,16 +11,21 @@ constexpr uint32_t kBootstrapTypeNotif = 0xFFFF0002U;
 
 static CapIdx bootstrap_notif() {
     CapIdx notif = cap::null;
-    if (!bootstrap_find_single_cap(__startup_data, __startup_size,
-                                   kBootstrapTypeNotif, notif))
+    if (!bootstrap_find_single_cap(__bsargv, __bsargc, kBootstrapTypeNotif,
+                                   notif))
     {
-        printf("test_execve: 启动参数无效 size=%u\n", __startup_size);
+        printf("test_execve: 启动参数无效 bsargc=%u\n", __bsargc);
         exit(-1);
     }
     return notif;
 }
 
-int kmod_main() {
+extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
+              const bsheader *bsargv[]) {
+    (void)argc;
+    (void)argv;
+    (void)envp;
+    (void)bsargv;
     printf("test_execve: pid=%u pcb_cap=%p\n", sys_getpid(__pcb_cap),
            (void *)__pcb_cap);
 

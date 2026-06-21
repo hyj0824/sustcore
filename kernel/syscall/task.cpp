@@ -181,13 +181,12 @@ namespace syscall {
     }
 
     Result<CapIdx> pcb_create_process(CapIdx pcb_cap, CapIdx image_cap,
-                                      UBuffer &&caps_buf, size_t caps_sz,
-                                      size_t sched_class, UBuffer *startup_buf,
-                                      size_t startup_buf_sz) {
+                                      size_t sched_class,
+                                      const StartupArguments &startup) {
         loggers::SYSCALL::DEBUG(
-            "创建进程: pcb=%p image_cap=%p, caps_uaddr=%p, caps_sz=%u, "
+            "创建进程: pcb=%p image_cap=%p, caps_sz=%u, "
             "sched_class=%u",
-            pcb_cap, image_cap, caps_buf.uaddr().addr(), caps_sz, sched_class);
+            pcb_cap, image_cap, startup.caps.size(), sched_class);
 
         cap::Capability *pcb_cap_obj = nullptr;
         auto pcb_res                 = lookup_pcb(pcb_cap, &pcb_cap_obj);
@@ -219,10 +218,16 @@ namespace syscall {
             assert(rm_res.has_value());
         });
 
-        auto copy_res = copy_initial_caps_in_place(
-            parent_pcb->cholder, parent_pcb->tmm.get(), child_holder,
-            caps_sz == 0 ? nullptr : &caps_buf, caps_sz);
-        propagate(copy_res);
+        if (!startup.caps.empty()) {
+            UBuffer caps_buf(VirAddr::null,
+                             startup.caps.size() * sizeof(CapIdx));
+            memcpy(caps_buf.kbuf(), startup.caps.data(),
+                   startup.caps.size() * sizeof(CapIdx));
+            auto copy_res = copy_initial_caps_in_place(
+                parent_pcb->cholder, parent_pcb->tmm.get(), child_holder,
+                &caps_buf, startup.caps.size());
+            propagate(copy_res);
+        }
 
         auto child_image_cap_res = child_holder->insert_to_free(
             image_res.value()->payload(), perm::vfile::EXEC);
@@ -231,10 +236,7 @@ namespace syscall {
         // 2) 使用已预配置的 CHolder 加载子进程 ELF
         auto load_res = task::TaskManager::inst().load_elf_into(
             child_image_cap_res.value(), child_holder, sched_res.value(),
-            startup_buf_sz == 0 || startup_buf == nullptr
-                ? nullptr
-                : startup_buf->kbuf(),
-            startup_buf_sz);
+            startup.argv, startup.envp, startup.bsargv);
         propagate(load_res);
         holder_guard.release();
         auto pcb_guard = util::Guard([&]() {
@@ -263,14 +265,12 @@ namespace syscall {
     }
 
     Result<CapIdx> pcb_create_linux_process(CapIdx pcb_cap, CapIdx image_cap,
-                                            UBuffer &&caps_buf, size_t caps_sz,
                                             size_t sched_class,
-                                            UBuffer *startup_buf,
-                                            size_t startup_buf_sz) {
+                                            const StartupArguments &startup) {
         loggers::SYSCALL::DEBUG(
-            "创建POSIX进程: pcb=%p image_cap=%p, caps_uaddr=%p, caps_sz=%u, "
+            "创建POSIX进程: pcb=%p image_cap=%p, caps_sz=%u, "
             "sched_class=%u",
-            pcb_cap, image_cap, caps_buf.uaddr().addr(), caps_sz, sched_class);
+            pcb_cap, image_cap, startup.caps.size(), sched_class);
 
         cap::Capability *pcb_cap_obj = nullptr;
         auto pcb_res                 = lookup_pcb(pcb_cap, &pcb_cap_obj);
@@ -301,10 +301,16 @@ namespace syscall {
             assert(rm_res.has_value());
         });
 
-        auto copy_res = copy_initial_caps_in_place(
-            parent_pcb->cholder, parent_pcb->tmm.get(), child_holder,
-            caps_sz == 0 ? nullptr : &caps_buf, caps_sz);
-        propagate(copy_res);
+        if (!startup.caps.empty()) {
+            UBuffer caps_buf(VirAddr::null,
+                             startup.caps.size() * sizeof(CapIdx));
+            memcpy(caps_buf.kbuf(), startup.caps.data(),
+                   startup.caps.size() * sizeof(CapIdx));
+            auto copy_res = copy_initial_caps_in_place(
+                parent_pcb->cholder, parent_pcb->tmm.get(), child_holder,
+                &caps_buf, startup.caps.size());
+            propagate(copy_res);
+        }
 
         auto child_image_cap_res = child_holder->insert_to_free(
             image_res.value()->payload(), perm::vfile::EXEC);
@@ -315,11 +321,7 @@ namespace syscall {
 
         auto create_res = task::TaskManager::inst().load_linux_elf_into(
             child_image_cap_res.value(), child_holder, subsystem_cap_res.value(),
-            sched_res.value(),
-            startup_buf_sz == 0 || startup_buf == nullptr
-                ? nullptr
-                : startup_buf->kbuf(),
-            startup_buf_sz);
+            sched_res.value(), startup.argv, startup.envp, startup.bsargv);
         propagate(create_res);
         holder_guard.release();
 
@@ -422,8 +424,7 @@ namespace syscall {
     }
 
     Result<bool> pcb_execve(CapIdx pcb_cap, CapIdx image_cap,
-                            UBuffer &&reserved_buf, size_t reserved_sz,
-                            UBuffer *startup_buf, size_t startup_buf_sz) {
+                            const StartupArguments &startup) {
         cap::Capability *cap = nullptr;
         auto pcb_res         = lookup_pcb(pcb_cap, &cap);
         propagate(pcb_res);
@@ -432,21 +433,11 @@ namespace syscall {
         propagate(target_res);
         auto image_res = lookup_vfile(image_cap);
         propagate(image_res);
-        CapIdx *reserved = nullptr;
-        if (reserved_sz != 0) {
-            reserved = reinterpret_cast<CapIdx *>(reserved_buf.kbuf());
-        }
-        if (reserved_sz != 0 && reserved == nullptr) {
-            unexpect_return(ErrCode::NULLPTR);
-        }
 
         auto exec_res = task::TaskManager::inst().exec_pcb(
-            util::nnullforce(target_res.value()), image_cap, reserved,
-            reserved_sz,
-            startup_buf_sz == 0 || startup_buf == nullptr
-                ? nullptr
-                : startup_buf->kbuf(),
-            startup_buf_sz);
+            util::nnullforce(target_res.value()), image_cap,
+            startup.caps.data(), startup.caps.size(), startup.argv,
+            startup.envp, startup.bsargv);
         propagate(exec_res);
         return true;
     }

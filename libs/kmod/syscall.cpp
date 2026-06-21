@@ -21,21 +21,18 @@ void exit(int exit_code) {
     while (true) {}
 }
 
-CapIdx sys_create_process(CapIdx image_cap, CapIdx *caps, size_t caps_sz,
-                          size_t sched_class, const void *startup_blob,
-                          size_t startup_blob_size) {
-    return sys_pcb_create_process(__pcb_cap, image_cap, caps, caps_sz,
-                                  sched_class,
-                                  startup_blob, startup_blob_size);
+CapIdx sys_create_process(CapIdx image_cap, size_t sched_class, CapIdx caps[],
+                          const char *argv[], const char *envp[],
+                          const char *bsargv[]) {
+    return sys_pcb_create_process(__pcb_cap, image_cap, sched_class, caps,
+                                  argv, envp, bsargv);
 }
 
-CapIdx sys_create_linux_process(CapIdx image_cap, CapIdx *caps, size_t caps_sz,
-                                size_t sched_class,
-                                const void *startup_blob,
-                                size_t startup_blob_size) {
-    return sys_pcb_create_linux_process(__pcb_cap, image_cap, caps, caps_sz,
-                                        sched_class, startup_blob,
-                                        startup_blob_size);
+CapIdx sys_create_linux_process(CapIdx image_cap, size_t sched_class,
+                                CapIdx caps[], const char *argv[],
+                                const char *envp[], const char *bsargv[]) {
+    return sys_pcb_create_linux_process(__pcb_cap, image_cap, sched_class,
+                                        caps, argv, envp, bsargv);
 }
 
 CapIdx sys_create_thread(void (*entry)(), void *stack_addr,
@@ -52,16 +49,14 @@ size_t fork(CapIdx *child_pcb_cap) {
     return child_pid;
 }
 
-bool sys_execve(CapIdx image_cap, CapIdx *rsvdlst, size_t rsvdsz,
-                const void *startup_blob, size_t startup_blob_size) {
-    return sys_pcb_execve(__pcb_cap, image_cap, rsvdlst, rsvdsz, startup_blob,
-                          startup_blob_size);
+bool sys_execve(CapIdx image_cap, CapIdx rsvdlst[], const char *argv[],
+                const char *envp[], const char *bsargv[]) {
+    return sys_pcb_execve(__pcb_cap, image_cap, rsvdlst, argv, envp, bsargv);
 }
 
-bool execve(CapIdx image_cap, CapIdx *rsvdlst, size_t rsvdsz,
-            const void *startup_blob, size_t startup_blob_size) {
-    return sys_execve(image_cap, rsvdlst, rsvdsz, startup_blob,
-                      startup_blob_size);
+bool execve(CapIdx image_cap, CapIdx rsvdlst[], const char *argv[],
+            const char *envp[], const char *bsargv[]) {
+    return sys_execve(image_cap, rsvdlst, argv, envp, bsargv);
 }
 
 bool sys_mem_map(CapIdx idx, void *vaddr, uint64_t rwx, uint64_t growth) {

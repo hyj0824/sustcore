@@ -30,8 +30,12 @@ CapIdx __pcb_cap;
 CapIdx __main_tcb_cap;
 CapIdx __heap_mem_cap;
 CapIdx __stack_mem_cap;
-void *__startup_data;
-size_t __startup_size;
+size_t __argc;
+const char **__argv;
+const char **__envp;
+const task::KmodAuxvEntry *__auxv;
+size_t __bsargc;
+const bsheader **__bsargv;
 
 namespace kmod {
     void init(void) {
@@ -44,36 +48,63 @@ namespace kmod {
     }
 }  // namespace kmod
 
-void kmod_main(void);
+extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
+                         const bsheader *bsargv[]);
 
 extern "C" void _cpp_setup(const void *stack_start) {
     if (stack_start == nullptr) {
         while (true) {}
     }
 
-    const auto *base = static_cast<const char *>(stack_start);
-    size_t total_size = 0;
-    memcpy(&total_size, base, sizeof(total_size));
-    const auto *startup = reinterpret_cast<const task::StartupInfo *>(
-        base + sizeof(size_t));
-    __startup_size =
-        total_size > sizeof(size_t) + sizeof(task::StartupInfo)
-            ? total_size - sizeof(size_t) - sizeof(task::StartupInfo)
-            : 0;
-    __startup_data = __startup_size == 0
-                         ? nullptr
-                         : const_cast<char *>(base + sizeof(size_t) +
-                                              sizeof(task::StartupInfo));
+    auto *words = static_cast<const uint64_t *>(stack_start);
+    __argc      = static_cast<size_t>(words[0]);
+    __argv      = reinterpret_cast<const char **>(
+        const_cast<uint64_t *>(words + 1));
 
-    __heap_base     = startup->heap_vaddr.arith();
-    __current_brk   = startup->heap_vaddr.arith();
-    __pcb_cap       = startup->pcb_cap;
-    __main_tcb_cap  = startup->main_tcb_cap;
-    __heap_mem_cap  = startup->heap_mem_cap;
-    __stack_mem_cap = startup->stack_mem_cap;
+    size_t offset = 1 + __argc + 1;
+    __envp        = reinterpret_cast<const char **>(
+        const_cast<uint64_t *>(words + offset));
+    while (words[offset] != 0) {
+        ++offset;
+    }
+    ++offset;
+
+    __auxv = reinterpret_cast<const task::KmodAuxvEntry *>(words + offset);
+    while (true) {
+        auto *entry = reinterpret_cast<const task::KmodAuxvEntry *>(
+            words + offset);
+        offset += 2;
+        if (entry->a_type == task::KMOD_AT_NULL) {
+            break;
+        }
+        switch (entry->a_type) {
+            case task::KMOD_AT_SUS_HEAP_BASE:
+                __heap_base   = entry->a_val;
+                __current_brk = entry->a_val;
+                break;
+            case task::KMOD_AT_SUS_PCB_CAP:
+                __pcb_cap = entry->a_val;
+                break;
+            case task::KMOD_AT_SUS_MAIN_TCB:
+                __main_tcb_cap = entry->a_val;
+                break;
+            case task::KMOD_AT_SUS_HEAP_MEM:
+                __heap_mem_cap = entry->a_val;
+                break;
+            case task::KMOD_AT_SUS_STACK_MEM:
+                __stack_mem_cap = entry->a_val;
+                break;
+            default: break;
+        }
+    }
+
+    __bsargc = static_cast<size_t>(words[offset]);
+    ++offset;
+    __bsargv = reinterpret_cast<const bsheader **>(
+        const_cast<uint64_t *>(words + offset));
 
     kmod::init();
 
-    kmod_main();
+    kmod_main(static_cast<int>(__argc), __argv, __envp, __bsargv);
     while (true);
 }

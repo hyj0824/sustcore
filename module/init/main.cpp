@@ -29,7 +29,7 @@ namespace {
         CapIdx cap = cap::null;
         bool found = false;
         bool ok    = bootstrap_foreach_record(
-            __startup_data, __startup_size,
+            __bsargv, __bsargc,
             [&](const BootstrapRecordView &view) {
                 if (found || view.header->type != BOOTSTRAP_TYPE_DIRCAPEXPLAIN)
                 {
@@ -65,23 +65,24 @@ namespace {
         }
 
         struct RootDirBootstrap {
-            BootstrapRecordHeader header;
+            bsheader header;
             CapIdx cap;
             char path[2];
         } bootstrap{
-            .header =
-                BootstrapRecordHeader{
-                    .next = 0,
-                    .type = BOOTSTRAP_TYPE_DIRCAPEXPLAIN,
-                },
+            .header = bsheader{
+                .size = sizeof(RootDirBootstrap),
+                .type = BOOTSTRAP_TYPE_DIRCAPEXPLAIN,
+            },
             .cap  = child_root_cap,
             .path = "/",
         };
 
-        CapIdx initial_caps[] = {child_root_cap};
+        CapIdx initial_caps[] = {child_root_cap, cap::null};
+        const char *bsargv[]  = {reinterpret_cast<const char *>(&bootstrap),
+                                 nullptr};
         CapIdx child_pcb =
-            sys_create_process(kmod_getcap(fd), initial_caps, 1, sched_class,
-                               &bootstrap, sizeof(bootstrap));
+            sys_create_process(kmod_getcap(fd), sched_class, initial_caps,
+                               nullptr, nullptr, bsargv);
         sys_cap_remove(child_root_cap);
 
         if (child_pcb != cap::error) {
@@ -104,23 +105,24 @@ namespace {
         }
 
         struct RootDirBootstrap {
-            BootstrapRecordHeader header;
+            bsheader header;
             CapIdx cap;
             char path[2];
         } bootstrap{
-            .header =
-                BootstrapRecordHeader{
-                    .next = 0,
-                    .type = BOOTSTRAP_TYPE_DIRCAPEXPLAIN,
-                },
+            .header = bsheader{
+                .size = sizeof(RootDirBootstrap),
+                .type = BOOTSTRAP_TYPE_DIRCAPEXPLAIN,
+            },
             .cap  = child_root_cap,
             .path = "/",
         };
 
-        CapIdx initial_caps[] = {child_root_cap};
+        CapIdx initial_caps[] = {child_root_cap, cap::null};
+        const char *bsargv[]  = {reinterpret_cast<const char *>(&bootstrap),
+                                 nullptr};
         CapIdx child_pcb = sys_create_linux_process(
-            kmod_getcap(fd), initial_caps, 1, sched_class, &bootstrap,
-            sizeof(bootstrap));
+            kmod_getcap(fd), sched_class, initial_caps, nullptr, nullptr,
+            bsargv);
         sys_cap_remove(child_root_cap);
 
         if (child_pcb != cap::error) {
@@ -247,7 +249,12 @@ namespace {
     }
 }  // namespace
 
-int kmod_main() {
+extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
+                         const bsheader *bsargv[]) {
+    (void)argc;
+    (void)argv;
+    (void)envp;
+    (void)bsargv;
     mark_cnt = 0;
     printf("进入 init 模块!\n");
 
@@ -258,17 +265,17 @@ int kmod_main() {
     // }
 
     int fd = 0;
-    // fd     = kmod_fopen("/initrd/test_fork.mod", "x");
-    // if (fd >= 0) {
-    //     size_t pid = spawn_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap);
-    //     if (pid == INVALID_PID) {
-    //         printf("init: create test_fork failed\n");
-    //     } else {
-    //         printf("init: create test_fork pid=%lu\n",
-    //                static_cast<unsigned long>(pid));
-    //     }
-    //     kmod_fclose(fd);
-    // }
+    fd     = kmod_fopen("/initrd/test_fork.mod", "x");
+    if (fd >= 0) {
+        size_t pid = spawn_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap);
+        if (pid == INVALID_PID) {
+            printf("init: create test_fork failed\n");
+        } else {
+            printf("init: create test_fork pid=%lu\n",
+                   static_cast<unsigned long>(pid));
+        }
+        kmod_fclose(fd);
+    }
 
     // fd = kmod_fopen("/initrd/test_thread.mod", "x");
     // if (fd >= 0) {
@@ -294,17 +301,17 @@ int kmod_main() {
     //     kmod_fclose(fd);
     // }
 
-    // fd = kmod_fopen("/initrd/test_call_service.mod", "x");
-    // if (fd >= 0) {
-    //     size_t pid = spawn_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap);
-    //     if (pid == INVALID_PID) {
-    //         printf("init: create test_call_service failed\n");
-    //     } else {
-    //         printf("init: create test_call_service pid=%lu\n",
-    //                static_cast<unsigned long>(pid));
-    //     }
-    //     kmod_fclose(fd);
-    // }
+    fd = kmod_fopen("/initrd/test_call_service.mod", "x");
+    if (fd >= 0) {
+        size_t pid = spawn_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap);
+        if (pid == INVALID_PID) {
+            printf("init: create test_call_service failed\n");
+        } else {
+            printf("init: create test_call_service pid=%lu\n",
+                   static_cast<unsigned long>(pid));
+        }
+        kmod_fclose(fd);
+    }
 
     // fd = kmod_fopen("/initrd/test_rpc_server.mod", "x");
     // if (fd >= 0) {

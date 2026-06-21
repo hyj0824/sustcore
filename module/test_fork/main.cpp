@@ -46,7 +46,12 @@ static char *alloc_page_string(const char *str) {
     return buf;
 }
 
-int kmod_main() {
+extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
+                         const bsheader *bsargv[]) {
+    (void)argc;
+    (void)argv;
+    (void)envp;
+    (void)bsargv;
     printf("test_fork: 启动时PID=%u pcb_cap=%p\n", sys_getpid(__pcb_cap),
            (void *)__pcb_cap);
 
@@ -98,13 +103,14 @@ int kmod_main() {
     dump_caps(tag);
 
     if (is_child) {
-        CapIdx reserved_caps[] = {exec_notif_cap};
+        CapIdx reserved_caps[] = {exec_notif_cap, cap::null};
         BootstrapSingleCapRecord<kBootstrapTypeNotif> bootstrap(exec_notif_cap);
+        const char *bsargv[] = {reinterpret_cast<const char *>(&bootstrap),
+                                nullptr};
         printf("test_fork(%s): child exec test_execve\n", tag);
         int fd = kmod_fopen("/initrd/test_execve.mod", "x");
         if (fd < 0 ||
-            !execve(kmod_getcap(fd), reserved_caps, 1, &bootstrap,
-                    sizeof(bootstrap)))
+            !execve(kmod_getcap(fd), reserved_caps, nullptr, nullptr, bsargv))
         {
             printf("test_fork(%s): child exec failed\n", tag);
         }

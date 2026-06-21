@@ -12,28 +12,34 @@
 #pragma once
 
 #include <arch/description.h>
+#include <exe/task.h>
 #include <object/memory.h>
 #include <sustcore/capability.h>
 #include <syscall/uaccess.h>
 
 #include <cstddef>
+#include <string>
+#include <vector>
 
 namespace syscall {
+    struct StartupArguments {
+        std::vector<CapIdx> caps{};
+        std::vector<std::string> argv{};
+        std::vector<std::string> envp{};
+        std::vector<TaskSpec::BootstrapRecordData> bsargv{};
+    };
+
     /**
      * @brief 创建进程, 用户路径与 capability 列表已由 dispatcher 预处理.
      */
     [[nodiscard]]
     Result<CapIdx> pcb_create_process(CapIdx pcb_cap, CapIdx image_cap,
-                                      UBuffer &&caps_buf, size_t caps_sz,
                                       size_t sched_class,
-                                      UBuffer *startup_buf = nullptr,
-                                      size_t startup_buf_sz = 0);
+                                      const StartupArguments &startup);
     [[nodiscard]]
     Result<CapIdx> pcb_create_linux_process(CapIdx pcb_cap, CapIdx image_cap,
-                                            UBuffer &&caps_buf, size_t caps_sz,
                                             size_t sched_class,
-                                            UBuffer *startup_buf = nullptr,
-                                            size_t startup_buf_sz = 0);
+                                            const StartupArguments &startup);
 
     /**
      * @brief 创建线程.
@@ -79,9 +85,7 @@ namespace syscall {
      */
     [[nodiscard]]
     Result<bool> pcb_execve(CapIdx pcb_cap, CapIdx image_cap,
-                            UBuffer &&reserved_buf, size_t reserved_sz,
-                            UBuffer *startup_buf = nullptr,
-                            size_t startup_buf_sz = 0);
+                            const StartupArguments &startup);
 
     /**
      * @brief 判断目标 PCB 是否为当前进程.

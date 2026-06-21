@@ -29,7 +29,7 @@ namespace {
         CapIdx cap = cap::null;
         bool found = false;
         bool ok    = bootstrap_foreach_record(
-            __startup_data, __startup_size,
+            __bsargv, __bsargc,
             [&](const BootstrapRecordView &view) {
                 if (found || view.header->type != BOOTSTRAP_TYPE_DIRCAPEXPLAIN)
                 {
@@ -49,7 +49,12 @@ namespace {
     }
 }
 
-int kmod_main() {
+extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
+              const bsheader *bsargv_in[]) {
+    (void)argc;
+    (void)argv;
+    (void)envp;
+    (void)bsargv_in;
     printf("test_file_rw_a: start pid=%u\n", sys_getpid(__pcb_cap));
 
     if (kmod_mkdir(TMPFS_DIR0) != 0) {
@@ -96,24 +101,24 @@ int kmod_main() {
         exit(-1);
     }
 
-    CapIdx reserved_caps[] = {root_dir_cap};
+    CapIdx reserved_caps[] = {root_dir_cap, cap::null};
     struct RootDirBootstrap {
-        BootstrapRecordHeader header;
+        bsheader header;
         CapIdx cap;
         char path[2];
     } bootstrap{
-        .header =
-            BootstrapRecordHeader{
-                .next = 0,
-                .type = BOOTSTRAP_TYPE_DIRCAPEXPLAIN,
-            },
+        .header = bsheader{
+            .size = sizeof(RootDirBootstrap),
+            .type = BOOTSTRAP_TYPE_DIRCAPEXPLAIN,
+        },
         .cap  = root_dir_cap,
         .path = "/",
     };
+    const char *bsargv[] = {reinterpret_cast<const char *>(&bootstrap),
+                            nullptr};
 
     printf("test_file_rw_a: execve -> %s\n", MODULE_B);
-    if (!execve(kmod_getcap(exec_fd), reserved_caps, 1, &bootstrap,
-                sizeof(bootstrap)))
+    if (!execve(kmod_getcap(exec_fd), reserved_caps, nullptr, nullptr, bsargv))
     {
         printf("test_file_rw_a: execve failed\n");
         kmod_fclose(exec_fd);

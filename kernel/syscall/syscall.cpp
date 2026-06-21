@@ -30,9 +30,88 @@
 #include <task/wait.h>
 
 #include <cassert>
+#include <cstring>
+#include <string>
+#include <vector>
 
 namespace syscall {
     namespace {
+        constexpr size_t MAX_STARTUP_ITEMS         = 64;
+        constexpr size_t MAX_STARTUP_STRING        = 256;
+        constexpr size_t MAX_BOOTSTRAP_RECORD_SIZE = 4096;
+
+        template <typename T>
+        [[nodiscard]]
+        Result<std::vector<T>> copy_terminated_values(VirAddr uaddr,
+                                                      T terminator) {
+            if (!uaddr.nonnull()) {
+                return std::vector<T>{};
+            }
+
+            std::vector<T> values{};
+            for (size_t i = 0; i < MAX_STARTUP_ITEMS; ++i) {
+                UBuffer slot_buf(uaddr + i * sizeof(T), sizeof(T));
+                auto sync_res = slot_buf.sync_from_user();
+                propagate(sync_res);
+                T value{};
+                memcpy(&value, slot_buf.kbuf(), sizeof(T));
+                if (value == terminator) {
+                    return values;
+                }
+                values.push_back(value);
+            }
+            unexpect_return(ErrCode::OUT_OF_BOUNDARY);
+        }
+
+        [[nodiscard]]
+        Result<std::vector<std::string>> copy_terminated_strings(VirAddr uaddr) {
+            auto ptrs_res =
+                copy_terminated_values<addr_t>(uaddr, static_cast<addr_t>(0));
+            propagate(ptrs_res);
+
+            std::vector<std::string> strings{};
+            for (addr_t ptr : ptrs_res.value()) {
+                UString text(VirAddr(ptr), MAX_STARTUP_STRING);
+                auto sync_res = text.sync_from_user();
+                propagate(sync_res);
+                strings.emplace_back(text.kbuf(), text.len());
+            }
+            return strings;
+        }
+
+        [[nodiscard]]
+        Result<std::vector<TaskSpec::BootstrapRecordData>>
+        copy_bootstrap_records(VirAddr uaddr) {
+            auto ptrs_res =
+                copy_terminated_values<addr_t>(uaddr, static_cast<addr_t>(0));
+            propagate(ptrs_res);
+
+            std::vector<TaskSpec::BootstrapRecordData> records{};
+            for (addr_t ptr : ptrs_res.value()) {
+                UBuffer header_buf(VirAddr(ptr), sizeof(bsheader));
+                auto sync_header_res = header_buf.sync_from_user();
+                propagate(sync_header_res);
+                bsheader header{};
+                memcpy(&header, header_buf.kbuf(), sizeof(header));
+                if (header.size < sizeof(bsheader) ||
+                    header.size > MAX_BOOTSTRAP_RECORD_SIZE)
+                {
+                    unexpect_return(ErrCode::INVALID_PARAM);
+                }
+
+                UBuffer record_buf(VirAddr(ptr), header.size);
+                auto sync_record_res = record_buf.sync_from_user();
+                propagate(sync_record_res);
+                TaskSpec::BootstrapRecordData record{
+                    .type  = header.type,
+                    .bytes = std::vector<char>(header.size),
+                };
+                memcpy(record.bytes.data(), record_buf.kbuf(), header.size);
+                records.push_back(std::move(record));
+            }
+            return records;
+        }
+
         /**
          * @brief 生成布尔型 syscall 返回包.
          *
@@ -241,54 +320,102 @@ namespace syscall {
                 break;
             }
             case SYS_CREATE_PROCESS: {
-                UBuffer caps_buf((VirAddr)arg1, arg2 * sizeof(CapIdx));
-                auto sync_res = caps_buf.sync_from_user();
-                if (!sync_res.has_value()) {
-                    ret = result_void_ret("同步进程能力列表", sync_res);
+                StartupArguments startup{};
+                auto caps_res = copy_terminated_values<CapIdx>(
+                    VirAddr(arg2), cap::null);
+                if (!caps_res.has_value()) {
+                    loggers::SYSCALL::ERROR("同步进程能力列表失败: err=%s",
+                                            to_cstring(caps_res.error()));
+                    ret = RetPack{.processed = true,
+                                  .ret0      = false,
+                                  .ret1 = static_cast<b64>(caps_res.error())};
                     break;
                 }
-                b64 startup_blob_size = arg5;
-                UBuffer startup_buf((VirAddr)arg4, startup_blob_size);
-                if (startup_blob_size != 0) {
-                    auto startup_sync_res = startup_buf.sync_from_user();
-                    if (!startup_sync_res.has_value()) {
-                        ret = result_void_ret("同步进程启动缓冲区",
-                                              startup_sync_res);
-                        break;
-                    }
+                startup.caps = std::move(caps_res.value());
+                auto argv_res = copy_terminated_strings(VirAddr(arg3));
+                if (!argv_res.has_value()) {
+                    loggers::SYSCALL::ERROR("同步进程argv失败: err=%s",
+                                            to_cstring(argv_res.error()));
+                    ret = RetPack{.processed = true,
+                                  .ret0      = false,
+                                  .ret1 = static_cast<b64>(argv_res.error())};
+                    break;
                 }
+                startup.argv = std::move(argv_res.value());
+                auto envp_res = copy_terminated_strings(VirAddr(arg4));
+                if (!envp_res.has_value()) {
+                    loggers::SYSCALL::ERROR("同步进程envp失败: err=%s",
+                                            to_cstring(envp_res.error()));
+                    ret = RetPack{.processed = true,
+                                  .ret0      = false,
+                                  .ret1 = static_cast<b64>(envp_res.error())};
+                    break;
+                }
+                startup.envp = std::move(envp_res.value());
+                auto bsargv_res = copy_bootstrap_records(VirAddr(arg5));
+                if (!bsargv_res.has_value()) {
+                    loggers::SYSCALL::ERROR("同步进程bsargv失败: err=%s",
+                                            to_cstring(bsargv_res.error()));
+                    ret = RetPack{.processed = true,
+                                  .ret0      = false,
+                                  .ret1 =
+                                      static_cast<b64>(bsargv_res.error())};
+                    break;
+                }
+                startup.bsargv = std::move(bsargv_res.value());
                 ret = result_value_ret(
                     "创建进程",
-                    pcb_create_process(capidx, arg0, std::move(caps_buf), arg2,
-                                       arg3,
-                                       startup_blob_size == 0 ? nullptr
-                                                              : &startup_buf,
-                                       startup_blob_size));
+                    pcb_create_process(capidx, arg0, arg1, startup));
                 break;
             }
             case SYS_CREATE_POSIX_PROCESS: {
-                UBuffer caps_buf((VirAddr)arg1, arg2 * sizeof(CapIdx));
-                auto sync_res = caps_buf.sync_from_user();
-                if (!sync_res.has_value()) {
-                    ret = result_void_ret("同步POSIX进程能力列表", sync_res);
+                StartupArguments startup{};
+                auto caps_res = copy_terminated_values<CapIdx>(
+                    VirAddr(arg2), cap::null);
+                if (!caps_res.has_value()) {
+                    loggers::SYSCALL::ERROR(
+                        "同步POSIX进程能力列表失败: err=%s",
+                        to_cstring(caps_res.error()));
+                    ret = RetPack{.processed = true,
+                                  .ret0      = false,
+                                  .ret1 = static_cast<b64>(caps_res.error())};
                     break;
                 }
-                b64 startup_blob_size = arg5;
-                UBuffer startup_buf((VirAddr)arg4, startup_blob_size);
-                if (startup_blob_size != 0) {
-                    auto startup_sync_res = startup_buf.sync_from_user();
-                    if (!startup_sync_res.has_value()) {
-                        ret = result_void_ret("同步POSIX进程启动缓冲区",
-                                              startup_sync_res);
-                        break;
-                    }
+                startup.caps = std::move(caps_res.value());
+                auto argv_res = copy_terminated_strings(VirAddr(arg3));
+                if (!argv_res.has_value()) {
+                    loggers::SYSCALL::ERROR("同步POSIX进程argv失败: err=%s",
+                                            to_cstring(argv_res.error()));
+                    ret = RetPack{.processed = true,
+                                  .ret0      = false,
+                                  .ret1 = static_cast<b64>(argv_res.error())};
+                    break;
                 }
+                startup.argv = std::move(argv_res.value());
+                auto envp_res = copy_terminated_strings(VirAddr(arg4));
+                if (!envp_res.has_value()) {
+                    loggers::SYSCALL::ERROR("同步POSIX进程envp失败: err=%s",
+                                            to_cstring(envp_res.error()));
+                    ret = RetPack{.processed = true,
+                                  .ret0      = false,
+                                  .ret1 = static_cast<b64>(envp_res.error())};
+                    break;
+                }
+                startup.envp = std::move(envp_res.value());
+                auto bsargv_res = copy_bootstrap_records(VirAddr(arg5));
+                if (!bsargv_res.has_value()) {
+                    loggers::SYSCALL::ERROR("同步POSIX进程bsargv失败: err=%s",
+                                            to_cstring(bsargv_res.error()));
+                    ret = RetPack{.processed = true,
+                                  .ret0      = false,
+                                  .ret1 =
+                                      static_cast<b64>(bsargv_res.error())};
+                    break;
+                }
+                startup.bsargv = std::move(bsargv_res.value());
                 ret = result_value_ret(
                     "创建POSIX进程",
-                    pcb_create_linux_process(
-                        capidx, arg0, std::move(caps_buf), arg2, arg3,
-                        startup_blob_size == 0 ? nullptr : &startup_buf,
-                        startup_blob_size));
+                    pcb_create_linux_process(capidx, arg0, arg1, startup));
                 break;
             }
             case SYS_CREATE_THREAD: {
@@ -309,27 +436,51 @@ namespace syscall {
                 break;
             }
             case SYS_EXECVE: {
-                UBuffer reserved_buf((VirAddr)arg1, arg2 * sizeof(CapIdx));
-                auto sync_res = reserved_buf.sync_from_user();
-                if (!sync_res.has_value()) {
-                    ret = result_void_ret("同步execve保留能力列表", sync_res);
+                StartupArguments startup{};
+                auto caps_res = copy_terminated_values<CapIdx>(
+                    VirAddr(arg1), cap::null);
+                if (!caps_res.has_value()) {
+                    loggers::SYSCALL::ERROR("同步execve保留能力列表失败: err=%s",
+                                            to_cstring(caps_res.error()));
+                    ret = RetPack{.processed = true,
+                                  .ret0      = false,
+                                  .ret1 = static_cast<b64>(caps_res.error())};
                     break;
                 }
-                b64 startup_blob_size = arg4;
-                UBuffer startup_buf((VirAddr)arg3, startup_blob_size);
-                if (startup_blob_size != 0) {
-                    auto startup_sync_res = startup_buf.sync_from_user();
-                    if (!startup_sync_res.has_value()) {
-                        ret = result_void_ret("同步execve启动缓冲区",
-                                              startup_sync_res);
-                        break;
-                    }
+                startup.caps = std::move(caps_res.value());
+                auto argv_res = copy_terminated_strings(VirAddr(arg2));
+                if (!argv_res.has_value()) {
+                    loggers::SYSCALL::ERROR("同步execve argv失败: err=%s",
+                                            to_cstring(argv_res.error()));
+                    ret = RetPack{.processed = true,
+                                  .ret0      = false,
+                                  .ret1 = static_cast<b64>(argv_res.error())};
+                    break;
                 }
+                startup.argv = std::move(argv_res.value());
+                auto envp_res = copy_terminated_strings(VirAddr(arg3));
+                if (!envp_res.has_value()) {
+                    loggers::SYSCALL::ERROR("同步execve envp失败: err=%s",
+                                            to_cstring(envp_res.error()));
+                    ret = RetPack{.processed = true,
+                                  .ret0      = false,
+                                  .ret1 = static_cast<b64>(envp_res.error())};
+                    break;
+                }
+                startup.envp = std::move(envp_res.value());
+                auto bsargv_res = copy_bootstrap_records(VirAddr(arg4));
+                if (!bsargv_res.has_value()) {
+                    loggers::SYSCALL::ERROR("同步execve bsargv失败: err=%s",
+                                            to_cstring(bsargv_res.error()));
+                    ret = RetPack{.processed = true,
+                                  .ret0      = false,
+                                  .ret1 =
+                                      static_cast<b64>(bsargv_res.error())};
+                    break;
+                }
+                startup.bsargv = std::move(bsargv_res.value());
                 ret = result_bool_ret(
-                    "execve",
-                    pcb_execve(capidx, arg0, std::move(reserved_buf), arg2,
-                               startup_blob_size == 0 ? nullptr : &startup_buf,
-                               startup_blob_size));
+                    "execve", pcb_execve(capidx, arg0, startup));
                 break;
             }
             case SYS_VFS_OPENDIR: {

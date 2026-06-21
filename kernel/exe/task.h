@@ -12,11 +12,15 @@
 #pragma once
 
 #include <cap/cholder.h>
+#include <kmod/bootstrap.h>
 #include <mem/vma.h>
 #include <sustcore/addr.h>
+#include <sustcore/capability.h>
 
 #include <memory>
+#include <string>
 #include <string_view>
+#include <vector>
 
 /**
  * @brief Load Parameter
@@ -42,6 +46,11 @@ struct LoadPrm {
  *
  */
 struct TaskSpec {
+    struct BootstrapRecordData {
+        uint32_t type = 0;
+        std::vector<char> bytes{};
+    };
+
     // 进程内存管理
     util::owner<TaskMemoryManager *> tmm;
     // 进程Capability Holder
@@ -54,7 +63,9 @@ struct TaskSpec {
     // 堆的起始地址
     VirAddr heap_vaddr;
     CapIdx heap_mem_cap = cap::null;
-    // 传递给新镜像的启动缓冲区副本.
-    util::owner<char *> startup_blob = util::owner<char *>(nullptr);
-    size_t startup_blob_size         = 0;
+    // 传递给新镜像的参数与 bootstrap 记录.
+    std::vector<std::string> argv{};
+    std::vector<std::string> envp{};
+    std::vector<task::KmodAuxvEntry> auxv{};
+    std::vector<BootstrapRecordData> bsargv{};
 };

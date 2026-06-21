@@ -17,7 +17,7 @@ namespace {
         CapIdx cap = cap::null;
         bool found = false;
         bool ok = bootstrap_foreach_record(
-            __startup_data, __startup_size,
+            __bsargv, __bsargc,
             [&](const BootstrapRecordView &view) {
                 if (found || view.header->type != BOOTSTRAP_TYPE_DIRCAPEXPLAIN)
                     return;
@@ -395,7 +395,12 @@ namespace {
     }
 }  // namespace
 
-int kmod_main() {
+extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
+              const bsheader *bsargv[]) {
+    (void)argc;
+    (void)argv;
+    (void)envp;
+    (void)bsargv;
     printf("test_fs_score: start pid=%u\n", sys_getpid(__pcb_cap));
 
     CapIdx root_cap = bootstrap_root_dir();

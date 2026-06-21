@@ -22,7 +22,12 @@ public:
 
 Test test_goc;
 
-int kmod_main(void) {
+extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
+              const bsheader *bsargv[]) {
+    (void)argc;
+    (void)argv;
+    (void)envp;
+    (void)bsargv;
     kputs("Hello from kmod_main!\n");
     size_t heap_base = brk(0);
 

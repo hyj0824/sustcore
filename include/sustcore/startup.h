@@ -11,10 +11,23 @@
 
 #pragma once
 
+#include <cstdint>
 #include <sustcore/addr.h>
 #include <sustcore/capability.h>
 
 namespace task {
+    struct KmodAuxvEntry {
+        uint64_t a_type;
+        uint64_t a_val;
+    };
+
+    constexpr uint64_t KMOD_AT_NULL          = 0;
+    constexpr uint64_t KMOD_AT_SUS_HEAP_BASE = 0x10000001ULL;
+    constexpr uint64_t KMOD_AT_SUS_PCB_CAP   = 0x10000002ULL;
+    constexpr uint64_t KMOD_AT_SUS_MAIN_TCB  = 0x10000003ULL;
+    constexpr uint64_t KMOD_AT_SUS_HEAP_MEM  = 0x10000004ULL;
+    constexpr uint64_t KMOD_AT_SUS_STACK_MEM = 0x10000005ULL;
+
     /**
      * @brief 用户进程启动时写入主栈的启动参数块.
      *

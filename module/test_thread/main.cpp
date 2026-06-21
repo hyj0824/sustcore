@@ -115,7 +115,12 @@ static void run_collatz(size_t start) {
     sys_notif_unsignal(thread_notif_cap, kSignalDone);
 }
 
-int kmod_main() {
+extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
+              const bsheader *bsargv[]) {
+    (void)argc;
+    (void)argv;
+    (void)envp;
+    (void)bsargv;
     printf("test_thread: start pid=%u\n", sys_getpid(__pcb_cap));
     thread_notif_cap = sys_notif_create();
     if (thread_notif_cap == cap::error) {

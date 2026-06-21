@@ -18,10 +18,10 @@
 #include <sustcore/capability.h>
 
 /**
- * @brief 启动缓冲区中单条 bootstrap 信息的公共头部.
+ * @brief 单条 bootstrap 信息的公共头部.
  */
-struct BootstrapRecordHeader {
-    uint32_t next;  ///< 下一条记录相对整个 bootstrap 缓冲区的偏移, 0 表示结束.
+struct bsheader {
+    uint32_t size;  ///< 记录总长度, 包含头部与 payload.
     uint32_t type;  ///< 记录类型.
 };
 
@@ -29,7 +29,7 @@ struct BootstrapRecordHeader {
  * @brief bootstrap 记录的只读视图.
  */
 struct BootstrapRecordView {
-    const BootstrapRecordHeader *header;
+    const bsheader *header;
     const void *data;
     size_t data_size;
 };
@@ -51,11 +51,11 @@ constexpr uint32_t BOOTSTRAP_USER_TYPE_PREFIX    = 0xFFFF0000U;
  */
 template <uint32_t Type>
 struct BootstrapSingleCapRecord {
-    BootstrapRecordHeader header;
+    bsheader header;
     CapIdx cap;
 
     explicit constexpr BootstrapSingleCapRecord(CapIdx value) noexcept
-        : header{0, Type}, cap(value) {}
+        : header{sizeof(BootstrapSingleCapRecord<Type>), Type}, cap(value) {}
 };
 
 [[nodiscard]]
@@ -63,43 +63,33 @@ inline constexpr bool bootstrap_is_user_type(uint32_t type) noexcept {
     return (type & BOOTSTRAP_USER_TYPE_PREFIX) == BOOTSTRAP_USER_TYPE_PREFIX;
 }
 
-template <typename Callback>
 [[nodiscard]]
-inline bool bootstrap_foreach_record(const void *blob, size_t blob_size,
-                                     Callback &&callback) {
-    if (blob_size == 0) {
-        return true;
-    }
-    if (blob == nullptr) {
+inline bool bootstrap_make_view(const bsheader *record,
+                                BootstrapRecordView &view) noexcept {
+    if (record == nullptr || record->size < sizeof(bsheader)) {
         return false;
     }
+    view.header    = record;
+    view.data      = reinterpret_cast<const char *>(record) + sizeof(bsheader);
+    view.data_size = record->size - sizeof(bsheader);
+    return true;
+}
 
-    auto *bytes  = static_cast<const char *>(blob);
-    size_t offset = 0;
-    while (offset < blob_size) {
-        if (blob_size - offset < sizeof(BootstrapRecordHeader)) {
-            return false;
-        }
-
-        auto *header =
-            reinterpret_cast<const BootstrapRecordHeader *>(bytes + offset);
-        size_t next_offset = header->next == 0 ? blob_size : header->next;
-        if (next_offset <= offset || next_offset > blob_size) {
-            return false;
-        }
-        if (next_offset - offset < sizeof(BootstrapRecordHeader)) {
-            return false;
-        }
-
-        BootstrapRecordView view{
-            .header    = header,
-            .data      = bytes + offset + sizeof(BootstrapRecordHeader),
-            .data_size = next_offset - offset - sizeof(BootstrapRecordHeader),
-        };
-        callback(view);
-        offset = next_offset;
+template <typename Callback>
+[[nodiscard]]
+inline bool bootstrap_foreach_record(const bsheader *const *bsargv,
+                                     size_t bsargc, Callback &&callback) {
+    if (bsargc != 0 && bsargv == nullptr) {
+        return false;
     }
-    return offset == blob_size;
+    for (size_t i = 0; i < bsargc; ++i) {
+        BootstrapRecordView view{};
+        if (!bootstrap_make_view(bsargv[i], view)) {
+            return false;
+        }
+        callback(view);
+    }
+    return true;
 }
 
 [[nodiscard]]
@@ -132,11 +122,12 @@ inline bool bootstrap_parse_cap_path(const BootstrapRecordView &view,
 }
 
 [[nodiscard]]
-inline bool bootstrap_find_single_cap(const void *blob, size_t blob_size,
+inline bool bootstrap_find_single_cap(const bsheader *const *bsargv,
+                                      size_t bsargc,
                                       uint32_t type, CapIdx &cap) {
     bool found = false;
     bool ok    = bootstrap_foreach_record(
-        blob, blob_size, [&](const BootstrapRecordView &view) {
+        bsargv, bsargc, [&](const BootstrapRecordView &view) {
             if (found || view.header->type != type) {
                 return;
             }
