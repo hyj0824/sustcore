@@ -175,6 +175,9 @@ namespace virtio {
         [[nodiscard]]
         Result<void> run_request_loop() override;
 
+        [[nodiscard]]
+        Result<void> mount(CapIdx devdir) noexcept override;
+
         /**
          * @brief 同步读取若干逻辑块.
          */

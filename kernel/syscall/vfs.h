@@ -72,5 +72,9 @@ namespace syscall {
     [[nodiscard]]
     Result<size_t> vfs_readlink(CapIdx parent_dir_cap, const UString &relpath,
                                 UBuffer &&buf, size_t bufsiz);
+    [[nodiscard]]
+    Result<bool> vfs_mount(CapIdx parent_dir_cap, const UString &fs_name,
+                           CapIdx devfile_cap, const UString &mountpoint,
+                           uint64_t flags, const UString *options);
 
 }  // namespace syscall

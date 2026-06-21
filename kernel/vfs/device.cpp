@@ -10,10 +10,26 @@
  */
 
 #include <logger.h>
+#include <task/wait.h>
 #include <vfs/device.h>
 #include <vfs/vfs.h>
 
+#include <algorithm>
+#include <cstring>
+
 namespace devfs {
+    namespace {
+        [[nodiscard]]
+        Result<size_t> read_block_range(blk::BufferCache &cache, size_t blkno,
+                                        size_t offset, void *buf,
+                                        size_t len) {
+            auto future = cache.get_buffer_async(blkno);
+            auto res    = wait::blocking_wait_for(future);
+            propagate(res);
+            return res.value().read(offset, buf, len);
+        }
+    }  // namespace
+
     Result<size_t> CharDevFile::read(void *buf, size_t len) {
         (void)buf;
         (void)len;
@@ -35,31 +51,72 @@ namespace devfs {
         return write(buf, len);
     }
 
-    Result<size_t> CharDevFile::size() {
-        return 0;
+    Result<size_t> BlockDevFile::read(off_t offset, void *buf, size_t len) {
+        if (offset < 0 || (buf == nullptr && len != 0)) {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+        if (len == 0) {
+            return 0;
+        }
+
+        auto dev_res = blk::BlkManager::inst().lookup(_devno);
+        propagate(dev_res);
+        auto total_res = dev_res.value()->total_bytes();
+        propagate(total_res);
+        const size_t total_bytes = total_res.value();
+        const size_t start       = static_cast<size_t>(offset);
+        if (start >= total_bytes) {
+            return 0;
+        }
+
+        const size_t actual_len = std::min(len, total_bytes - start);
+        auto block_sz_res       = dev_res.value()->block_sz();
+        propagate(block_sz_res);
+        const size_t block_sz = block_sz_res.value();
+        auto cache_res        = blk::BlkManager::inst().lookup_cache(_devno);
+        propagate(cache_res);
+        auto &cache = *cache_res.value();
+
+        auto *dst      = static_cast<char *>(buf);
+        size_t copied   = 0;
+        size_t cursor   = start;
+        while (copied < actual_len) {
+            const size_t blkno      = cursor / block_sz;
+            const size_t blk_offset = cursor % block_sz;
+            const size_t chunk =
+                std::min(actual_len - copied, block_sz - blk_offset);
+            auto read_res =
+                read_block_range(cache, blkno, blk_offset, dst + copied, chunk);
+            propagate(read_res);
+            copied += read_res.value();
+            cursor += read_res.value();
+            if (read_res.value() != chunk) {
+                break;
+            }
+        }
+        return copied;
     }
 
-    Result<void> CharDevFile::sync() {
+    Result<size_t> BlockDevFile::write(off_t offset, const void *buf,
+                                       size_t len) {
+        (void)offset;
+        (void)buf;
+        (void)len;
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<size_t> BlockDevFile::size() {
+        auto dev_res = blk::BlkManager::inst().lookup(_devno);
+        propagate(dev_res);
+        return dev_res.value()->total_bytes();
+    }
+
+    Result<void> BlockDevFile::sync() {
         void_return();
     }
 
-    inode_t CharDevFile::inode_id() const {
-        return _inode_id;
-    }
-
-    INodeCachePolicy CharDevFile::inode_cache() const {
-        return INodeCachePolicy::PERMANENT;
-    }
-
-    FileCachePolicy CharDevFile::file_cache() const {
-        return FileCachePolicy::NONE;
-    }
-
-    IMetadata &CharDevFile::metadata() {
-        return _metadata;
-    }
-
-    DevFSDirectory::DevFSDirectory(DevFSSuperblock &sb, inode_t inode_id) noexcept
+    DevFSDirectory::DevFSDirectory(DevFSSuperblock &sb,
+                                   inode_t inode_id) noexcept
         : _sb(&sb), _inode_id(inode_id) {}
 
     Result<inode_t> DevFSDirectory::lookup(std::string_view name) {
@@ -182,8 +239,8 @@ namespace devfs {
         return record_res.value();
     }
 
-    Result<const DevFSSuperblock::NodeRecord *>
-    DevFSSuperblock::lookup_record(inode_t inode_id) const {
+    Result<const DevFSSuperblock::NodeRecord *> DevFSSuperblock::lookup_record(
+        inode_t inode_id) const {
         auto record_res = _nodes.at_nt(inode_id);
         if (!record_res.has_value()) {
             unexpect_return(ErrCode::ENTRY_NOT_FOUND);
@@ -258,12 +315,23 @@ namespace devfs {
                 return util::owner<IINode *>(file);
             }
             case NodeState::CHAR_DEVICE:
-                if (!record->has_factory || record->char_factory.create == nullptr)
+                if (!record->has_factory ||
+                    record->char_factory.create == nullptr)
                 {
                     unexpect_return(ErrCode::FAILURE);
                 }
                 return record->char_factory.create(record->char_factory.ctx,
                                                    inode_id);
+            case NodeState::BLOCK_DEVICE: {
+                if (!record->has_block_devno) {
+                    unexpect_return(ErrCode::FAILURE);
+                }
+                auto *file = new BlockDevFile(inode_id, record->block_devno);
+                if (file == nullptr) {
+                    unexpect_return(ErrCode::OUT_OF_MEMORY);
+                }
+                return util::owner<IINode *>(file);
+            }
         }
         unexpect_return(ErrCode::FAILURE);
     }
@@ -301,7 +369,7 @@ namespace devfs {
         }
 
         const auto inode_id = vfile->vinode()->inode()->inode_id();
-        auto record_res = lookup_record(inode_id);
+        auto record_res     = lookup_record(inode_id);
         propagate(record_res);
         auto *record = record_res.value();
 
@@ -311,6 +379,34 @@ namespace devfs {
         record->state        = NodeState::CHAR_DEVICE;
         record->char_factory = factory;
         record->has_factory  = true;
+        void_return();
+    }
+
+    Result<void> DevFSSuperblock::link_block(cap::Capability &filecap,
+                                             size_t devno) {
+        auto *vfile = filecap.payload_as<VFile>();
+        if (vfile == nullptr) {
+            unexpect_return(ErrCode::TYPE_NOT_MATCHED);
+        }
+        auto *sb = vfile->vinode()->superblock().sb();
+        if (sb != this) {
+            unexpect_return(ErrCode::TYPE_NOT_MATCHED);
+        }
+
+        const auto inode_id = vfile->vinode()->inode()->inode_id();
+        auto record_res     = lookup_record(inode_id);
+        propagate(record_res);
+        auto *record = record_res.value();
+
+        if (record->state != NodeState::UNBOUND_FILE) {
+            unexpect_return(ErrCode::BUSY);
+        }
+        if (!blk::BlkManager::inst().contains(devno).value_or(false)) {
+            unexpect_return(ErrCode::ENTRY_NOT_FOUND);
+        }
+        record->state           = NodeState::BLOCK_DEVICE;
+        record->block_devno     = devno;
+        record->has_block_devno = true;
         void_return();
     }
 

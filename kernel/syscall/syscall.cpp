@@ -278,6 +278,7 @@ namespace syscall {
             case SYS_VFS_STAT:           return "SYS_VFS_STAT";
             case SYS_VFS_LSTAT:          return "SYS_VFS_LSTAT";
             case SYS_VFS_READLINK:       return "SYS_VFS_READLINK";
+            case SYS_VFS_MOUNT:          return "SYS_VFS_MOUNT";
             default:                      return "UNKNOWN_SYSCALL";
         }
     }
@@ -563,6 +564,19 @@ namespace syscall {
                 ret = result_value_ret(
                     "readlink",
                     vfs_readlink(capidx, path, std::move(buf), arg2));
+                break;
+            }
+            case SYS_VFS_MOUNT: {
+                UString fs_name((VirAddr)arg0, MAX_SYSCALL_PATH);
+                UString mountpoint((VirAddr)arg2, MAX_SYSCALL_PATH);
+                std::optional<UString> options;
+                if (arg4 != 0) {
+                    options.emplace(VirAddr(arg4), MAX_SYSCALL_PATH);
+                }
+                ret = result_bool_ret(
+                    "mount",
+                    vfs_mount(capidx, fs_name, arg1, mountpoint, arg3,
+                              options ? &*options : nullptr));
                 break;
             }
             case SYS_VFS_READ: {

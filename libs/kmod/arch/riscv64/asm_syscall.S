@@ -356,6 +356,14 @@ sys_vfs_readlink:
     ecall
     ret
 
+    .global sys_vfs_mount
+    .type sys_vfs_mount, @function
+sys_vfs_mount:
+    /* a0 = parent_dir_cap, a1 = fs_name, a2 = devfile_cap, a3 = mountpoint, a4 = flags, a5 = options */
+    li a7, SYS_VFS_MOUNT
+    ecall
+    ret
+
     .global sys_vfs_read
     .type sys_vfs_read, @function
 sys_vfs_read:

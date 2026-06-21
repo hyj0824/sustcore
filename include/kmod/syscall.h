@@ -106,6 +106,9 @@ bool sys_vfs_stat(CapIdx parent_dir_cap, const char *name, NodeMeta *out);
 bool sys_vfs_lstat(CapIdx parent_dir_cap, const char *name, NodeMeta *out);
 size_t sys_vfs_readlink(CapIdx parent_dir_cap, const char *name, char *buf,
                         size_t bufsiz);
+bool sys_vfs_mount(CapIdx parent_dir_cap, const char *fs_name,
+                   CapIdx devfile_cap, const char *mountpoint, uint64_t flags,
+                   const char *options);
 size_t sys_vfs_read(CapIdx file_cap, size_t offset, void *buf, size_t len);
 size_t sys_vfs_write(CapIdx file_cap, size_t offset, const void *buf,
                      size_t len);

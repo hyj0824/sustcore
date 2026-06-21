@@ -305,3 +305,9 @@ sys_vfs_lstat:
 sys_vfs_readlink:
     li.d $a7, SYS_VFS_READLINK
     do_syscall
+
+    .global sys_vfs_mount
+    .type sys_vfs_mount, @function
+sys_vfs_mount:
+    li.d $a7, SYS_VFS_MOUNT
+    do_syscall

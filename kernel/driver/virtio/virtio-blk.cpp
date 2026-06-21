@@ -15,6 +15,7 @@
 #include <driver/virtio/virtio-blk.h>
 #include <logger.h>
 #include <sus/raii.h>
+#include <vfs/vfs.h>
 
 #include <algorithm>
 #include <array>
@@ -237,6 +238,30 @@ namespace virtio {
             auto process_res = process_request(*req);
             propagate(process_res);
         }
+        void_return();
+    }
+
+    Result<void> VirtioBlkDriver::mount(CapIdx devdir) noexcept {
+        auto devno_res = blk::BlkManager::inst().find_device_id(this);
+        propagate(devno_res);
+
+        auto &vfs = VFS::inst();
+        auto devfs_res = vfs.devfs();
+        propagate(devfs_res);
+        auto &devfs = *devfs_res.value();
+
+        auto lookup_res = holder().lookup(devdir);
+        propagate(lookup_res);
+        auto &dircap = *lookup_res.value();
+
+        auto mkres = vfs.mkfile(dircap, "blk", flags::O_READ, holder());
+        propagate(mkres);
+
+        lookup_res = holder().lookup(mkres.value());
+        propagate(lookup_res);
+        auto &filecap = *lookup_res.value();
+        auto link_res = devfs.link_block(filecap, devno_res.value());
+        propagate(link_res);
         void_return();
     }
 

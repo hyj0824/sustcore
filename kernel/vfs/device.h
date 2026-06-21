@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <bio/blk.h>
 #include <cap/capability.h>
 #include <sus/owner.h>
 #include <vfs/ops.h>
@@ -35,11 +36,16 @@ namespace devfs {
         Result<util::owner<IINode *>> (*create)(void *ctx, inode_t inode_id);
     };
 
+    class DevFileMetadata : public IMetadata {
+    public:
+        bool is_blk;
+        constexpr DevFileMetadata(bool is_blk) : is_blk(is_blk) {}
+    };
+
     class CharDevFile : public IFile {
     protected:
         inode_t _inode_id;
-        struct EmptyMetadata : public IMetadata {
-        } _metadata;
+        DevFileMetadata _metadata = {false};
 
         explicit CharDevFile(inode_t inode_id) : _inode_id(inode_id) {}
 
@@ -56,7 +62,59 @@ namespace devfs {
         Result<size_t> read(off_t offset, void *buf, size_t len) override;
 
         [[nodiscard]]
-        Result<size_t> write(off_t offset, const void *buf, size_t len) override;
+        Result<size_t> write(off_t offset, const void *buf,
+                             size_t len) override;
+
+        [[nodiscard]]
+        Result<size_t> size() override {
+            return 0;
+        }
+
+        [[nodiscard]]
+        Result<void> sync() override {
+            void_return();
+        }
+
+        [[nodiscard]]
+        inode_t inode_id() const override {
+            return _inode_id;
+        }
+
+        [[nodiscard]]
+        INodeCachePolicy inode_cache() const final {
+            return INodeCachePolicy::PERMANENT;
+        }
+
+        [[nodiscard]]
+        FileCachePolicy file_cache() const final {
+            return FileCachePolicy::NONE;
+        }
+
+        [[nodiscard]]
+        IMetadata &metadata() override {
+            return _metadata;
+        }
+    };
+
+    class BlockDevFile : public IFile {
+    private:
+        inode_t _inode_id;
+        size_t _devno;
+
+        DevFileMetadata _metadata = {true};
+
+    public:
+        explicit BlockDevFile(inode_t inode_id, size_t devno)
+            : _inode_id(inode_id), _devno(devno) {}
+
+        virtual ~BlockDevFile() = default;
+
+        [[nodiscard]]
+        Result<size_t> read(off_t offset, void *buf, size_t len) override;
+
+        [[nodiscard]]
+        Result<size_t> write(off_t offset, const void *buf,
+                             size_t len) override;
 
         [[nodiscard]]
         Result<size_t> size() override;
@@ -65,16 +123,29 @@ namespace devfs {
         Result<void> sync() override;
 
         [[nodiscard]]
-        inode_t inode_id() const override;
+        inode_t inode_id() const override {
+            return _inode_id;
+        }
 
         [[nodiscard]]
-        INodeCachePolicy inode_cache() const final;
+        INodeCachePolicy inode_cache() const final {
+            return INodeCachePolicy::PERMANENT;
+        }
 
         [[nodiscard]]
-        FileCachePolicy file_cache() const final;
+        FileCachePolicy file_cache() const final {
+            return FileCachePolicy::NONE;
+        }
 
         [[nodiscard]]
-        IMetadata &metadata() override;
+        IMetadata &metadata() override {
+            return _metadata;
+        }
+
+        [[nodiscard]]
+        size_t devno() const {
+            return _devno;
+        }
     };
 
     class DevFSDirectory final : public IDirectory {
@@ -91,7 +162,8 @@ namespace devfs {
         [[nodiscard]]
         Result<inode_t> lookup(std::string_view name) final;
         [[nodiscard]]
-        Result<inode_t> mkfile(std::string_view name, const char *options) final;
+        Result<inode_t> mkfile(std::string_view name,
+                               const char *options) final;
         [[nodiscard]]
         Result<inode_t> mkdir(std::string_view name, const char *options) final;
         [[nodiscard]]
@@ -121,7 +193,8 @@ namespace devfs {
         [[nodiscard]]
         Result<size_t> read(off_t offset, void *buf, size_t len) override;
         [[nodiscard]]
-        Result<size_t> write(off_t offset, const void *buf, size_t len) override;
+        Result<size_t> write(off_t offset, const void *buf,
+                             size_t len) override;
         [[nodiscard]]
         Result<size_t> size() override;
         [[nodiscard]]
@@ -138,7 +211,12 @@ namespace devfs {
 
     class DevFSSuperblock final : public ISuperblock {
     public:
-        enum class NodeState { DIRECTORY, UNBOUND_FILE, CHAR_DEVICE };
+        enum class NodeState {
+            DIRECTORY,
+            UNBOUND_FILE,
+            CHAR_DEVICE,
+            BLOCK_DEVICE
+        };
 
         struct NodeRecord {
             inode_t inode_id;
@@ -148,6 +226,8 @@ namespace devfs {
             std::unordered_map<std::string, inode_t> entries;
             CharFactory char_factory{};
             bool has_factory = false;
+            size_t block_devno = 0;
+            bool has_block_devno = false;
             struct EmptyMetadata : public IMetadata {
             } metadata;
         };
@@ -191,6 +271,8 @@ namespace devfs {
         [[nodiscard]]
         Result<void> link_char(cap::Capability &filecap, CharFactory factory);
         [[nodiscard]]
+        Result<void> link_block(cap::Capability &filecap, size_t devno);
+        [[nodiscard]]
         Result<inode_t> alloc_inode(INodeType type) final;
         [[nodiscard]]
         Result<void> free_inode(inode_t id) final;
@@ -221,6 +303,5 @@ namespace devfs {
         Result<void> unmount(ISuperblock *sb) final;
         [[nodiscard]]
         Result<DevFSSuperblock *> mounted_superblock() const;
-
     };
 }  // namespace devfs

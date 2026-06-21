@@ -330,4 +330,40 @@ namespace syscall {
         return readlink_res.value();
     }
 
+    Result<bool> vfs_mount(CapIdx parent_dir_cap, const UString &fs_name,
+                           CapIdx devfile_cap, const UString &mountpoint,
+                           uint64_t flags, const UString *options) {
+        auto parent_res = lookup_current_cap(parent_dir_cap);
+        propagate(parent_res);
+        auto devfile_res = lookup_current_cap(devfile_cap);
+        propagate(devfile_res);
+
+        auto *parent_dir = parent_res.value()->payload_as<VDirectory>();
+        auto *vfile      = devfile_res.value()->payload_as<VFile>();
+        if (parent_dir == nullptr || vfile == nullptr) {
+            unexpect_return(ErrCode::TYPE_NOT_MATCHED);
+        }
+
+        auto *inode = vfile->vinode()->inode();
+        auto *meta = static_cast<devfs::DevFileMetadata *>(&inode->metadata());
+        if (meta == nullptr || !meta->is_blk) {
+            unexpect_return(ErrCode::TYPE_NOT_MATCHED);
+        }
+        auto *blk_file = static_cast<devfs::BlockDevFile *>(inode);
+
+        util::Path base_path = parent_dir->global_path();
+        util::Path rel_path  = util::Path::normalize(mountpoint.kbuf());
+        if (rel_path.is_absolute()) {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+        util::Path full_mount_path = base_path / rel_path;
+        const char *opt_str = options == nullptr ? nullptr : options->kbuf();
+
+        auto mount_res = VFS::inst().mount(
+            fs_name.kbuf(), blk_file->devno(), full_mount_path.c_str(),
+            static_cast<MountFlags>(flags), opt_str);
+        propagate(mount_res);
+        return true;
+    }
+
 }  // namespace syscall

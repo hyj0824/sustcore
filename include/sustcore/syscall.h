@@ -68,6 +68,7 @@
 #define SYS_VFS_STAT   (SYSCALL_BASE + 0x31)
 #define SYS_VFS_LSTAT  (SYSCALL_BASE + 0x32)
 #define SYS_VFS_READLINK (SYSCALL_BASE + 0x33)
+#define SYS_VFS_MOUNT (SYSCALL_BASE + 0x34)
 
 // 以SYS_UNSTABLE_BASE开头的系统调用为不稳定接口, 可能会在后续版本中更改或移除
 #define SYS_UNSTABLE_BASE  (0xFFC00000)
