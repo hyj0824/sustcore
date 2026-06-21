@@ -14,9 +14,11 @@
 #include <sus/types.h>
 #include <sustcore/bootstrap.h>
 #include <sustcore/syscall_str.h>
+#include <prm.h>
 #include <syscall.h>
 
 #include <cstddef>
+#include <cstring>
 #include <syscall.h.in>
 
 extern "C" bool g_linux_initialized = false;
@@ -25,6 +27,44 @@ extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
                                  size_t a4, size_t a5, size_t a6, size_t a7);
 
 #define INVALID_VALUE 0xFFFF'FFFF'FFFF'FFFF
+
+namespace {
+    constexpr size_t UTSNAME_FIELD_SIZE = 65;
+
+    struct linux_utsname {
+        char sysname[UTSNAME_FIELD_SIZE];
+        char nodename[UTSNAME_FIELD_SIZE];
+        char release[UTSNAME_FIELD_SIZE];
+        char version[UTSNAME_FIELD_SIZE];
+        char machine[UTSNAME_FIELD_SIZE];
+        char domainname[UTSNAME_FIELD_SIZE];
+    };
+
+    struct linux_iovec {
+        const void *iov_base;
+        size_t iov_len;
+    };
+
+    void copy_uts_field(char (&dst)[UTSNAME_FIELD_SIZE],
+                        const char *src) noexcept {
+        if (src == nullptr) {
+            dst[0] = '\0';
+            return;
+        }
+        strncpy(dst, src, UTSNAME_FIELD_SIZE - 1);
+        dst[UTSNAME_FIELD_SIZE - 1] = '\0';
+    }
+
+    const char *linux_machine_name() noexcept {
+#if defined(__ARCH_riscv64__)
+        return "riscv64";
+#elif defined(__ARCH_loongarch64__)
+        return "loongarch64";
+#else
+        return "unknown";
+#endif
+    }
+}  // namespace
 
 const char *at_to_string(int a_type) {
     switch (a_type) {
@@ -113,8 +153,52 @@ void dump_bsargv(size_t bsargc, const bsheader *const *bsargv) {
             printf("bsargv[%u] = nullptr\n", static_cast<unsigned>(i));
             continue;
         }
-        printf("bsargv[%u] = { type=%u, size=%u }\n", static_cast<unsigned>(i),
-               record->type, record->size);
+        BootstrapRecordView view{};
+        if (!bootstrap_make_view(record, view)) {
+            printf("bsargv[%u] = { type=%u, size=%u, invalid=true }\n",
+                   static_cast<unsigned>(i), record->type, record->size);
+            continue;
+        }
+
+        switch (record->type) {
+            case boot::TYPE_CAPEXP: {
+                BootstrapCapExplainView cap_view{};
+                if (!bootstrap_parse_cap_explain(view, cap_view)) {
+                    printf("bsargv[%u] = { type=TYPE_CAPEXP, size=%u, "
+                           "parse_error=true }\n",
+                           static_cast<unsigned>(i), record->size);
+                    continue;
+                }
+                printf(
+                    "bsargv[%u] = { type=TYPE_CAPEXP, size=%u, cap_idx=%lu, "
+                    "cap_type=%s, cap_perm=0x%016lx, cap_desc=%s }\n",
+                    static_cast<unsigned>(i), record->size, cap_view.cap_idx,
+                    to_string(cap_view.cap_type), cap_view.cap_perm,
+                    cap_view.cap_desc);
+                continue;
+            }
+            case boot::TYPE_VADDREXP: {
+                BootstrapVaddrExplainView vaddr_view{};
+                if (!bootstrap_parse_vaddr_explain(view, vaddr_view)) {
+                    printf("bsargv[%u] = { type=TYPE_VADDREXP, size=%u, "
+                           "parse_error=true }\n",
+                           static_cast<unsigned>(i), record->size);
+                    continue;
+                }
+                printf(
+                    "bsargv[%u] = { type=TYPE_VADDREXP, size=%u, vaddr=%p, "
+                    "vaddr_desc=%s }\n",
+                    static_cast<unsigned>(i), record->size,
+                    vaddr_view.vaddr.addr(), vaddr_view.vaddr_desc);
+                continue;
+            }
+            default:
+                printf("bsargv[%u] = { type=%u, size=%u, raw_data=%p, "
+                       "raw_size=%u }\n",
+                       static_cast<unsigned>(i), record->type, record->size,
+                       view.data, static_cast<unsigned>(view.data_size));
+                continue;
+        }
     }
 }
 
@@ -150,23 +234,23 @@ extern "C" void linux_main(const void *stack_sp, size_t argc,
                            const Elf64_auxv_t *auxv, size_t bsargc,
                            const bsheader *bsargv[]) {
     g_linux_initialized = true;
-    puts("linux-subsystem: initialized");
-    printf("stack dump:\n");
-    stack_dump(stack_sp, auxv);
-    printf("argc & argv:\n");
-    printf("argc = %u\n", static_cast<unsigned>(argc));
-    dump_vector("argv", argv);
-    printf("\nenvp:\n");
-    dump_vector("envp", envp);
-    printf("\nauxv:\n");
-    dump_auxv(auxv);
+    // puts("linux-subsystem: initialized");
+    // printf("stack dump:\n");
+    // stack_dump(stack_sp, auxv);
+    // printf("argc & argv:\n");
+    // printf("argc = %u\n", static_cast<unsigned>(argc));
+    // dump_vector("argv", argv);
+    // printf("\nenvp:\n");
+    // dump_vector("envp", envp);
+    // printf("\nauxv:\n");
+    // dump_auxv(auxv);
     printf("\nbsargc & bsargv:\n");
     printf("bsargc = %u\n", static_cast<unsigned>(bsargc));
     dump_bsargv(bsargc, bsargv);
 }
 
 size_t linux_sys_write(size_t fd, const void *buf, size_t len) {
-    if (fd == 1) {
+    if (fd == 1 || fd == 2) {
         sys_write_serial(reinterpret_cast<const char *>(buf), len);
         return len;
     }
@@ -174,11 +258,58 @@ size_t linux_sys_write(size_t fd, const void *buf, size_t len) {
     return INVALID_VALUE;
 }
 
+size_t linux_sys_writev(size_t fd, const linux_iovec *iov, size_t iovcnt) {
+    if (fd != 1 && fd != 2) {
+        printf("linux-subsystem: unsupported fd %d\n", fd);
+        return INVALID_VALUE;
+    }
+    if (iov == nullptr && iovcnt != 0) {
+        return INVALID_VALUE;
+    }
+
+    size_t total = 0;
+    for (size_t i = 0; i < iovcnt; ++i) {
+        if (iov[i].iov_base == nullptr && iov[i].iov_len != 0) {
+            return INVALID_VALUE;
+        }
+        sys_write_serial(reinterpret_cast<const char *>(iov[i].iov_base),
+                         iov[i].iov_len);
+        total += iov[i].iov_len;
+    }
+    return total;
+}
+
+size_t linux_sys_brk(size_t newbrk) {
+    return linuxss_brk(newbrk);
+}
+
+size_t linux_sys_uname(void *buf) {
+    if (buf == nullptr) {
+        return INVALID_VALUE;
+    }
+
+    linux_utsname uts{};
+    copy_uts_field(uts.sysname, "sustcore");
+    copy_uts_field(uts.nodename, "qemu");
+    copy_uts_field(uts.release, "4.15.0");
+    copy_uts_field(uts.version, "build 0");
+    copy_uts_field(uts.machine, linux_machine_name());
+    copy_uts_field(uts.domainname, "(none)");
+    memcpy(buf, &uts, sizeof(uts));
+    return 0;
+}
+
 extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
                                  size_t a4, size_t a5, size_t a6, size_t a7) {
     switch (a7) {
         case __NR_write:
             return linux_sys_write(a0, reinterpret_cast<const void *>(a1), a2);
+        case __NR_writev:
+            return linux_sys_writev(
+                a0, reinterpret_cast<const linux_iovec *>(a1), a2);
+        case __NR_brk: return linux_sys_brk(a0);
+        case __NR_uname:
+            return linux_sys_uname(reinterpret_cast<void *>(a0));
         default:
             printf("linux-subsystem: unsupported syscall %s (%d)\n",
                    syscall_to_string(a7), a7);

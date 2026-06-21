@@ -12,5 +12,7 @@
 #pragma once
 
 #include <cstddef>
+#include <sustcore/capability.h>
 
 extern "C" void sys_write_serial(const char *str, size_t len);
+extern "C" bool sys_mem_resize(CapIdx idx, size_t newsz);

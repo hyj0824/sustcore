@@ -11,3 +11,10 @@ sys_write_serial:
     li.d $a7, SYS_WRITE_SERIAL
     syscall 0
     ret
+
+    .global sys_mem_resize
+    .type sys_mem_resize, @function
+sys_mem_resize:
+    li.d $a7, SYS_MEM_RESIZE
+    syscall 0
+    ret

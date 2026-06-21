@@ -28,6 +28,32 @@
 namespace task {
     namespace {
         [[nodiscard]]
+        Result<void> create_linux_subsystem_heap(TaskSpec &spec,
+                                                 VirAddr heap_start) {
+            auto *heap_mem =
+                new cap::MemoryPayload(0, false, false, VMA::Growth::FLEXUP);
+            auto heap_cap_res = spec.holder->insert_to_free(heap_mem);
+            if (!heap_cap_res.has_value()) {
+                delete heap_mem;
+                propagate_return(heap_cap_res);
+            }
+            auto heap_res = spec.tmm->add_vma(
+                VMA::Type::HEAP, VMA::Growth::FLEXUP,
+                VirArea(heap_start, heap_start), heap_mem, PageMan::RWX::RW);
+            if (!heap_res.has_value()) {
+                loggers::SUSTCORE::ERROR("无法初始化 POSIX 子系统堆VMA: %d",
+                                         heap_res.error());
+                propagate_return(heap_res);
+            }
+            loggers::SUSTCORE::INFO(
+                "创建POSIX子系统 HEAP VMA: area=[%p,%p) mem=%p memsz=%lu",
+                heap_start.addr(), heap_start.addr(), heap_mem, 0UL);
+            spec.linuxss_heap_vaddr   = heap_start;
+            spec.linuxss_heap_mem_cap = heap_cap_res.value();
+            void_return();
+        }
+
+        [[nodiscard]]
         bool valid_cap_explain(CapIdx cap_idx, PayloadType cap_type,
                                const char *cap_desc) noexcept {
             return cap_idx != cap::null && cap_idx != cap::error &&
@@ -299,6 +325,11 @@ namespace task {
                                      to_cstring(load_subsystem_res.error()));
             unexpect_return(ErrCode::CREATION_FAILED);
         }
+        VirAddr linuxss_heap_start =
+            spec.tmm->vmas().back().varea.end.page_align_up();
+        auto linuxss_heap_res =
+            create_linux_subsystem_heap(spec, linuxss_heap_start);
+        propagate(linuxss_heap_res);
 
         spec.dyn               = user_program_dyn;
         spec.has_interp        = user_program_has_interp;
@@ -313,6 +344,12 @@ namespace task {
         spec.argv = argv;
         spec.envp = envp;
         spec.linux_execfn.clear();
+        if (!spec.linuxss_heap_vaddr.nonnull()) {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+        if (spec.linuxss_heap_mem_cap == cap::null) {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
         spec.bsargv.clear();
         for (const auto &record : bsargv) {
             auto validate_res = validate_bootstrap_record(record);

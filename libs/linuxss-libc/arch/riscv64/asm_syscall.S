@@ -10,3 +10,10 @@ sys_write_serial:
     li a7, SYS_WRITE_SERIAL
     ecall
     ret
+
+    .global sys_mem_resize
+    .type   sys_mem_resize, @function
+sys_mem_resize:
+    li a7, SYS_MEM_RESIZE
+    ecall
+    ret

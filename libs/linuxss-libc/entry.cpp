@@ -42,6 +42,8 @@ extern "C" size_t linuxss_entry(const void *stack_sp, size_t init_a0,
     ++offset;
     auto *bsargv =
         reinterpret_cast<const bsheader *const *>(words + offset);
+    linuxss_restore_runtime_from_bootstrap(
+        bsargc, const_cast<const bsheader **>(bsargv));
     linux_main(stack_sp, argc, const_cast<const char **>(argv),
                const_cast<const char **>(envp), auxv, bsargc,
                const_cast<const bsheader **>(bsargv));

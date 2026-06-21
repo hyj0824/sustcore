@@ -383,17 +383,19 @@ namespace task {
             return TaskSpec{
                 .tmm        = util::owner<TaskMemoryManager *>(nullptr),
                 .holder     = nullptr,
-                .entrypoint = VirAddr(static_cast<addr_t>(0)),
-                .linuxproc_entrypoint = VirAddr(static_cast<addr_t>(0)),
+                .entrypoint = VirAddr::null,
+                .linuxproc_entrypoint = VirAddr::null,
                 .dyn                  = false,
                 .has_interp           = false,
-                .load_base            = VirAddr(static_cast<addr_t>(0)),
-                .interp_base          = VirAddr(static_cast<addr_t>(0)),
-                .interp_entrypoint    = VirAddr(static_cast<addr_t>(0)),
-                .program_entrypoint   = VirAddr(static_cast<addr_t>(0)),
-                .phdr_vaddr           = VirAddr(static_cast<addr_t>(0)),
+                .load_base            = VirAddr::null,
+                .interp_base          = VirAddr::null,
+                .interp_entrypoint    = VirAddr::null,
+                .program_entrypoint   = VirAddr::null,
+                .phdr_vaddr           = VirAddr::null,
                 .phdr_num             = 0,
                 .phdr_entsize         = 0,
+                .linuxss_heap_vaddr   = VirAddr::null,
+                .linuxss_heap_mem_cap = cap::null,
             };
         }
 
@@ -498,6 +500,19 @@ namespace task {
             spec, spec.heap_mem_cap, PayloadType::MEMORY, perm::allperm(),
             heap_desc);
         propagate(heap_cap_res);
+        if (spec.linuxproc_entrypoint.nonnull() &&
+            spec.linuxss_heap_vaddr.nonnull() &&
+            spec.linuxss_heap_mem_cap != cap::null)
+        {
+            char ss_heap_desc[128];
+            snprintf(ss_heap_desc, sizeof(ss_heap_desc), "#ss-heap:[%p,%p)",
+                     spec.linuxss_heap_vaddr.addr(),
+                     spec.linuxss_heap_vaddr.addr());
+            auto ss_heap_cap_res = append_bootstrap_cap_explain_record(
+                spec, spec.linuxss_heap_mem_cap, PayloadType::MEMORY,
+                perm::allperm(), ss_heap_desc);
+            propagate(ss_heap_cap_res);
+        }
 
         char stack_desc[128];
         snprintf(stack_desc, sizeof(stack_desc), "#stack:[%p,%p)",
@@ -510,6 +525,13 @@ namespace task {
         auto heap_vaddr_res = append_bootstrap_vaddr_explain_record(
             spec, spec.heap_vaddr, "#heap");
         propagate(heap_vaddr_res);
+        if (spec.linuxproc_entrypoint.nonnull() &&
+            spec.linuxss_heap_vaddr.nonnull())
+        {
+            auto ss_heap_vaddr_res = append_bootstrap_vaddr_explain_record(
+                spec, spec.linuxss_heap_vaddr, "#ss-heap");
+            propagate(ss_heap_vaddr_res);
+        }
         auto stack_vaddr_res = append_bootstrap_vaddr_explain_record(
             spec, USER_STACK_BOTTOM, "#stack");
         propagate(stack_vaddr_res);
@@ -1201,7 +1223,7 @@ namespace task {
             propagate(recycle_res);
         }
         pcb->tmm          = util::owner<TaskMemoryManager *>(nullptr);
-        pcb->entrypoint   = VirAddr(static_cast<addr_t>(0));
+        pcb->entrypoint   = VirAddr::null;
         pcb->main_tcb_cap = cap::null;
 
         auto populate_res =
@@ -1225,7 +1247,7 @@ namespace task {
         TaskSpec old_spec{
             .tmm        = util::owner(old_tmm),
             .holder     = nullptr,
-            .entrypoint = VirAddr(static_cast<addr_t>(0)),
+            .entrypoint = VirAddr::null,
         };
         cleanup_task_spec(old_spec);
 
