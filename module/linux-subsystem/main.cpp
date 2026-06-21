@@ -310,9 +310,17 @@ extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
         case __NR_brk: return linux_sys_brk(a0);
         case __NR_uname:
             return linux_sys_uname(reinterpret_cast<void *>(a0));
+        case __NR_faccessat:
+            return -2;
         default:
             printf("linux-subsystem: unsupported syscall %s (%d)\n",
                    syscall_to_string(a7), a7);
+            printf("linux-subsystem: syscall arguments: a0=%p, a1=%p, a2=%p, a3=%p, "
+                   "a4=%p, a5=%p, a6=%p\n",
+                   reinterpret_cast<void *>(a0), reinterpret_cast<const char *>(a1),
+                   reinterpret_cast<void *>(a2), reinterpret_cast<void *>(a3),
+                   reinterpret_cast<void *>(a4), reinterpret_cast<void *>(a5),
+                   reinterpret_cast<void *>(a6));
             // 先卡死以进行测试
             while (true);
             return INVALID_VALUE;
