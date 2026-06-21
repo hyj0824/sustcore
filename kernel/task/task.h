@@ -31,6 +31,14 @@ namespace task {
         pid_t child_pid;
     };
 
+    struct UserInitLayout {
+        VirAddr sp;
+        size_t argc;
+        VirAddr argv;
+        VirAddr envp;
+        VirAddr auxv;
+    };
+
     class TaskManager {
     private:
         std::atomic<size_t> __tid_alloc = 1;
@@ -140,11 +148,11 @@ namespace task {
          * @return 成功返回新的用户态初始栈顶地址.
          */
         [[nodiscard]]
-        Result<VirAddr> build_user_stack(cap::MemoryPayload &stack_mem,
-                                         VirAddr stack_top,
-                                         TaskSpec &spec, CapIdx pcb_cap,
-                                         CapIdx main_tcb_cap,
-                                         CapIdx stack_mem_cap);
+        Result<UserInitLayout> build_user_stack(cap::MemoryPayload &stack_mem,
+                                                VirAddr stack_top,
+                                                TaskSpec &spec, CapIdx pcb_cap,
+                                                CapIdx main_tcb_cap,
+                                                CapIdx stack_mem_cap);
 
         /**
          * @brief 根据 TaskSpec 填充 PCB 并构造主线程.

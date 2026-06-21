@@ -430,7 +430,7 @@ namespace task {
         }
     }  // namespace
 
-    Result<VirAddr> TaskManager::build_user_stack(
+    Result<UserInitLayout> TaskManager::build_user_stack(
         cap::MemoryPayload &stack_mem, VirAddr stack_top,
         TaskSpec &spec, CapIdx pcb_cap, CapIdx main_tcb_cap,
         CapIdx stack_mem_cap) {
@@ -506,15 +506,19 @@ namespace task {
                        builder.envp_ptrs.size() + 1 +
                        builder.auxv_entries.size() * 2 + 1 +
                        builder.bsargv_ptrs.size() + 1);
-        layout.push_back(builder.argv_ptrs.size());
+        const size_t argc = builder.argv_ptrs.size();
+        const size_t argv_offset = layout.size();
+        layout.push_back(argc);
         for (auto ptr : builder.argv_ptrs) {
             layout.push_back(ptr.arith());
         }
         layout.push_back(0);
+        const size_t envp_offset = layout.size();
         for (auto ptr : builder.envp_ptrs) {
             layout.push_back(ptr.arith());
         }
         layout.push_back(0);
+        const size_t auxv_offset = layout.size();
         for (auto value : builder.auxv_entries) {
             layout.push_back(value);
         }
@@ -528,13 +532,21 @@ namespace task {
             push_bytes(builder, layout.data(), layout.size() * sizeof(uint64_t),
                        STACK_ALIGN);
         propagate(table_sp_res);
+        VirAddr base = table_sp_res.value();
+        UserInitLayout init_layout{
+            .sp   = base,
+            .argc = argc,
+            .argv = base + argv_offset * sizeof(uint64_t),
+            .envp = base + envp_offset * sizeof(uint64_t),
+            .auxv = base + auxv_offset * sizeof(uint64_t),
+        };
         loggers::TASK::DEBUG("build_user_stack: stack_top=%p final_sp=%p argc=%lu "
                              "envc=%lu bsargc=%lu",
                              stack_top.addr(), builder.sp.addr(),
                              builder.argv_ptrs.size(),
                              builder.envp_ptrs.size(),
                              builder.bsargv_ptrs.size());
-        return builder.sp;
+        return init_layout;
     }
 
     Result<util::nonnull<TCB *>> TaskManager::setup_user_main_thread(
@@ -568,21 +580,24 @@ namespace task {
         propagate(tcb_cap_res);
 
         pcb->main_tcb_cap          = tcb_cap_res.value();
-        auto stack_top_res = build_user_stack(*stack_mem, USER_STACK_TOP, spec,
-                                              pcb->pcb_cap, pcb->main_tcb_cap,
-                                              stack_cap_res.value());
-        propagate(stack_top_res);
+        auto init_layout_res = build_user_stack(
+            *stack_mem, USER_STACK_TOP, spec, pcb->pcb_cap, pcb->main_tcb_cap,
+            stack_cap_res.value());
+        propagate(init_layout_res);
+        const auto init_layout = init_layout_res.value();
         loggers::TASK::DEBUG("栈内存分配: pid=%lu 栈内存地址=%p 已分配=%lu",
                              pcb->pid, stack_mem, stack_mem->allocated_size());
         prepare_user_thread(tcb, pcb->entrypoint.addr(),
-                            stack_top_res.value().addr(), tcb->schd_class,
+                            init_layout.sp.addr(), tcb->schd_class,
                             spec.linuxproc_entrypoint.arith());
+        tcb->context()->set_init_regs(
+            static_cast<umb_t>(init_layout.argc), init_layout.argv.arith(),
+            init_layout.envp.arith(), init_layout.auxv.arith());
         if (link_into_pcb) {
             pcb->threads.push_back(*tcb);
         }
         loggers::TASK::INFO("%s: pid=%lu entry=%p sp=%p", log_tag, pcb->pid,
-                            pcb->entrypoint.addr(),
-                            stack_top_res.value().addr());
+                            pcb->entrypoint.addr(), init_layout.sp.addr());
 
         return tcb;
     }

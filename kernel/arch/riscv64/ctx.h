@@ -103,6 +103,14 @@ namespace rv64 {
             return _sp;
         }
 
+        constexpr void set_init_regs(umb_t arg0, umb_t arg1, umb_t arg2,
+                                     umb_t arg3) noexcept {
+            a0 = arg0;
+            a1 = arg1;
+            a2 = arg2;
+            a3 = arg3;
+        }
+
         [[nodiscard]]
         constexpr umb_t &kstack_top() {
             return kstack_sp;
