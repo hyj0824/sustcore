@@ -134,6 +134,49 @@ namespace tmpfs {
         return inode_res.value();
     }
 
+    Result<void> TmpFSDirectory::unlink(std::string_view name) {
+        auto lookup_res = lookup(name);
+        propagate(lookup_res);
+
+        auto node_res = _sb->lookup_node(lookup_res.value());
+        propagate(node_res);
+        auto *target = node_res.value();
+        if (target->type == INodeType::DIRECTORY) {
+            unexpect_return(ErrCode::NOT_SUPPORTED);
+        }
+
+        auto erase_count = _node->entries.erase(std::string(name));
+        if (erase_count == 0) {
+            unexpect_return(ErrCode::ENTRY_NOT_FOUND);
+        }
+        auto free_res = _sb->free_inode(target->inode_id);
+        propagate(free_res);
+        void_return();
+    }
+
+    Result<void> TmpFSDirectory::rmdir(std::string_view name) {
+        auto lookup_res = lookup(name);
+        propagate(lookup_res);
+
+        auto node_res = _sb->lookup_node(lookup_res.value());
+        propagate(node_res);
+        auto *target = node_res.value();
+        if (target->type != INodeType::DIRECTORY) {
+            unexpect_return(ErrCode::NOT_SUPPORTED);
+        }
+        if (!target->entries.empty()) {
+            unexpect_return(ErrCode::BUSY);
+        }
+
+        auto erase_count = _node->entries.erase(std::string(name));
+        if (erase_count == 0) {
+            unexpect_return(ErrCode::ENTRY_NOT_FOUND);
+        }
+        auto free_res = _sb->free_inode(target->inode_id);
+        propagate(free_res);
+        void_return();
+    }
+
     Result<size_t> TmpFSDirectory::entry_count() {
         return _node->entries.size();
     }

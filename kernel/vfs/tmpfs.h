@@ -83,6 +83,10 @@ namespace tmpfs {
         Result<inode_t> symlink(std::string_view name,
                                 std::string_view target) override;
         [[nodiscard]]
+        Result<void> unlink(std::string_view name) override;
+        [[nodiscard]]
+        Result<void> rmdir(std::string_view name) override;
+        [[nodiscard]]
         Result<size_t> entry_count() override;
         [[nodiscard]]
         Result<DirectoryEntryInfo> entry_at(size_t index) override;
