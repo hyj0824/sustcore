@@ -1,5 +1,5 @@
 {
-	"mode": "release",
+	"mode": "debug",
 	"arch": "riscv64",
 	"riscv64": {
 		"compiler-prefix": "/usr/bin/riscv64-unknown-elf-",
