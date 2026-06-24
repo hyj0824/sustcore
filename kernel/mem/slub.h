@@ -118,6 +118,7 @@ namespace slub {
         ObjType *alloc();
         void free(ObjType *ptr);
 
+        [[nodiscard]]
         SlubStats get_stats() const {
             size_t total_slabs   = partial.size() + full.size() + empty.size();
             size_t objects_total = 0;
@@ -135,8 +136,8 @@ namespace slub {
                 }
                 objects_total = total_slabs * per_slab;
             }
-            return {total_slabs, inuse_objects_, objects_total,
-                    total_slabs * slab_bytes_};
+            return {.total_slabs=total_slabs, .objects_inuse=inuse_objects_, .objects_total=objects_total,
+                    .memory_usage_bytes=total_slabs * slab_bytes_};
         }
 
     private:
@@ -181,17 +182,18 @@ namespace slub {
                 return;
             }
 
-            KpaAddr p     = (KpaAddr)ptr;
-            PhyAddr paddr = convert<PhyAddr>(p);
+            auto p     = (KpaAddr)ptr;
+            auto paddr = convert<PhyAddr>(p);
 
             GFP::put_page(paddr, obj_pages);
             inuse_objects_--;
         }
+        [[nodiscard]]
         SlubStats get_stats() const {
             return {
-                inuse_objects_,  // Each huge object is effectively its own slab
-                inuse_objects_, inuse_objects_,
-                inuse_objects_ * obj_pages * PAGESIZE};
+                .total_slabs=inuse_objects_,  // Each huge object is effectively its own slab
+                .objects_inuse=inuse_objects_, .objects_total=inuse_objects_,
+                .memory_usage_bytes=inuse_objects_ * obj_pages * PAGESIZE};
         }
 
     private:
@@ -535,16 +537,12 @@ namespace slub {
 
     public:
         static void init() {
+            new (&alloc_records) util::IntrusiveList<AllocRecord>();
+            new (&ALLOC_RECORD_SLUB) SlubAllocator<AllocRecord>();
+            Helper::init();
             loggers::MEMORY::INFO("MixedSizeAllocator::init: records=%lu ALLOC_RECORD_SLUB inuse=%lu",
                                    (unsigned long)alloc_records.size(),
                                    (unsigned long)ALLOC_RECORD_SLUB.get_stats().objects_inuse);
-            alloc_records.~IntrusiveList();
-            new (&alloc_records) util::IntrusiveList<AllocRecord>();
-            ALLOC_RECORD_SLUB.~SlubAllocator();
-            new (&ALLOC_RECORD_SLUB) SlubAllocator<AllocRecord>();
-            Helper::init();
-            loggers::MEMORY::INFO("MixedSizeAllocator::init done: records=%lu",
-                                   (unsigned long)alloc_records.size());
         }
 
         static void *malloc(size_t sz) {

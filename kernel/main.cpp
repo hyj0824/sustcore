@@ -490,6 +490,10 @@ void env_setup() {
     kernelman.switch_root();
     kernelman.flush_tlb();
 
+    // 初始化中断处理程序
+    loggers::SUSTCORE::INFO("初始化中断处理程序");
+    Interrupt::init();
+
     // 初始化 Allocator 与内存池
     loggers::SUSTCORE::INFO("初始化分配器和内核对象池");
     Allocator::init();
@@ -608,10 +612,6 @@ extern "C" void post_init(void) {
     // 初始化 cholder
     loggers::SUSTCORE::INFO("初始化能力系统");
     cap::CHolderManager::init();
-
-    // 初始化中断处理程序
-    loggers::SUSTCORE::INFO("初始化中断处理程序");
-    Interrupt::init();
 
     loggers::SUSTCORE::INFO("初始化设备树配置");
     init_device_model();
