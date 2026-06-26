@@ -25,6 +25,7 @@ namespace {
     constexpr size_t INVALID_VALUE      = 0xFFFF'FFFF'FFFF'FFFF;
     constexpr size_t UTSNAME_FIELD_SIZE = 65;
     constexpr int LINUX_O_WRONLY        = 1;
+    constexpr long LINUX_TIMES_STAMP    = 114514;
 
     struct linux_utsname {
         char sysname[UTSNAME_FIELD_SIZE];
@@ -33,6 +34,18 @@ namespace {
         char version[UTSNAME_FIELD_SIZE];
         char machine[UTSNAME_FIELD_SIZE];
         char domainname[UTSNAME_FIELD_SIZE];
+    };
+
+    struct linux_timeval {
+        uint64_t sec;
+        uint64_t usec;
+    };
+
+    struct linux_tms {
+        long tms_utime;
+        long tms_stime;
+        long tms_cutime;
+        long tms_cstime;
     };
 
     bool parse_tagged_index(const char *text, const char *prefix,
@@ -224,6 +237,43 @@ size_t linux_sys_uname(void *buf) {
     copy_uts_field(uts.domainname, "(none)");
     memcpy(buf, &uts, sizeof(uts));
     return 0;
+}
+
+size_t linux_sys_gettimeofday(void *tv, void *) {
+    if (tv == nullptr) {
+        return 0;
+    }
+
+    auto now_res = sys_time_now_ns().to_result();
+    if (!now_res.has_value()) {
+        return INVALID_VALUE;
+    }
+
+    auto now_ns = now_res.value();
+    linux_timeval value{
+        .sec  = static_cast<uint64_t>(now_ns / 1000000000ULL),
+        .usec = static_cast<uint64_t>((now_ns % 1000000000ULL) / 1000ULL),
+    };
+    memcpy(tv, &value, sizeof(value));
+    return 0;
+}
+
+size_t linux_sys_times(void *buf) {
+    auto now_res = sys_time_now_ns().to_result();
+    if (!now_res.has_value()) {
+        return INVALID_VALUE;
+    }
+
+    if (buf != nullptr) {
+        linux_tms tms{
+            .tms_utime  = LINUX_TIMES_STAMP,
+            .tms_stime  = LINUX_TIMES_STAMP,
+            .tms_cutime = LINUX_TIMES_STAMP,
+            .tms_cstime = LINUX_TIMES_STAMP,
+        };
+        memcpy(buf, &tms, sizeof(tms));
+    }
+    return now_res.value() / 1000000ULL;
 }
 [[noreturn]]
 void linux_sys_exit(int exitcode) {

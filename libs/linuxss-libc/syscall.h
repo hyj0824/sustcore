@@ -33,6 +33,7 @@ struct VMAInfo {
 
 extern "C" SysRet<void> sys_write_serial(size_t __always_zero, const char *str,
                                          size_t len);
+extern "C" SysRet<size_t> sys_time_now_ns();
 extern "C" SysRet<void> sys_pcb_kill(CapIdx pcb_cap, int exit_code);
 extern "C" SysRet<size_t> sys_pcb_query_vaddr(CapIdx pcb_cap, void *vaddr,
                                               VMAInfo *info);

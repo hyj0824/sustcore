@@ -10,6 +10,13 @@ sys_write_serial:
     syscall 0
     ret
 
+    .global sys_time_now_ns
+    .type sys_time_now_ns, @function
+sys_time_now_ns:
+    li.d $a7, SYS_TIME_NOW_NS
+    syscall 0
+    ret
+
     .global sys_pcb_kill
     .type sys_pcb_kill, @function
 sys_pcb_kill:
