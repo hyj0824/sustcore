@@ -67,7 +67,7 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     (void)envp;
     (void)bsargv;
 
-    printf("test_page_cache: start pid=%u\n", sys_getpid(__pcb_cap));
+    printf("test_page_cache: start pid=%u\n", sys_getpid(__pcb_cap).value());
     fill_data();
 
     kmod_unlink(TEST_FILE);
@@ -80,7 +80,7 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
 
     (void)stats(true);
 
-    size_t wrote = sys_vfs_write(file_cap, 0, g_data, sizeof(g_data));
+    size_t wrote = sys_vfs_write(file_cap, 0, g_data, sizeof(g_data)).value();
     check(wrote == sizeof(g_data), "multi-page write-back write failed");
 
     VFSPageCacheStats after_write = stats();
@@ -97,7 +97,8 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     for (size_t page = 0; page < TEST_PAGES; ++page) {
         memset(g_read, 0, sizeof(g_read));
         size_t got = sys_vfs_read(file_cap, page * PAGE_SIZE, g_read,
-                                  sizeof(g_read));
+                                  sizeof(g_read))
+                         .value();
         check(got == sizeof(g_read), "read full page after eviction failed");
         check(memcmp(g_read, g_data + page * PAGE_SIZE, sizeof(g_read)) == 0,
               "read after dirty eviction data mismatch");
@@ -114,7 +115,8 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     size_t hot_page = TEST_PAGES - 1;
     memset(g_read, 0, sizeof(g_read));
     size_t got = sys_vfs_read(file_cap, hot_page * PAGE_SIZE, g_read,
-                              sizeof(g_read));
+                              sizeof(g_read))
+                     .value();
     check(got == sizeof(g_read), "hot page read failed");
     check(memcmp(g_read, g_data + hot_page * PAGE_SIZE, sizeof(g_read)) == 0,
           "hot page data mismatch");
@@ -127,14 +129,14 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
           "rereading resident hot page should not miss");
 
     memset(g_read, 0, sizeof(g_read));
-    got = sys_vfs_read(file_cap, 0, g_read, sizeof(g_read));
+    got = sys_vfs_read(file_cap, 0, g_read, sizeof(g_read)).value();
     check(got == sizeof(g_read), "cold page refill failed");
     check(memcmp(g_read, g_data, sizeof(g_read)) == 0,
           "cold page refill data mismatch");
 
     memset(g_read, 0, sizeof(g_read));
-    got = sys_vfs_read(file_cap, hot_page * PAGE_SIZE, g_read,
-                       sizeof(g_read));
+    got = sys_vfs_read(file_cap, hot_page * PAGE_SIZE, g_read, sizeof(g_read))
+              .value();
     check(got == sizeof(g_read), "active hot page read failed");
     check(memcmp(g_read, g_data + hot_page * PAGE_SIZE, sizeof(g_read)) == 0,
           "active hot page data mismatch");
@@ -146,7 +148,8 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     check(after_lru.hits == after_hot.hits + 1,
           "active hot page should survive cold refill");
 
-    check(sys_vfs_sync(file_cap), "sync should flush dirty page");
+    check(sys_vfs_sync(file_cap),
+          "sync should flush dirty page");
 
     VFSPageCacheStats after_sync = stats();
     print_stats("after sync", after_sync);

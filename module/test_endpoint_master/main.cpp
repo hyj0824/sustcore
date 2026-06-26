@@ -18,7 +18,7 @@ static uint64_t recv_u64(CapIdx endpoint, const char *tag) {
         .capsz = 0,
     };
 
-    sys_endpoint_recv(endpoint, &packet);
+    (void)sys_endpoint_recv(endpoint, &packet).to_result();
     if (packet.msgsz != sizeof(value) || packet.capsz != 0) {
         printf("%s: 无效的消息 msgsz=%u capsz=%u\n", tag, packet.msgsz,
                packet.capsz);
@@ -36,9 +36,11 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     (void)envp;
     (void)bsargv_in;
     printf("test-endpoint-master: start\n");
-    printf("test-endpoint-master: pid=%u\n", sys_getpid(__pcb_cap));
+    printf("test-endpoint-master: pid=%u\n", sys_getpid(__pcb_cap).value());
 
-    CapIdx endpoint = sys_endpoint_create();
+    auto endpoint_res = sys_endpoint_create().to_result();
+    CapIdx endpoint =
+        endpoint_res.has_value() ? endpoint_res.value() : cap::error;
     if (endpoint == cap::error) {
         printf("test-endpoint-master: 创建端点失败!\n");
         exit(-1);
@@ -49,10 +51,16 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     const char *bsargv[] = {reinterpret_cast<const char *>(&bootstrap),
                             nullptr};
     int fd = kmod_fopen("/initrd/test_endpoint_slave.mod", "x");
-    CapIdx slave_pcb =
-        fd < 0 ? cap::error
-               : sys_create_process(kmod_getcap(fd), SCHED_CLASS_RR,
-                                    initial_caps, nullptr, nullptr, bsargv);
+    CapIdx slave_pcb = cap::error;
+    if (fd >= 0) {
+        auto slave_pcb_res =
+            sys_create_process(kmod_getcap(fd), SCHED_CLASS_RR, initial_caps,
+                               nullptr, nullptr, bsargv)
+                .to_result();
+        if (slave_pcb_res.has_value()) {
+            slave_pcb = slave_pcb_res.value();
+        }
+    }
     if (fd >= 0) {
         kmod_fclose(fd);
     }
@@ -74,7 +82,7 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
         memcpy(packet.msgbuf, &c, sizeof(c));
         printf("test-endpoint-master: 第%u轮 V=0x%016lx C=0x%016lx\n", round, v,
                c);
-        sys_endpoint_send(endpoint, &packet);
+        (void)sys_endpoint_send(endpoint, &packet).to_result();
     }
 
     exit(-1);

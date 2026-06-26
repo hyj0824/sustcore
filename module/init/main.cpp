@@ -85,10 +85,11 @@ CapIdx spawn_with_root_dir(int fd, size_t sched_class, CapIdx root_dir_cap) {
         return cap::error;
     }
 
-    CapIdx child_root_cap = sys_cap_clone(root_dir_cap);
-    if (child_root_cap == cap::null || child_root_cap == cap::error) {
+    auto child_root_res = sys_cap_clone(root_dir_cap).to_result();
+    if (!child_root_res.has_value()) {
         return cap::error;
     }
+    CapIdx child_root_cap = child_root_res.value();
 
     struct RootDirBootstrap {
         bsheader header;
@@ -112,10 +113,11 @@ CapIdx spawn_with_root_dir(int fd, size_t sched_class, CapIdx root_dir_cap) {
     CapIdx initial_caps[] = {child_root_cap, cap::null};
     const char *bsargv[]  = {reinterpret_cast<const char *>(&bootstrap),
                              nullptr};
-    CapIdx child_pcb      = sys_create_process(
-        kmod_getcap(fd), sched_class, initial_caps, nullptr, nullptr, bsargv);
-    sys_cap_remove(child_root_cap);
-    return child_pcb;
+    auto child_pcb_res    = sys_create_process(
+        kmod_getcap(fd), sched_class, initial_caps, nullptr, nullptr, bsargv)
+                            .to_result();
+    (void)sys_cap_remove(child_root_cap).to_result();
+    return child_pcb_res.has_value() ? child_pcb_res.value() : cap::error;
 }
 
 [[nodiscard]]
@@ -125,10 +127,11 @@ CapIdx spawn_linux_with_root_dir(int fd, size_t sched_class,
         return cap::error;
     }
 
-    CapIdx child_root_cap = sys_cap_clone(root_dir_cap);
-    if (child_root_cap == cap::null || child_root_cap == cap::error) {
+    auto child_root_res = sys_cap_clone(root_dir_cap).to_result();
+    if (!child_root_res.has_value()) {
         return cap::error;
     }
+    CapIdx child_root_cap = child_root_res.value();
 
     struct RootDirBootstrap {
         bsheader header;
@@ -152,10 +155,11 @@ CapIdx spawn_linux_with_root_dir(int fd, size_t sched_class,
     CapIdx initial_caps[] = {child_root_cap, cap::null};
     const char *bsargv[]  = {reinterpret_cast<const char *>(&bootstrap),
                              nullptr};
-    CapIdx child_pcb      = sys_create_linux_process(
-        kmod_getcap(fd), sched_class, initial_caps, nullptr, nullptr, bsargv);
-    sys_cap_remove(child_root_cap);
-    return child_pcb;
+    auto child_pcb_res    = sys_create_linux_process(
+        kmod_getcap(fd), sched_class, initial_caps, nullptr, nullptr, bsargv)
+                            .to_result();
+    (void)sys_cap_remove(child_root_cap).to_result();
+    return child_pcb_res.has_value() ? child_pcb_res.value() : cap::error;
 }
 
 void print_indent(size_t depth) {
@@ -188,8 +192,10 @@ std::vector<std::string> get_alldents(CapIdx dir_cap) {
     char buffer[kGetdentsBufferSize];
     size_t doff = 0;
     while (doff != DIR_ENTRY_END) {
+        auto getdents_res =
+            sys_vfs_getdents(dir_cap, buffer, sizeof(buffer), doff).to_result();
         size_t bytes_written =
-            sys_vfs_getdents(dir_cap, buffer, sizeof(buffer), doff);
+            getdents_res.has_value() ? getdents_res.value() : 0;
         if (bytes_written == 0) {
             break;
         }
@@ -259,7 +265,7 @@ void print_tree(CapIdx dir_cap, const char *path, size_t depth = 0) {
         }
 
         NodeMeta st{};
-        bool stat_ok      = sys_vfs_lstat(dir_cap, name.c_str(), &st);
+        bool stat_ok = sys_vfs_lstat(dir_cap, name.c_str(), &st);
         const bool is_dir = stat_ok && st.type == EntryType::DIR;
         const char *kind =
             !stat_ok
@@ -270,8 +276,11 @@ void print_tree(CapIdx dir_cap, const char *path, size_t depth = 0) {
         char link_target[256]{};
         bool has_link_target = false;
         if (stat_ok && st.type == EntryType::SYMLINK) {
-            size_t got = sys_vfs_readlink(dir_cap, name.c_str(), link_target,
-                                          sizeof(link_target) - 1);
+            auto readlink_res =
+                sys_vfs_readlink(dir_cap, name.c_str(), link_target,
+                                 sizeof(link_target) - 1)
+                    .to_result();
+            size_t got = readlink_res.has_value() ? readlink_res.value() : 0;
             if (got < sizeof(link_target)) {
                 link_target[got] = '\0';
                 has_link_target  = true;
@@ -285,10 +294,13 @@ void print_tree(CapIdx dir_cap, const char *path, size_t depth = 0) {
         }
 
         if (is_dir && depth + 1 < kMaxPrintDepth) {
-            CapIdx subdir = sys_vfs_opendir(dir_cap, name.c_str(), flags::O_READ);
+            auto subdir_res =
+                sys_vfs_opendir(dir_cap, name.c_str(), flags::O_READ).to_result();
+            CapIdx subdir =
+                subdir_res.has_value() ? subdir_res.value() : cap::error;
             if (subdir != cap::null && subdir != cap::error) {
                 print_tree(subdir, child_path, depth + 1);
-                sys_cap_remove(subdir);
+                (void)sys_cap_remove(subdir).to_result();
             }
         }
     }
@@ -300,14 +312,19 @@ void create_blk_linkings(CapIdx root_dir_cap) {
         return;
     }
 
-    CapIdx dev_dir =
+    auto dev_dir_res =
         sys_vfs_mkdir(root_dir_cap, "dev/",
-                      flags::O_READ | flags::O_WRITE | flags::O_EXECUTE);
+                      flags::O_READ | flags::O_WRITE | flags::O_EXECUTE)
+            .to_result();
+    CapIdx dev_dir = dev_dir_res.has_value() ? dev_dir_res.value() : cap::error;
     if (dev_dir != cap::null && dev_dir != cap::error) {
-        sys_cap_remove(dev_dir);
+        (void)sys_cap_remove(dev_dir).to_result();
     }
 
-    CapIdx sysdev_cap = sys_vfs_opendir(root_dir_cap, "sys/dev", flags::O_READ);
+    auto sysdev_res =
+        sys_vfs_opendir(root_dir_cap, "sys/dev", flags::O_READ).to_result();
+    CapIdx sysdev_cap =
+        sysdev_res.has_value() ? sysdev_res.value() : cap::error;
     if (sysdev_cap == cap::null || sysdev_cap == cap::error) {
         printf("init: open /sys/dev failed\n");
         return;
@@ -322,8 +339,11 @@ void create_blk_linkings(CapIdx root_dir_cap) {
             break;
         }
 
+        auto device_dir_res =
+            sys_vfs_opendir(sysdev_cap, device_name.c_str(), flags::O_READ)
+                .to_result();
         CapIdx device_dir =
-            sys_vfs_opendir(sysdev_cap, device_name.c_str(), flags::O_READ);
+            device_dir_res.has_value() ? device_dir_res.value() : cap::error;
         if (device_dir == cap::null || device_dir == cap::error) {
             continue;
         }
@@ -336,7 +356,7 @@ void create_blk_linkings(CapIdx root_dir_cap) {
                 break;
             }
         }
-        sys_cap_remove(device_dir);
+        (void)sys_cap_remove(device_dir).to_result();
         if (!has_vblk) {
             continue;
         }
@@ -351,7 +371,7 @@ void create_blk_linkings(CapIdx root_dir_cap) {
         ++blk_count;
     }
 
-    sys_cap_remove(sysdev_cap);
+    (void)sys_cap_remove(sysdev_cap).to_result();
 }
 
 void mount_testing_ext4(CapIdx root_dir_cap) {
@@ -360,33 +380,39 @@ void mount_testing_ext4(CapIdx root_dir_cap) {
         return;
     }
 
-    CapIdx blk_cap = sys_vfs_open(root_dir_cap, "dev/vda", flags::O_READ);
+    auto blk_cap_res =
+        sys_vfs_open(root_dir_cap, "dev/vda", flags::O_READ).to_result();
+    CapIdx blk_cap = blk_cap_res.has_value() ? blk_cap_res.value() : cap::error;
     if (blk_cap == cap::null || blk_cap == cap::error) {
         printf("init: open /dev/vda failed\n");
         return;
     }
 
-    CapIdx testing_dir =
+    auto testing_dir_res =
         sys_vfs_mkdir(root_dir_cap, "testing/",
-                      flags::O_READ | flags::O_WRITE | flags::O_EXECUTE);
+                      flags::O_READ | flags::O_WRITE | flags::O_EXECUTE)
+            .to_result();
+    CapIdx testing_dir =
+        testing_dir_res.has_value() ? testing_dir_res.value() : cap::error;
     if (testing_dir != cap::null && testing_dir != cap::error) {
-        sys_cap_remove(testing_dir);
+        (void)sys_cap_remove(testing_dir);
     }
 
-    CapIdx mnt_cap = sys_mnt_create(blk_cap, "ext4", 0, nullptr);
+    auto mnt_cap_res = sys_mnt_create(blk_cap, "ext4", 0, nullptr).to_result();
+    CapIdx mnt_cap = mnt_cap_res.has_value() ? mnt_cap_res.value() : cap::error;
     bool mounted = false;
     if (mnt_cap == cap::null || mnt_cap == cap::error) {
         printf("init: create ext4 mount failed\n");
     } else {
         mounted = sys_mnt_mount(mnt_cap, root_dir_cap, "testing/", 0);
-        sys_cap_remove(mnt_cap);
+        (void)sys_cap_remove(mnt_cap);
     }
     if (mounted) {
         printf("init: mount /testing succeeded\n");
     } else {
         printf("init: mount /testing failed\n");
     }
-    sys_cap_remove(blk_cap);
+    (void)sys_cap_remove(blk_cap);
 }
 
 void setup_stdout_link() {
@@ -423,18 +449,21 @@ void run_requests(const std::vector<SpawnRequest> &requests,
             continue;
         }
 
-        size_t pid = sys_getpid(child_pcb);
+        size_t pid = sys_getpid(child_pcb).value();
         printf("init: 创建 %s, pid=%lu\n", request.dispname,
                static_cast<unsigned long>(pid));
         kmod_fclose(fd);
 
         CapIdx wait_caps[] = {child_pcb, cap::null};
-        CapIdx exited_cap  =
-            sys_tcb_wait(__main_tcb_cap, wait_caps, nullptr, 0);
-        if (exited_cap == cap::null || exited_cap == cap::error) {
+        
+        auto wait_ret = sys_tcb_wait(__main_tcb_cap, wait_caps, nullptr, 0).to_result();
+        if (!wait_ret.has_value()) {
             printf("init: 等待 %s 失败\n", request.dispname);
-            return;
+            continue;
         }
+
+        CapIdx exited_cap  = wait_ret.value();
+        assert(exited_cap != cap::null && exited_cap != cap::error);
         printf("init: %s 已完成!\n", request.dispname);
     }
 }

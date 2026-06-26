@@ -79,9 +79,15 @@ namespace {
         size_t offset = 0;
         size_t cursor = page_align_up_user(__linuxss_ssheap_base + PAGESIZE);
         while (true) {
-            size_t count = sys_pcb_query_vspace(__prog_pcb_cap, offset, infos,
-                                                LINUX_MMAP_QUERY_BATCH);
-            if (count == 0 || count == static_cast<size_t>(-1)) {
+            auto count_res =
+                sys_pcb_query_vspace(__prog_pcb_cap, offset, infos,
+                                     LINUX_MMAP_QUERY_BATCH)
+                    .to_result();
+            if (!count_res.has_value()) {
+                return cursor;
+            }
+            size_t count = count_res.value();
+            if (count == 0) {
                 return cursor;
             }
             for (size_t i = 0; i < count; ++i) {
@@ -340,12 +346,14 @@ size_t linux_sys_mmap(void *addr, size_t length, size_t prot, size_t flags,
         return INVALID_VALUE;
     }
 
-    CapIdx mem_cap =
+    auto mem_cap_res =
         sys_mem_create(cap::null, aligned_length, false, false,
-                       MEMORY_GROWTH_FIXED, 0);
-    if (mem_cap == cap::null || mem_cap == cap::error) {
+                       MEMORY_GROWTH_FIXED, 0)
+            .to_result();
+    if (!mem_cap_res.has_value()) {
         return INVALID_VALUE;
     }
+    CapIdx mem_cap = mem_cap_res.value();
     if (!sys_pcb_map(__prog_pcb_cap, mem_cap, 0,
                      reinterpret_cast<void *>(target_addr), aligned_length,
                      prot_to_vma_prot(prot)))

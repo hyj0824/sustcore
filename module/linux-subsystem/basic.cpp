@@ -201,7 +201,8 @@ size_t linux_sys_brk(size_t newbrk) {
     if (__prog_heap_mem_cap == cap::null) {
         return __prog_brk;
     }
-    if (!sys_mem_resize(__prog_heap_mem_cap, newbrk - __prog_heap_base)) {
+    if (!sys_mem_resize(__prog_heap_mem_cap, newbrk - __prog_heap_base))
+    {
         return __prog_brk;
     }
 
@@ -226,7 +227,7 @@ size_t linux_sys_uname(void *buf) {
 }
 [[noreturn]]
 void linux_sys_exit(int exitcode) {
-    sys_pcb_kill(__prog_pcb_cap, exitcode);
+    (void)sys_pcb_kill(__prog_pcb_cap, exitcode).to_result();
     loggers::LXRT::ERROR("sys_exit 返回到不应执行的位置: exitcode=%d",
                          exitcode);
     while (true);
@@ -236,16 +237,20 @@ size_t linux_sys_getpid() {
     if (__prog_pcb_cap == cap::null || __prog_pcb_cap == cap::error) {
         return INVALID_VALUE;
     }
-    return sys_getpid(__prog_pcb_cap);
+    return sys_getpid(__prog_pcb_cap).value();
 }
 
 size_t linux_sys_getppid() {
     if (__prog_parent_cap == cap::null || __prog_parent_cap == cap::error) {
         return 0;
     }
-    return sys_getpid(__prog_parent_cap);
+    return sys_getpid(__prog_parent_cap).value();
 }
 
 size_t linux_sys_sched_yield() {
-    return sys_yield() != 0 ? INVALID_VALUE : 0;
+    auto yield_res = sys_yield().to_result();
+    if (!yield_res.has_value()) {
+        return INVALID_VALUE;
+    }
+    return yield_res.value() != 0 ? INVALID_VALUE : 0;
 }

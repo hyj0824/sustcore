@@ -47,7 +47,9 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     (void)argv;
     (void)envp;
     (void)bsargv_in;
-    CapIdx endpoint = sys_endpoint_create();
+    auto endpoint_res = sys_endpoint_create().to_result();
+    CapIdx endpoint =
+        endpoint_res.has_value() ? endpoint_res.value() : cap::error;
     if (endpoint == cap::error) {
         printf("Failed to create endpoint\n");
         exit(0);
@@ -61,10 +63,16 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     const char *bsargv[] = {reinterpret_cast<const char *>(&bootstrap),
                             nullptr};
     int fd                = kmod_fopen("/initrd/test_rpc_client.mod", "x");
-    CapIdx client_pcb     =
-        fd < 0 ? cap::error
-               : sys_create_process(kmod_getcap(fd), SCHED_CLASS_FCFS,
-                                    initial_caps, nullptr, nullptr, bsargv);
+    CapIdx client_pcb = cap::error;
+    if (fd >= 0) {
+        auto client_pcb_res =
+            sys_create_process(kmod_getcap(fd), SCHED_CLASS_FCFS,
+                               initial_caps, nullptr, nullptr, bsargv)
+                .to_result();
+        if (client_pcb_res.has_value()) {
+            client_pcb = client_pcb_res.value();
+        }
+    }
     if (fd >= 0) {
         kmod_fclose(fd);
     }
@@ -72,7 +80,7 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
         printf("Failed to create test_rpc_client\n");
         exit(0);
     }
-    sys_cap_remove(client_pcb);
+    (void)sys_cap_remove(client_pcb).to_result();
     printf("test_rpc_server: client started\n");
 
     while (true) {
@@ -80,7 +88,7 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
             .msgsz = MAX_MSG_SIZE,
             .capsz = MAX_MSG_CAPS,
         };
-        sys_endpoint_recv(endpoint, &recv_msg);
+        (void)sys_endpoint_recv(endpoint, &recv_msg).to_result();
         if (rpc::is_rpc_message(recv_msg)) {
             server.handle_message(recv_msg);
         } else {

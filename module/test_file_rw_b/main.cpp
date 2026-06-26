@@ -25,7 +25,7 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     (void)argv;
     (void)envp;
     (void)bsargv;
-    printf("test_file_rw_b: start pid=%u\n", sys_getpid(__pcb_cap));
+    printf("test_file_rw_b: start pid=%u\n", sys_getpid(__pcb_cap).value());
 
     int fd = kmod_fopen(TMPFS_FILE, "r");
     if (fd < 0) {

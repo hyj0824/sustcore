@@ -59,7 +59,7 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     (void)argv;
     (void)envp;
     (void)bsargv_in;
-    printf("test_file_rw_a: start pid=%u\n", sys_getpid(__pcb_cap));
+    printf("test_file_rw_a: start pid=%u\n", sys_getpid(__pcb_cap).value());
 
     if (kmod_mkdir(TMPFS_DIR0) != 0) {
         printf("test_file_rw_a: mkdir failed: %s\n", TMPFS_DIR0);
@@ -127,7 +127,9 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
                             nullptr};
 
     printf("test_file_rw_a: execve -> %s\n", MODULE_B);
-    if (!execve(kmod_getcap(exec_fd), reserved_caps, nullptr, nullptr, bsargv))
+    if (!execve(kmod_getcap(exec_fd), reserved_caps, nullptr, nullptr, bsargv)
+             .to_result()
+             .has_value())
     {
         printf("test_file_rw_a: execve failed\n");
         kmod_fclose(exec_fd);

@@ -35,27 +35,27 @@ namespace contest_runner {
                 return cap::error;
             }
 
-            CapIdx child_root_cap = sys_cap_clone(root_dir_cap);
-            if (child_root_cap == cap::null || child_root_cap == cap::error) {
+            auto child_root_res = sys_cap_clone(root_dir_cap).to_result();
+            if (!child_root_res.has_value()) {
                 return cap::error;
             }
-            CapIdx child_cwd_dir_cap = sys_cap_clone(cwd_dir_cap);
-            if (child_cwd_dir_cap == cap::null ||
-                child_cwd_dir_cap == cap::error)
-            {
-                sys_cap_remove(child_root_cap);
+            CapIdx child_root_cap = child_root_res.value();
+            auto child_cwd_res    = sys_cap_clone(cwd_dir_cap).to_result();
+            if (!child_cwd_res.has_value()) {
+                (void)sys_cap_remove(child_root_cap).to_result();
                 return cap::error;
             }
-            CapIdx child_parent_pcb_cap =
+            CapIdx child_cwd_dir_cap = child_cwd_res.value();
+            auto child_parent_res =
                 sys_cap_derive(__pcb_cap,
-                               PERM_PCB_GETPID | PERM_BASIC_MIGRATE_ONCE);
-            if (child_parent_pcb_cap == cap::null ||
-                child_parent_pcb_cap == cap::error)
-            {
-                sys_cap_remove(child_root_cap);
-                sys_cap_remove(child_cwd_dir_cap);
+                               PERM_PCB_GETPID | PERM_BASIC_MIGRATE_ONCE)
+                    .to_result();
+            if (!child_parent_res.has_value()) {
+                (void)sys_cap_remove(child_root_cap).to_result();
+                (void)sys_cap_remove(child_cwd_dir_cap).to_result();
                 return cap::error;
             }
+            CapIdx child_parent_pcb_cap = child_parent_res.value();
 
             struct RootDirBootstrap {
                 bsheader header;
@@ -120,9 +120,9 @@ namespace contest_runner {
             if (cwd_desc_len <= 0 ||
                 static_cast<size_t>(cwd_desc_len) >= sizeof(cwd_desc))
             {
-                sys_cap_remove(child_root_cap);
-                sys_cap_remove(child_cwd_dir_cap);
-                sys_cap_remove(child_parent_pcb_cap);
+                (void)sys_cap_remove(child_root_cap).to_result();
+                (void)sys_cap_remove(child_cwd_dir_cap).to_result();
+                (void)sys_cap_remove(child_parent_pcb_cap).to_result();
                 return cap::error;
             }
 
@@ -144,15 +144,17 @@ namespace contest_runner {
                 cwd_path_bootstrap,
                 nullptr,
             };
-            CapIdx child_pcb      = sys_create_linux_process(
+            auto child_pcb_res    = sys_create_linux_process(
                 kmod_getcap(fd), SCHED_CLASS_FCFS, initial_caps, argv, nullptr,
-                bsargv);
-            sys_cap_remove(child_root_cap);
-            sys_cap_remove(child_cwd_dir_cap);
-            if (child_pcb == cap::null || child_pcb == cap::error) {
-                sys_cap_remove(child_parent_pcb_cap);
+                bsargv)
+                                        .to_result();
+            (void)sys_cap_remove(child_root_cap).to_result();
+            (void)sys_cap_remove(child_cwd_dir_cap).to_result();
+            if (!child_pcb_res.has_value()) {
+                (void)sys_cap_remove(child_parent_pcb_cap).to_result();
+                return cap::error;
             }
-            return child_pcb;
+            return child_pcb_res.value();
         }
     }  // namespace
 
@@ -226,10 +228,13 @@ namespace contest_runner {
         }
 
         CapIdx wait_caps[] = {child_pcb, cap::null};
-        CapIdx exited_cap  = sys_tcb_wait(__main_tcb_cap, wait_caps, &status, 0);
-        if (exited_cap == cap::null || exited_cap == cap::error) {
+        auto wait_ret = sys_tcb_wait(__main_tcb_cap, wait_caps, &status, 0)
+                            .to_result();
+        if (!wait_ret.has_value()) {
             return RunProgramError::WAIT_FAILED;
         }
+        CapIdx exited_cap = wait_ret.value();
+        assert(exited_cap != cap::null && exited_cap != cap::error);
         return RunProgramError::NONE;
     }
 
@@ -303,6 +308,6 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
            static_cast<unsigned long>(total.total),
            static_cast<unsigned long>(total.passed),
            static_cast<unsigned long>(total.failed));
-    sys_shutdown();
+    (void)sys_shutdown().to_result();
     return total.failed == 0 ? 0 : 1;
 }

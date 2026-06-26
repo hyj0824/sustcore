@@ -43,8 +43,11 @@ namespace contest_runner {
 
             while (true) {
                 memset(buffer, 0, sizeof(buffer));
+                auto getdents_res =
+                    sys_vfs_getdents(dir_cap, buffer, sizeof(buffer), offset)
+                        .to_result();
                 size_t bytes =
-                    sys_vfs_getdents(dir_cap, buffer, sizeof(buffer), offset);
+                    getdents_res.has_value() ? getdents_res.value() : 0;
                 if (bytes == 0) {
                     break;
                 }
@@ -65,7 +68,8 @@ namespace contest_runner {
 
                     if (strcmp(name, ".") != 0 && strcmp(name, "..") != 0) {
                         NodeMeta meta{};
-                        if (!sys_vfs_stat(dir_cap, name, &meta)) {
+                        if (!sys_vfs_stat(dir_cap, name, &meta))
+                        {
                             return false;
                         }
                         if (meta.type == EntryType::FILE) {

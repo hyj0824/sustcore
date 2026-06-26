@@ -74,9 +74,10 @@ namespace {
         CapIdx file_cap = kmod_getcap(fd);
         check(file_cap != cap::null && file_cap != cap::error,
               "file capability missing");
-        size_t wrote = sys_vfs_write(file_cap, 0, data, len);
+        size_t wrote = sys_vfs_write(file_cap, 0, data, len).value();
         check(wrote == len, "write file failed");
-        check(sys_vfs_sync(file_cap), "sync file failed");
+        check(sys_vfs_sync(file_cap),
+              "sync file failed");
         return fd;
     }
 
@@ -84,7 +85,8 @@ namespace {
         for (size_t page = 0; page < pages; ++page) {
             memset(g_read, 0, sizeof(g_read));
             size_t got = sys_vfs_read(file_cap, page * PAGE_SIZE, g_read,
-                                      PAGE_SIZE);
+                                      PAGE_SIZE)
+                             .value();
             check(got == PAGE_SIZE, "scan page read failed");
         }
     }
@@ -93,17 +95,18 @@ namespace {
         scan_pages(evict_cap, EVICT_PAGES);
         (void)stats(true);
 
-        uint64_t start_ns = sys_time_now_ns();
+        uint64_t start_ns = sys_time_now_ns().value();
         for (size_t i = 0; i < REPEAT_READS; ++i) {
             memset(g_read, 0, sizeof(g_read));
             size_t got = sys_vfs_read(hello_cap, 0, g_read,
-                                      sizeof(HELLO_CONTENT) - 1);
+                                      sizeof(HELLO_CONTENT) - 1)
+                             .value();
             check(got == sizeof(HELLO_CONTENT) - 1,
                   "hello repeated read length mismatch");
             check(memcmp(g_read, HELLO_CONTENT, sizeof(HELLO_CONTENT) - 1) == 0,
                   "hello repeated read data mismatch");
         }
-        uint64_t elapsed_ns = sys_time_now_ns() - start_ns;
+        uint64_t elapsed_ns = sys_time_now_ns().value() - start_ns;
 
         VFSPageCacheStats after = stats();
         print_stats("repeated hello reads", after);
@@ -121,7 +124,8 @@ namespace {
             for (size_t repeat = 0; repeat < 2; ++repeat) {
                 memset(g_read, 0, sizeof(g_read));
                 size_t got = sys_vfs_read(hot_cap, page * PAGE_SIZE, g_read,
-                                          PAGE_SIZE);
+                                          PAGE_SIZE)
+                                 .value();
                 check(got == PAGE_SIZE, "warm hot page read failed");
                 check(memcmp(g_read, g_hot_data + page * PAGE_SIZE,
                              PAGE_SIZE) == 0,
@@ -134,12 +138,13 @@ namespace {
         warm_hot_pages(hot_cap);
         (void)stats(true);
 
-        uint64_t start_ns = sys_time_now_ns();
+        uint64_t start_ns = sys_time_now_ns().value();
         for (size_t iter = 0; iter < HOT_ITERATIONS; ++iter) {
             for (size_t page = 0; page < HOT_PAGES; ++page) {
                 memset(g_read, 0, sizeof(g_read));
                 size_t got = sys_vfs_read(hot_cap, page * PAGE_SIZE, g_read,
-                                          PAGE_SIZE);
+                                          PAGE_SIZE)
+                                 .value();
                 check(got == PAGE_SIZE, "hot page read failed");
                 check(memcmp(g_read, g_hot_data + page * PAGE_SIZE,
                              PAGE_SIZE) == 0,
@@ -149,13 +154,14 @@ namespace {
             size_t cold_page = HOT_PAGES + (iter % COLD_PAGES);
             memset(g_read, 0, sizeof(g_read));
             size_t got = sys_vfs_read(hot_cap, cold_page * PAGE_SIZE, g_read,
-                                      PAGE_SIZE);
+                                      PAGE_SIZE)
+                             .value();
             check(got == PAGE_SIZE, "cold page read failed");
             check(memcmp(g_read, g_hot_data + cold_page * PAGE_SIZE,
                          PAGE_SIZE) == 0,
                   "cold page data mismatch");
         }
-        uint64_t elapsed_ns = sys_time_now_ns() - start_ns;
+        uint64_t elapsed_ns = sys_time_now_ns().value() - start_ns;
 
         VFSPageCacheStats after = stats();
         print_stats("hotspot access", after);
@@ -177,16 +183,16 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     (void)envp;
     (void)bsargv;
 
-    printf("test_page_cache_perf: start pid=%u\n", sys_getpid(__pcb_cap));
+    printf("test_page_cache_perf: start pid=%u\n", sys_getpid(__pcb_cap).value());
     fill_data();
 
     int hello_fd = create_file(HELLO_FILE, HELLO_CONTENT,
                                sizeof(HELLO_CONTENT) - 1);
-    int hot_fd = create_file(HOT_FILE, g_hot_data, sizeof(g_hot_data));
+    int hot_fd   = create_file(HOT_FILE, g_hot_data, sizeof(g_hot_data));
     int evict_fd = create_file(EVICT_FILE, g_evict_data, sizeof(g_evict_data));
 
     CapIdx hello_cap = kmod_getcap(hello_fd);
-    CapIdx hot_cap = kmod_getcap(hot_fd);
+    CapIdx hot_cap   = kmod_getcap(hot_fd);
     CapIdx evict_cap = kmod_getcap(evict_fd);
     check(hello_cap != cap::null && hello_cap != cap::error,
           "hello cap missing");

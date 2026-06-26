@@ -24,7 +24,7 @@ static void serve_one(CapIdx endpoint) {
         .capsz = MAX_MSG_CAPS,
     };
 
-    sys_endpoint_recv(endpoint, &packet);
+    (void)sys_endpoint_recv(endpoint, &packet).to_result();
     if (packet.msgsz != sizeof(request) || packet.capsz != 1) {
         printf("test_call_service: 请求格式错误 msgsz=%u capsz=%u\n",
                packet.msgsz, packet.capsz);
@@ -59,7 +59,7 @@ static void serve_one(CapIdx endpoint) {
         .capsz = 0,
     };
     memcpy(reply.msgbuf, &result, sizeof(result));
-    endpoint_reply(packet.caplist[0], &reply);
+    (void)endpoint_reply(packet.caplist[0], &reply).to_result();
 }
 
 extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
@@ -68,8 +68,10 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     (void)argv;
     (void)envp;
     (void)bsargv_in;
-    printf("test_call_service: start pid=%u\n", sys_getpid(__pcb_cap));
-    CapIdx endpoint = sys_endpoint_create();
+    printf("test_call_service: start pid=%u\n", sys_getpid(__pcb_cap).value());
+    auto endpoint_res = sys_endpoint_create().to_result();
+    CapIdx endpoint =
+        endpoint_res.has_value() ? endpoint_res.value() : cap::error;
     if (endpoint == cap::error) {
         printf("test_call_service: 创建endpoint失败\n");
         exit(-1);
@@ -80,10 +82,16 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     const char *bsargv[] = {reinterpret_cast<const char *>(&bootstrap),
                             nullptr};
     int fd                = kmod_fopen("/initrd/test_call_user.mod", "x");
-    CapIdx user_pcb       =
-        fd < 0 ? cap::error
-               : sys_create_process(kmod_getcap(fd), SCHED_CLASS_RR,
-                                    initial_caps, nullptr, nullptr, bsargv);
+    CapIdx user_pcb = cap::error;
+    if (fd >= 0) {
+        auto user_pcb_res =
+            sys_create_process(kmod_getcap(fd), SCHED_CLASS_RR, initial_caps,
+                               nullptr, nullptr, bsargv)
+                .to_result();
+        if (user_pcb_res.has_value()) {
+            user_pcb = user_pcb_res.value();
+        }
+    }
     if (fd >= 0) {
         kmod_fclose(fd);
     }
@@ -91,7 +99,7 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
         printf("test_call_service: 创建user失败\n");
         exit(-1);
     }
-    sys_cap_remove(user_pcb);
+    (void)sys_cap_remove(user_pcb).to_result();
 
     serve_one(endpoint);
     serve_one(endpoint);

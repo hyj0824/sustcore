@@ -144,7 +144,10 @@ namespace {
     [[nodiscard]]
     bool find_child_cap_by_pid(int pid, CapIdx &pcb_cap) noexcept {
         for (auto child_cap : __prog_children) {
-            if (sys_getpid(child_cap) == static_cast<size_t>(pid)) {
+            auto pid_res = sys_getpid(child_cap).to_result();
+            if (pid_res.has_value() &&
+                pid_res.value() == static_cast<size_t>(pid))
+            {
                 pcb_cap = child_cap;
                 return true;
             }
@@ -183,7 +186,13 @@ size_t clone_process(size_t flags, addr_t newsp, int *parent_tid,
     }
 
     CapIdx child_pcb_cap = cap::null;
-    size_t pid           = sys_pcb_fork(__prog_pcb_cap, &child_pcb_cap);
+    auto fork_res = sys_pcb_fork(__prog_pcb_cap, &child_pcb_cap).to_result();
+    if (!fork_res.has_value()) {
+        loggers::LXRT::ERROR("fork syscall failed");
+        return static_cast<size_t>(-ECHILD);
+    }
+
+    size_t pid = fork_res.value();
     if (pid == 0 && child_pcb_cap != cap::null && child_pcb_cap != cap::error) {
         loggers::LXRT::INFO("fork 子进程返回");
         CapIdx parent_pcb_cap = __prog_pcb_cap;
@@ -288,19 +297,22 @@ size_t linux_sys_wait4(int pid, int *status, int options, void *rusage) {
     size_t wait_options = options == WAIT4_WNOHANG
                               ? static_cast<size_t>(WAIT4_WNOHANG)
                               : 0;
-    CapIdx waited_cap =
+    auto wait_res =
         sys_tcb_wait(__prog_main_tcb_cap, wait_caps.data(), status_ptr,
-                     wait_options);
-    if (waited_cap == cap::null) {
-        loggers::LXSC::INFO("wait4 WNOHANG 未等到子进程退出");
-        return 0;
-    }
-    if (waited_cap == cap::error) {
+                     wait_options)
+            .to_result();
+    if (!wait_res.has_value()) {
         loggers::LXSC::ERROR("wait4 syscall 失败");
         return static_cast<size_t>(-ECHILD);
     }
 
-    const size_t child_pid = sys_getpid(waited_cap);
+    CapIdx waited_cap = wait_res.value();
+    if (waited_cap == cap::null) {
+        loggers::LXSC::INFO("wait4 WNOHANG 未等到子进程退出");
+        return 0;
+    }
+
+    const size_t child_pid = sys_getpid(waited_cap).value();
     size_t child_index     = find_child_index_by_cap(waited_cap);
     if (child_index == __prog_children.size()) {
         loggers::LXRT::ERROR("wait4 返回未知子进程能力=%p",

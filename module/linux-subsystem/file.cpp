@@ -238,7 +238,10 @@ namespace {
         if (parent_cap == cap::null || parent_cap == cap::error) {
             return cap::error;
         }
-        return sys_vfs_opendir(parent_cap, relative_path.c_str(), flags::O_READ);
+        auto dir_res =
+            sys_vfs_opendir(parent_cap, relative_path.c_str(), flags::O_READ)
+                .to_result();
+        return dir_res.has_value() ? dir_res.value() : cap::error;
     }
 
     [[nodiscard]]
@@ -529,13 +532,22 @@ namespace {
             return -ENOENT;
         }
 
-        CapIdx file_cap = want_directory
-                              ? sys_vfs_opendir(resolved.parent_cap,
-                                                resolved.relative_path.c_str(),
-                                                sustcore_flags)
-                              : sys_vfs_open(resolved.parent_cap,
-                                             resolved.relative_path.c_str(),
-                                             sustcore_flags);
+        CapIdx file_cap = cap::error;
+        if (want_directory) {
+            auto dir_res =
+                sys_vfs_opendir(resolved.parent_cap,
+                                resolved.relative_path.c_str(),
+                                sustcore_flags)
+                    .to_result();
+            file_cap = dir_res.has_value() ? dir_res.value() : cap::error;
+        } else {
+            auto file_res =
+                sys_vfs_open(resolved.parent_cap,
+                             resolved.relative_path.c_str(),
+                             sustcore_flags)
+                    .to_result();
+            file_cap = file_res.has_value() ? file_res.value() : cap::error;
+        }
         if (file_cap == cap::null || file_cap == cap::error) {
             loggers::LXSC::ERROR("Invalid path: %s", resolved.absolute_path.c_str());
             return want_directory ? -ENOTDIR : -ENOENT;
@@ -568,9 +580,11 @@ size_t linux_open_fd(const char *pathname, int fd, int flags) {
     }
 
     flags::oflg_t sustcore_flags = linux_oflags_to_sustcore(flags);
-    CapIdx file_cap =
+    auto file_res =
         sys_vfs_open(resolved.parent_cap, resolved.relative_path.c_str(),
-                     sustcore_flags);
+                     sustcore_flags)
+            .to_result();
+    CapIdx file_cap = file_res.has_value() ? file_res.value() : cap::error;
     if (file_cap == cap::null || file_cap == cap::error) {
         return -ENOENT;
     }
@@ -584,9 +598,11 @@ size_t linux_opendir_fd(const char *pathname, int fd) {
         return -ENOENT;
     }
 
-    CapIdx dir_cap =
+    auto dir_res =
         sys_vfs_opendir(resolved.parent_cap, resolved.relative_path.c_str(),
-                        flags::O_READ);
+                        flags::O_READ)
+            .to_result();
+    CapIdx dir_cap = dir_res.has_value() ? dir_res.value() : cap::error;
     if (dir_cap == cap::null || dir_cap == cap::error) {
         return -ENOTDIR;
     }
@@ -606,11 +622,13 @@ size_t linux_sys_write(size_t fd, const void *buf, size_t len) {
     }
 
     size_t offset  = fd_offset(static_cast<int>(fd));
-    size_t written = sys_vfs_write(file_cap, offset,
-                                   reinterpret_cast<const void *>(buf), len);
-    if (written == INVALID_VALUE) {
+    auto write_res = sys_vfs_write(file_cap, offset,
+                                   reinterpret_cast<const void *>(buf), len)
+                         .to_result();
+    if (!write_res.has_value()) {
         return -EIO;
     }
+    size_t written = write_res.value();
 
     set_fd_offset(static_cast<int>(fd), offset + written);
     return written;
@@ -633,10 +651,11 @@ size_t linux_sys_read(int fd, void *buf, size_t count) {
     }
 
     size_t offset = fd_offset(fd);
-    size_t nread  = sys_vfs_read(file_cap, offset, buf, count);
-    if (nread == INVALID_VALUE) {
+    auto read_res = sys_vfs_read(file_cap, offset, buf, count).to_result();
+    if (!read_res.has_value()) {
         return -EIO;
     }
+    size_t nread = read_res.value();
 
     set_fd_offset(fd, offset + nread);
     return nread;
@@ -665,10 +684,11 @@ size_t linux_sys_dup(int oldfd) {
         return -EBADF;
     }
 
-    CapIdx new_cap = sys_cap_clone(old_cap);
-    if (new_cap == cap::null || new_cap == cap::error) {
+    auto new_cap_res = sys_cap_clone(old_cap).to_result();
+    if (!new_cap_res.has_value()) {
         return -EBADF;
     }
+    CapIdx new_cap = new_cap_res.value();
 
     int newfd = alloc_fd(new_cap);
     if (newfd < 0) {
@@ -703,10 +723,11 @@ size_t linux_sys_dup3(int oldfd, int newfd, int flags) {
         return -EBADF;
     }
 
-    CapIdx new_cap = sys_cap_clone(old_cap);
-    if (new_cap == cap::null || new_cap == cap::error) {
+    auto new_cap_res = sys_cap_clone(old_cap).to_result();
+    if (!new_cap_res.has_value()) {
         return -EBADF;
     }
+    CapIdx new_cap = new_cap_res.value();
 
     clear_dir_fd_state(newfd);
     if (!bind_fd(newfd, new_cap)) {
@@ -763,10 +784,11 @@ size_t linux_sys_lseek(int fd, size_t offset, int whence) {
             new_offset = fd_offset(fd) + offset;
             break;
         case 2: {
-            size_t file_size = sys_vfs_size(file_cap);
-            if (file_size == static_cast<size_t>(-1)) {
+            auto file_size_res = sys_vfs_size(file_cap).to_result();
+            if (!file_size_res.has_value()) {
                 return -EIO;
             }
+            size_t file_size = file_size_res.value();
             new_offset = file_size + offset;
             break;
         }
@@ -798,13 +820,15 @@ size_t linux_sys_chdir(const char *pathname) {
         return -ENOENT;
     }
 
-    CapIdx dir_cap =
+    auto dir_res =
         sys_vfs_opendir(resolved.parent_cap, resolved.relative_path.c_str(),
-                        flags::O_READ);
+                        flags::O_READ)
+            .to_result();
+    CapIdx dir_cap = dir_res.has_value() ? dir_res.value() : cap::error;
     if (dir_cap == cap::null || dir_cap == cap::error) {
         return -ENOTDIR;
     }
-    sys_cap_remove(dir_cap);
+    (void)sys_cap_remove(dir_cap);
 
     return refresh_cwd_dir_cap(resolved.absolute_path) ? 0 : -EIO;
 }
@@ -821,13 +845,15 @@ size_t linux_sys_mkdirat(int dirfd, const char *pathname, int mode) {
         return -ENOENT;
     }
 
-    CapIdx dir_cap =
+    auto dir_res =
         sys_vfs_mkdir(resolved.parent_cap, resolved.relative_path.c_str(),
-                      flags::O_READ);
+                      flags::O_READ)
+            .to_result();
+    CapIdx dir_cap = dir_res.has_value() ? dir_res.value() : cap::error;
     if (dir_cap == cap::null || dir_cap == cap::error) {
         return -EIO;
     }
-    sys_cap_remove(dir_cap);
+    (void)sys_cap_remove(dir_cap);
     return 0;
 }
 
@@ -844,11 +870,12 @@ size_t linux_sys_unlinkat(int dirfd, const char *pathname, int flags) {
         return -ENOENT;
     }
 
-    bool ok = (flags & AT_REMOVEDIR) != 0
-                  ? sys_vfs_rmdir(resolved.parent_cap,
-                                  resolved.relative_path.c_str())
-                  : sys_vfs_unlink(resolved.parent_cap,
-                                   resolved.relative_path.c_str());
+    bool ok =
+        ((flags & AT_REMOVEDIR) != 0
+             ? sys_vfs_rmdir(resolved.parent_cap,
+                             resolved.relative_path.c_str())
+             : sys_vfs_unlink(resolved.parent_cap,
+                              resolved.relative_path.c_str()));
     return ok ? 0 : -EIO;
 }
 
@@ -872,8 +899,11 @@ size_t linux_sys_getdents64(int fd, void *dirp, size_t count) {
     }
 
     char raw_entries[LINUX_PATH_MAX]{};
+    auto raw_size_res =
+        sys_vfs_getdents(dir_cap, raw_entries, sizeof(raw_entries), next_index)
+            .to_result();
     size_t raw_size =
-        sys_vfs_getdents(dir_cap, raw_entries, sizeof(raw_entries), next_index);
+        raw_size_res.has_value() ? raw_size_res.value() : INVALID_VALUE;
     if (raw_size == INVALID_VALUE) {
         return -EIO;
     }

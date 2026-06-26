@@ -81,7 +81,8 @@ namespace cap {
     constexpr CapIdx null  = 0;
     constexpr CapIdx error = 0xFFFFFFFFFFFFFFFF;
 
-    constexpr b64 MASK_VALID  = 0x8000000000000000;
+    // 最高几位留空以允许系统调用返回负值
+    constexpr b64 MASK_VALID  = 0x1000000000000000;
     constexpr b64 MASK_SLOT   = 0x00000000000000FF;
     constexpr b64 SLOT_SHIFT  = CALC_MASK_SHIFT<MASK_SLOT>();
     constexpr b64 MASK_GROUP  = 0x00000000000FFF00;

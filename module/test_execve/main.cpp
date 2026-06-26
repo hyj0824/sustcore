@@ -26,26 +26,26 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     (void)argv;
     (void)envp;
     (void)bsargv;
-    printf("test_execve: pid=%u pcb_cap=%p\n", sys_getpid(__pcb_cap),
+    printf("test_execve: pid=%u pcb_cap=%p\n", sys_getpid(__pcb_cap).value(),
            (void *)__pcb_cap);
 
     CapIdx notif_cap = bootstrap_notif();
     printf("test_execve: notification cap=%p\n", (void *)notif_cap);
 
     printf("test_execve: 等待 SYN\n");
-    sys_notif_wait(notif_cap, kSignalSyn);
+    (void)sys_notif_wait(notif_cap, kSignalSyn).to_result();
 
     printf("test_execve: 接收 SYN\n");
-    sys_notif_unsignal(notif_cap, kSignalSyn);
+    (void)sys_notif_unsignal(notif_cap, kSignalSyn).to_result();
 
     printf("test_execve: 发送 SYN-ACK\n");
-    sys_notif_signal(notif_cap, kSignalSynAck);
+    (void)sys_notif_signal(notif_cap, kSignalSynAck).to_result();
 
     printf("test_execve: 等待 ACK\n");
-    sys_notif_wait(notif_cap, kSignalAck);
+    (void)sys_notif_wait(notif_cap, kSignalAck).to_result();
 
     printf("test_execve: 接收并取消 ACK\n");
-    sys_notif_unsignal(notif_cap, kSignalAck);
+    (void)sys_notif_unsignal(notif_cap, kSignalAck).to_result();
 
     printf("test_execve: 握手完成!\n");
     exit(0);

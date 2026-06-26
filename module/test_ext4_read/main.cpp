@@ -94,9 +94,14 @@ namespace {
                 return false;
             }
             memset(g_dirent_buffer, 0, sizeof(g_dirent_buffer));
-            const size_t bytes =
+            auto getdents_res =
                 sys_vfs_getdents(dir_cap, g_dirent_buffer,
-                                 sizeof(g_dirent_buffer), doff);
+                                 sizeof(g_dirent_buffer), doff)
+                    .to_result();
+            if (!getdents_res.has_value()) {
+                return false;
+            }
+            const size_t bytes = getdents_res.value();
             if (bytes == 0) {
                 return false;
             }
@@ -122,7 +127,8 @@ namespace {
                     memcmp(name, g_entry_name_buffer, entry_name_len) == 0)
                 {
                     NodeMeta st {};
-                    if (!sys_vfs_stat(dir_cap, name, &st)) {
+                    if (!sys_vfs_stat(dir_cap, name, &st))
+                    {
                         return false;
                     }
                     return expect_file ? st.type == EntryType::FILE
@@ -150,8 +156,10 @@ namespace {
 
     [[nodiscard]]
     bool test_root_directory(CapIdx root_cap) {
+        auto ext4_dir_res =
+            sys_vfs_opendir(root_cap, "test_img", flags::O_READ).to_result();
         CapIdx ext4_dir =
-            sys_vfs_opendir(root_cap, "test_img", flags::O_READ);
+            ext4_dir_res.has_value() ? ext4_dir_res.value() : cap::error;
         if (ext4_dir == cap::null || ext4_dir == cap::error) {
             printf("test_ext4_read: opendir %s failed\n", EXT4_ROOT);
             return false;
@@ -161,7 +169,7 @@ namespace {
                         dir_has_entry(ext4_dir, "bin", false) &&
                         dir_has_entry(ext4_dir, "lib", false) &&
                         dir_has_entry(ext4_dir, ".dockerenv", true);
-        sys_cap_remove(ext4_dir);
+        (void)sys_cap_remove(ext4_dir).to_result();
         if (!ok) {
             printf("test_ext4_read: root directory entries mismatch\n");
             return false;
@@ -172,8 +180,10 @@ namespace {
 
     [[nodiscard]]
     bool test_etc_directory(CapIdx root_cap) {
+        auto ext4_dir_res =
+            sys_vfs_opendir(root_cap, "test_img/etc", flags::O_READ).to_result();
         CapIdx ext4_dir =
-            sys_vfs_opendir(root_cap, "test_img/etc", flags::O_READ);
+            ext4_dir_res.has_value() ? ext4_dir_res.value() : cap::error;
         if (ext4_dir == cap::null || ext4_dir == cap::error) {
             printf("test_ext4_read: opendir %s failed\n", EXT4_ETC);
             return false;
@@ -183,7 +193,7 @@ namespace {
                         dir_has_entry(ext4_dir, "group", true) &&
                         dir_has_entry(ext4_dir, "init.d", false) &&
                         dir_has_entry(ext4_dir, "apk", false);
-        sys_cap_remove(ext4_dir);
+        (void)sys_cap_remove(ext4_dir).to_result();
         if (!ok) {
             printf("test_ext4_read: etc directory entries mismatch\n");
             return false;
@@ -283,7 +293,7 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     (void)argv;
     (void)envp;
     (void)bsargv;
-    printf("test_ext4_read: start pid=%u\n", sys_getpid(__pcb_cap));
+    printf("test_ext4_read: start pid=%u\n", sys_getpid(__pcb_cap).value());
 
     CapIdx root_cap = bootstrap_root_dir();
     if (root_cap == cap::null || root_cap == cap::error) {

@@ -17,53 +17,58 @@
 
 extern "C" {
 void exit(int exit_code) {
-    sys_pcb_kill(__pcb_cap, exit_code);
+    (void)sys_pcb_kill(__pcb_cap, exit_code);
     while (true) {}
 }
 
-CapIdx sys_create_process(CapIdx image_cap, size_t sched_class, CapIdx caps[],
+SysRet<CapIdx> sys_create_process(CapIdx image_cap, size_t sched_class, CapIdx caps[],
                           const char *argv[], const char *envp[],
                           const char *bsargv[]) {
     return sys_pcb_create_process(__pcb_cap, image_cap, sched_class, caps,
                                   argv, envp, bsargv);
 }
 
-CapIdx sys_create_linux_process(CapIdx image_cap, size_t sched_class,
+SysRet<CapIdx> sys_create_linux_process(CapIdx image_cap, size_t sched_class,
                                 CapIdx caps[], const char *argv[],
                                 const char *envp[], const char *bsargv[]) {
     return sys_pcb_create_linux_process(__pcb_cap, image_cap, sched_class,
                                         caps, argv, envp, bsargv);
 }
 
-CapIdx sys_create_thread(void (*entry)(), void *stack_addr,
+SysRet<CapIdx> sys_create_thread(void (*entry)(), void *stack_addr,
                          size_t stack_size) {
     return sys_pcb_create_thread(__pcb_cap, entry, stack_addr, stack_size);
 }
 
-size_t fork(CapIdx *child_pcb_cap) {
-    size_t child_pid = sys_pcb_fork(__pcb_cap, child_pcb_cap);
+SysRet<size_t> fork(CapIdx *child_pcb_cap) {
+    SysRet<size_t> fork_ret = sys_pcb_fork(__pcb_cap, child_pcb_cap);
+
+    if (fork_ret.is_error()) {
+        return fork_ret;
+    }
+
     // 子进程, 更新 pcb cap index
-    if (child_pid == 0 && child_pcb_cap != nullptr) {
+    if (fork_ret.ret0 == 0 && child_pcb_cap != nullptr) {
         __pcb_cap = *child_pcb_cap;
     }
-    return child_pid;
+    return fork_ret;
 }
 
-bool sys_execve(CapIdx image_cap, CapIdx rsvdlst[], const char *argv[],
+SysRet<void> sys_execve(CapIdx image_cap, CapIdx rsvdlst[], const char *argv[],
                 const char *envp[], const char *bsargv[]) {
     return sys_pcb_execve(__pcb_cap, image_cap, rsvdlst, argv, envp, bsargv);
 }
 
-bool execve(CapIdx image_cap, CapIdx rsvdlst[], const char *argv[],
+SysRet<void> execve(CapIdx image_cap, CapIdx rsvdlst[], const char *argv[],
             const char *envp[], const char *bsargv[]) {
     return sys_execve(image_cap, rsvdlst, argv, envp, bsargv);
 }
 
-bool sys_mem_map(CapIdx idx, void *vaddr, uint64_t rwx, uint64_t growth) {
+SysRet<void> sys_mem_map(CapIdx idx, void *vaddr, uint64_t rwx, uint64_t growth) {
     static_cast<void>(growth);
     MemQueryRet query{};
     if (!sys_mem_query(idx, &query)) {
-        return false;
+        return SysRet<void> {.ret0 = 0, .ret1 = static_cast<size_t>(ErrCode::INVALID_CAPABILITY)};
     }
     return sys_pcb_map(__pcb_cap, idx, 0, vaddr, query.memsz, rwx);
 }

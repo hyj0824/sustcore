@@ -68,7 +68,7 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     (void)argv;
     (void)envp;
     (void)bsargv;
-    printf("test_rpc_client: start pid=%u\n", sys_getpid(__pcb_cap));
+    printf("test_rpc_client: start pid=%u\n", sys_getpid(__pcb_cap).value());
     CapIdx endpoint = bootstrap_endpoint();
 
     SampleClient client(endpoint);

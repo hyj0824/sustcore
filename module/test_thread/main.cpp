@@ -35,17 +35,17 @@ static void finish_once(const char *who) {
             printf("test_thread: %s finished start=%u x=%u rounds=%u\n", who,
                    current_start, x, rounds);
         }
-        sys_notif_signal(thread_notif_cap, kSignalDone);
+        (void)sys_notif_signal(thread_notif_cap, kSignalDone).to_result();
     }
 }
 
 static void thread_a() {
     init_thread_gp();
     ready_threads = ready_threads + 1;
-    sys_notif_signal(thread_notif_cap, kSignalReady);
+    (void)sys_notif_signal(thread_notif_cap, kSignalReady).to_result();
     while (true) {
-        sys_notif_wait(thread_notif_cap, kSignalA);
-        sys_notif_unsignal(thread_notif_cap, kSignalA);
+        (void)sys_notif_wait(thread_notif_cap, kSignalA).to_result();
+        (void)sys_notif_unsignal(thread_notif_cap, kSignalA).to_result();
         if (shutdown) {
             return;
         }
@@ -59,17 +59,17 @@ static void thread_a() {
             finish_once("A");
             continue;
         }
-        sys_notif_signal(thread_notif_cap, kSignalB);
+        (void)sys_notif_signal(thread_notif_cap, kSignalB).to_result();
     }
 }
 
 static void thread_b() {
     init_thread_gp();
     ready_threads = ready_threads + 1;
-    sys_notif_signal(thread_notif_cap, kSignalReady);
+    (void)sys_notif_signal(thread_notif_cap, kSignalReady).to_result();
     while (true) {
-        sys_notif_wait(thread_notif_cap, kSignalB);
-        sys_notif_unsignal(thread_notif_cap, kSignalB);
+        (void)sys_notif_wait(thread_notif_cap, kSignalB).to_result();
+        (void)sys_notif_unsignal(thread_notif_cap, kSignalB).to_result();
         if (shutdown) {
             return;
         }
@@ -86,7 +86,7 @@ static void thread_b() {
             finish_once("B");
             continue;
         }
-        sys_notif_signal(thread_notif_cap, kSignalA);
+        (void)sys_notif_signal(thread_notif_cap, kSignalA).to_result();
     }
 }
 
@@ -110,9 +110,11 @@ static void run_collatz(size_t start) {
         return;
     }
 
-    sys_notif_signal(thread_notif_cap, (start % 2) == 0 ? kSignalB : kSignalA);
-    sys_notif_wait(thread_notif_cap, kSignalDone);
-    sys_notif_unsignal(thread_notif_cap, kSignalDone);
+    (void)sys_notif_signal(thread_notif_cap,
+                           (start % 2) == 0 ? kSignalB : kSignalA)
+        .to_result();
+    (void)sys_notif_wait(thread_notif_cap, kSignalDone).to_result();
+    (void)sys_notif_unsignal(thread_notif_cap, kSignalDone).to_result();
 }
 
 extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
@@ -121,8 +123,9 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     (void)argv;
     (void)envp;
     (void)bsargv;
-    printf("test_thread: start pid=%u\n", sys_getpid(__pcb_cap));
-    thread_notif_cap = sys_notif_create();
+    printf("test_thread: start pid=%u\n", sys_getpid(__pcb_cap).value());
+    auto notif_res = sys_notif_create().to_result();
+    thread_notif_cap = notif_res.has_value() ? notif_res.value() : cap::error;
     if (thread_notif_cap == cap::error) {
         printf("test_thread: 创建通知失败!\n");
         exit(-1);
@@ -131,8 +134,10 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     void *stack_a = alloc_stack();
     void *stack_b = alloc_stack();
 
-    CapIdx tcb_a = sys_create_thread(thread_a, stack_a, kStackSize);
-    CapIdx tcb_b = sys_create_thread(thread_b, stack_b, kStackSize);
+    auto tcb_a_res = sys_create_thread(thread_a, stack_a, kStackSize).to_result();
+    auto tcb_b_res = sys_create_thread(thread_b, stack_b, kStackSize).to_result();
+    CapIdx tcb_a   = tcb_a_res.has_value() ? tcb_a_res.value() : cap::error;
+    CapIdx tcb_b   = tcb_b_res.has_value() ? tcb_b_res.value() : cap::error;
     printf("test_thread: created A=%p B=%p\n", (void *)tcb_a, (void *)tcb_b);
     if (tcb_a == cap::error || tcb_b == cap::error) {
         printf("test_thread: 创建线程失败!\n");
@@ -140,8 +145,8 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     }
 
     while (ready_threads < 2) {
-        sys_notif_wait(thread_notif_cap, kSignalReady);
-        sys_notif_unsignal(thread_notif_cap, kSignalReady);
+        (void)sys_notif_wait(thread_notif_cap, kSignalReady).to_result();
+        (void)sys_notif_unsignal(thread_notif_cap, kSignalReady).to_result();
     }
 
     for (size_t start = 2; start <= TEST_NUMBER_UPPER; ++start) {
@@ -151,8 +156,8 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
             printf("test_thread: 验证失败 start=%u x=%u rounds=%u\n", start, x,
                    rounds);
             shutdown = true;
-            sys_notif_signal(thread_notif_cap, kSignalA);
-            sys_notif_signal(thread_notif_cap, kSignalB);
+            (void)sys_notif_signal(thread_notif_cap, kSignalA).to_result();
+            (void)sys_notif_signal(thread_notif_cap, kSignalB).to_result();
             exit(-1);
         }
         if (start % PROGRESS_GAP == 0 || start == TEST_NUMBER_UPPER) {
@@ -161,8 +166,8 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     }
 
     shutdown = true;
-    sys_notif_signal(thread_notif_cap, kSignalA);
-    sys_notif_signal(thread_notif_cap, kSignalB);
+    (void)sys_notif_signal(thread_notif_cap, kSignalA).to_result();
+    (void)sys_notif_signal(thread_notif_cap, kSignalB).to_result();
     printf("test_thread: verified [2, %u]\n", TEST_NUMBER_UPPER);
     exit(0);
     return 0;

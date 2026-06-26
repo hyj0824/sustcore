@@ -51,11 +51,13 @@ CapIdx linuxss_create_thread(addr_t entrypoint) {
 
     auto *stack_top = reinterpret_cast<void *>(
         reinterpret_cast<addr_t>(stack_base) + LINUXSS_THREAD_STACK_SIZE);
-    CapIdx tcb_cap = sys_pcb_create_thread(__prog_pcb_cap,
-                                           reinterpret_cast<void (*)()>(
-                                               entrypoint),
-                                           stack_base,
-                                           LINUXSS_THREAD_STACK_SIZE);
+    auto tcb_res = sys_pcb_create_thread(__prog_pcb_cap,
+                                         reinterpret_cast<void (*)()>(
+                                             entrypoint),
+                                         stack_base,
+                                         LINUXSS_THREAD_STACK_SIZE)
+                       .to_result();
+    CapIdx tcb_cap = tcb_res.has_value() ? tcb_res.value() : cap::error;
     if (tcb_cap == cap::null || tcb_cap == cap::error) {
         loggers::LXSC::ERROR("create thread syscall failed: entry=%p",
                              reinterpret_cast<void *>(entrypoint));
@@ -63,8 +65,8 @@ CapIdx linuxss_create_thread(addr_t entrypoint) {
     }
 
     loggers::LXRT::DEBUG("create thread placeholder entry=%p stack=[%p,%p)",
-                        reinterpret_cast<void *>(entrypoint), stack_base,
-                        stack_top);
+                         reinterpret_cast<void *>(entrypoint), stack_base,
+                         stack_top);
     // 当前占位实现不回收线程栈，后续真正支持 clone 线程后再补生命周期管理。
     return tcb_cap;
 }

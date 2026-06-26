@@ -120,7 +120,7 @@ namespace {
         int ret = kmod_mkdir(D);
         check(N, ret == 0, "mkdir failed");
 
-        CapIdx dir = sys_vfs_opendir(root_cap, "test_img", flags::O_READ);
+        CapIdx dir = sys_vfs_opendir(root_cap, "test_img", flags::O_READ).value();
         check(N, dir != cap::null && dir != cap::error, "opendir failed");
 
         // check entry exists
@@ -129,7 +129,8 @@ namespace {
         size_t doff = 0;
         char dent[16384];
         while (doff != DIR_ENTRY_END) {
-            size_t bytes = sys_vfs_getdents(dir, dent, sizeof(dent), doff);
+            size_t bytes =
+                sys_vfs_getdents(dir, dent, sizeof(dent), doff).value();
             if (bytes == 0) break;
             for (size_t off = 0; off < bytes;) {
                 auto *h = reinterpret_cast<const dir_entry_header *>(dent + off);
@@ -139,7 +140,8 @@ namespace {
                     nm[3] == 'i' && nm[4] == 'r' && nl == 5) {
                     found = true;
                     NodeMeta st {};
-                    check(N, sys_vfs_stat(dir, nm, &st), "stat t_dir failed");
+                    check(N, sys_vfs_stat(dir, nm, &st),
+                          "stat t_dir failed");
                     check(N, st.type == EntryType::DIR, "t_dir should be dir");
                     break;
                 }
@@ -148,7 +150,7 @@ namespace {
             doff += bytes;
             if (found) break;
         }
-        sys_cap_remove(dir);
+        (void)sys_cap_remove(dir).to_result();
         check(N, found, "t_dir not in dir");
 
         // create file inside dir, verify
@@ -312,11 +314,13 @@ namespace {
         }
 
         // count entries via getdents — single call with large buffer
-        CapIdx dir = sys_vfs_opendir(root_cap, "test_img/t_dirents", flags::O_READ);
+        CapIdx dir =
+            sys_vfs_opendir(root_cap, "test_img/t_dirents", flags::O_READ)
+                .value();
         check(N, dir != cap::null && dir != cap::error, "opendir failed");
         int found = 0;
         char dent[65536];
-        size_t bytes = sys_vfs_getdents(dir, dent, sizeof(dent), 0);
+        size_t bytes = sys_vfs_getdents(dir, dent, sizeof(dent), 0).value();
         printf("test_fs_score: getdents returned %u bytes\n", static_cast<unsigned>(bytes));
         for (size_t off = 0; off < bytes;) {
             auto *h = reinterpret_cast<const dir_entry_header *>(dent + off);
@@ -324,7 +328,7 @@ namespace {
             if (nm[0] == 'e' && nm[1] == '_') ++found;
             off += h->next_offset;
         }
-        sys_cap_remove(dir);
+        (void)sys_cap_remove(dir).to_result();
         printf("test_fs_score: dirents found=%d expected=%d\n", found, kCount);
         check(N, found == kCount, "dirent count mismatch");
 
@@ -405,7 +409,7 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     (void)argv;
     (void)envp;
     (void)bsargv;
-    printf("test_fs_score: start pid=%u\n", sys_getpid(__pcb_cap));
+    printf("test_fs_score: start pid=%u\n", sys_getpid(__pcb_cap).value());
 
     CapIdx root_cap = bootstrap_root_dir();
     if (root_cap == cap::null || root_cap == cap::error) {

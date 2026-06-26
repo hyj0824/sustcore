@@ -52,10 +52,11 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     (void)argv;
     (void)envp;
     (void)bsargv;
-    printf("test_fork: 启动时PID=%u pcb_cap=%p\n", sys_getpid(__pcb_cap),
+    printf("test_fork: 启动时PID=%u pcb_cap=%p\n", sys_getpid(__pcb_cap).value(),
            (void *)__pcb_cap);
 
-    exec_notif_cap = sys_notif_create();
+    auto notif_res = sys_notif_create().to_result();
+    exec_notif_cap = notif_res.has_value() ? notif_res.value() : cap::error;
     if (exec_notif_cap == cap::error) {
         printf("test_fork: create exec notification failed\n");
         exit(-1);
@@ -65,16 +66,17 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     char *shared_buf = alloc_page_string("全体目光向我看齐");
 
     CapIdx child_pcb_cap = cap::null;
-    size_t child_pid     = fork(&child_pcb_cap);
-    if (child_pcb_cap == cap::error) {
+    auto fork_res        = fork(&child_pcb_cap).to_result();
+    if (!fork_res.has_value() || child_pcb_cap == cap::error) {
         printf("test_fork: fork failed\n");
         exit(-1);
     }
+    size_t child_pid = fork_res.value();
 
     bool is_child        = child_pid == 0;
     const char *tag      = is_child ? "child" : "parent";
-    size_t abi_pcb_pid   = sys_getpid(__pcb_cap);
-    size_t child_cap_pid = sys_getpid(child_pcb_cap);
+    size_t abi_pcb_pid   = sys_getpid(__pcb_cap).value();
+    size_t child_cap_pid = sys_getpid(child_pcb_cap).value();
     printf(
         "test_fork(%s): fork后 子进程capidx=%p 子进程pid=%u ABI获得的PCB PID=%u "
         "子进程PID=%u global=%u shared=%s\n",
@@ -110,7 +112,9 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
         printf("test_fork(%s): child exec test_execve\n", tag);
         int fd = kmod_fopen("/initrd/test_execve.mod", "x");
         if (fd < 0 ||
-            !execve(kmod_getcap(fd), reserved_caps, nullptr, nullptr, bsargv))
+            !execve(kmod_getcap(fd), reserved_caps, nullptr, nullptr, bsargv)
+                 .to_result()
+                 .has_value())
         {
             printf("test_fork(%s): child exec failed\n", tag);
         }
@@ -121,16 +125,16 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     }
 
     printf("test_fork(%s): 发送 SYN\n", tag);
-    sys_notif_signal(exec_notif_cap, kSignalSyn);
+    (void)sys_notif_signal(exec_notif_cap, kSignalSyn).to_result();
 
     printf("test_fork(%s): 等待 SYN-ACK\n", tag);
-    sys_notif_wait(exec_notif_cap, kSignalSynAck);
+    (void)sys_notif_wait(exec_notif_cap, kSignalSynAck).to_result();
 
     printf("test_fork(%s): 接收 SYN-ACK\n", tag);
-    sys_notif_unsignal(exec_notif_cap, kSignalSynAck);
+    (void)sys_notif_unsignal(exec_notif_cap, kSignalSynAck).to_result();
 
     printf("test_fork(%s): 发送 ACK\n", tag);
-    sys_notif_signal(exec_notif_cap, kSignalAck);
+    (void)sys_notif_signal(exec_notif_cap, kSignalAck).to_result();
 
     printf("test_fork(%s): exit\n", tag);
     exit(0);

@@ -29,7 +29,7 @@ static uint64_t recv_u64(CapIdx endpoint, const char *tag) {
         .capsz = 0,
     };
 
-    sys_endpoint_recv(endpoint, &packet);
+    (void)sys_endpoint_recv(endpoint, &packet).to_result();
     if (packet.msgsz != sizeof(value) || packet.capsz != 0) {
         printf("%s: 无效的消息 msgsz=%u capsz=%u\n", tag, packet.msgsz,
                packet.capsz);
@@ -47,7 +47,7 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     (void)envp;
     (void)bsargv;
     printf("test-endpoint-slave 启动! \n");
-    printf("test-endpoint-slave: pid=%u\n", sys_getpid(__pcb_cap));
+    printf("test-endpoint-slave: pid=%u\n", sys_getpid(__pcb_cap).value());
 
     CapIdx endpoint_cap = bootstrap_endpoint();
 
@@ -58,7 +58,7 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
         .capsz = 0,
     };
     memcpy(packet.msgbuf, &value, sizeof(value));
-    sys_endpoint_send(endpoint_cap, &packet);
+    (void)sys_endpoint_send(endpoint_cap, &packet).to_result();
 
     for (size_t round = 0; round < kRepeatCount; ++round) {
         uint64_t c = recv_u64(endpoint_cap, "test-endpoint-slave");

@@ -54,8 +54,11 @@ namespace {
             if (!sys_cap_lookup(dir_cap, &cap_info) ||
                 cap_info.type != PayloadType::VDIR) return false;
             memset(g_dirent_buf, 0, sizeof(g_dirent_buf));
-            const size_t bytes =
-                sys_vfs_getdents(dir_cap, g_dirent_buf, sizeof(g_dirent_buf), doff);
+            auto getdents_res =
+                sys_vfs_getdents(dir_cap, g_dirent_buf, sizeof(g_dirent_buf), doff)
+                    .to_result();
+            if (!getdents_res.has_value()) return false;
+            const size_t bytes = getdents_res.value();
             if (bytes == 0) return false;
             size_t parsed = 0;
             for (size_t offset = 0; offset < bytes;) {
@@ -69,7 +72,8 @@ namespace {
                 if (name_len == entry_name_len &&
                     memcmp(name, g_entry_name_buf, entry_name_len) == 0) {
                     NodeMeta st {};
-                    if (!sys_vfs_stat(dir_cap, name, &st)) return false;
+                    if (!sys_vfs_stat(dir_cap, name, &st))
+                        return false;
                     return expect_file ? st.type == EntryType::FILE
                                        : st.type == EntryType::DIR;
                 }
@@ -92,7 +96,7 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     (void)argv;
     (void)envp;
     (void)bsargv;
-    printf("test_ext4_rw: start pid=%u\n", sys_getpid(__pcb_cap));
+    printf("test_ext4_rw: start pid=%u\n", sys_getpid(__pcb_cap).value());
 
     CapIdx root_cap = bootstrap_root_dir();
     if (root_cap == cap::null || root_cap == cap::error) {
@@ -122,7 +126,7 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     }
     printf("test_ext4_rw: wrote %u bytes\n", static_cast<unsigned>(written));
 
-    const size_t file_size = sys_vfs_size(kmod_getcap(fd));
+    const size_t file_size = sys_vfs_size(kmod_getcap(fd)).value();
     if (file_size != TEST_STR_LEN) {
         printf("test_ext4_rw: size mismatch after write got=%u expected=%u\n",
                static_cast<unsigned>(file_size),
@@ -248,17 +252,19 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     printf("test_ext4_rw: extent stress PASS\n");
 
     // verify file visible in directory
-    CapIdx ext4_dir = sys_vfs_opendir(root_cap, "test_img", flags::O_READ);
+    auto ext4_dir_res = sys_vfs_opendir(root_cap, "test_img", flags::O_READ).to_result();
+    CapIdx ext4_dir =
+        ext4_dir_res.has_value() ? ext4_dir_res.value() : cap::error;
     if (ext4_dir == cap::null || ext4_dir == cap::error) {
         printf("test_ext4_rw: opendir test_img failed\n");
         exit(-1);
     }
     if (!dir_has_entry(ext4_dir, RW_NAME, true)) {
         printf("test_ext4_rw: created file not found in dir\n");
-        sys_cap_remove(ext4_dir);
+        (void)sys_cap_remove(ext4_dir).to_result();
         exit(-1);
     }
-    sys_cap_remove(ext4_dir);
+    (void)sys_cap_remove(ext4_dir).to_result();
 
     // --- mkdir test ---
     printf("test_ext4_rw: mkdir %s\n", MKDIR_PATH);
@@ -268,25 +274,30 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
         exit(-1);
     }
 
-    ext4_dir = sys_vfs_opendir(root_cap, "test_img", flags::O_READ);
+    ext4_dir_res = sys_vfs_opendir(root_cap, "test_img", flags::O_READ).to_result();
+    ext4_dir = ext4_dir_res.has_value() ? ext4_dir_res.value() : cap::error;
     if (ext4_dir == cap::null || ext4_dir == cap::error) {
         printf("test_ext4_rw: opendir for mkdir check failed\n");
         exit(-1);
     }
     if (!dir_has_entry(ext4_dir, MKDIR_NAME, false)) {
         printf("test_ext4_rw: created dir not found\n");
-        sys_cap_remove(ext4_dir);
+        (void)sys_cap_remove(ext4_dir).to_result();
         exit(-1);
     }
-    sys_cap_remove(ext4_dir);
+    (void)sys_cap_remove(ext4_dir).to_result();
 
     // verify subdir is openable (read_directory filters "." / "..")
-    CapIdx sub_dir = sys_vfs_opendir(root_cap, "test_img/rw_test_dir", flags::O_READ);
+    auto sub_dir_res =
+        sys_vfs_opendir(root_cap, "test_img/rw_test_dir", flags::O_READ)
+            .to_result();
+    CapIdx sub_dir =
+        sub_dir_res.has_value() ? sub_dir_res.value() : cap::error;
     if (sub_dir == cap::null || sub_dir == cap::error) {
         printf("test_ext4_rw: opendir subdir failed\n");
         exit(-1);
     }
-    sys_cap_remove(sub_dir);
+    (void)sys_cap_remove(sub_dir).to_result();
     printf("test_ext4_rw: mkdir PASS\n");
 
     // cross-directory rename (before rmdir, reuses existing dir)
@@ -297,15 +308,16 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     kmod_fclose(fd);
     ret = kmod_rename("/test_img/xf", "/test_img/rw_test_dir/xf");
     if (ret < 0) { printf("test_ext4_rw: cross rename failed\n"); exit(-1); }
-    ext4_dir = sys_vfs_opendir(root_cap, "test_img", flags::O_READ);
+    ext4_dir_res = sys_vfs_opendir(root_cap, "test_img", flags::O_READ).to_result();
+    ext4_dir = ext4_dir_res.has_value() ? ext4_dir_res.value() : cap::error;
     if (ext4_dir == cap::null || ext4_dir == cap::error) {
         printf("test_ext4_rw: opendir for cross-rename check failed\n"); exit(-1);
     }
     if (dir_has_entry(ext4_dir, "xf", true)) {
         printf("test_ext4_rw: old name still visible after cross-rename\n");
-        sys_cap_remove(ext4_dir); exit(-1);
+        (void)sys_cap_remove(ext4_dir).to_result(); exit(-1);
     }
-    sys_cap_remove(ext4_dir);
+    (void)sys_cap_remove(ext4_dir).to_result();
     fd = kmod_fopen("/test_img/rw_test_dir/xf", "r");
     if (fd < 0) { printf("test_ext4_rw: new name not openable after cross-rename\n"); exit(-1); }
     memset(g_read_buf, 0, sizeof(g_read_buf));
@@ -326,17 +338,18 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     }
 
     // verify file no longer visible
-    ext4_dir = sys_vfs_opendir(root_cap, "test_img", flags::O_READ);
+    ext4_dir_res = sys_vfs_opendir(root_cap, "test_img", flags::O_READ).to_result();
+    ext4_dir = ext4_dir_res.has_value() ? ext4_dir_res.value() : cap::error;
     if (ext4_dir == cap::null || ext4_dir == cap::error) {
         printf("test_ext4_rw: opendir for unlink check failed\n");
         exit(-1);
     }
     if (dir_has_entry(ext4_dir, RW_NAME, true)) {
         printf("test_ext4_rw: unlinked file still visible!\n");
-        sys_cap_remove(ext4_dir);
+        (void)sys_cap_remove(ext4_dir).to_result();
         exit(-1);
     }
-    sys_cap_remove(ext4_dir);
+    (void)sys_cap_remove(ext4_dir).to_result();
     printf("test_ext4_rw: unlink PASS\n");
 
     // --- rmdir test ---
@@ -346,17 +359,18 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
         printf("test_ext4_rw: rmdir failed\n");
         exit(-1);
     }
-    ext4_dir = sys_vfs_opendir(root_cap, "test_img", flags::O_READ);
+    ext4_dir_res = sys_vfs_opendir(root_cap, "test_img", flags::O_READ).to_result();
+    ext4_dir = ext4_dir_res.has_value() ? ext4_dir_res.value() : cap::error;
     if (ext4_dir == cap::null || ext4_dir == cap::error) {
         printf("test_ext4_rw: opendir for rmdir check failed\n");
         exit(-1);
     }
     if (dir_has_entry(ext4_dir, MKDIR_NAME, false)) {
         printf("test_ext4_rw: removed dir still visible!\n");
-        sys_cap_remove(ext4_dir);
+        (void)sys_cap_remove(ext4_dir).to_result();
         exit(-1);
     }
-    sys_cap_remove(ext4_dir);
+    (void)sys_cap_remove(ext4_dir).to_result();
     printf("test_ext4_rw: rmdir PASS\n");
 
     // --- rename test ---

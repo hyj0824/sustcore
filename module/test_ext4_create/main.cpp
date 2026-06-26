@@ -73,9 +73,14 @@ namespace {
                 return false;
             }
             memset(g_dirent_buffer, 0, sizeof(g_dirent_buffer));
-            const size_t bytes =
+            auto getdents_res =
                 sys_vfs_getdents(dir_cap, g_dirent_buffer,
-                                 sizeof(g_dirent_buffer), doff);
+                                 sizeof(g_dirent_buffer), doff)
+                    .to_result();
+            if (!getdents_res.has_value()) {
+                return false;
+            }
+            const size_t bytes = getdents_res.value();
             if (bytes == 0) {
                 return false;
             }
@@ -101,7 +106,8 @@ namespace {
                     memcmp(name, g_entry_name_buffer, entry_name_len) == 0)
                 {
                     NodeMeta st {};
-                    if (!sys_vfs_stat(dir_cap, name, &st)) {
+                    if (!sys_vfs_stat(dir_cap, name, &st))
+                    {
                         return false;
                     }
                     return expect_file ? st.type == EntryType::FILE
@@ -134,7 +140,7 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     (void)argv;
     (void)envp;
     (void)bsargv;
-    printf("test_ext4_create: start pid=%u\n", sys_getpid(__pcb_cap));
+    printf("test_ext4_create: start pid=%u\n", sys_getpid(__pcb_cap).value());
 
     CapIdx root_cap = bootstrap_root_dir();
     if (root_cap == cap::null || root_cap == cap::error) {
@@ -154,7 +160,7 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
         printf("test_ext4_create: created %s\n", CREATE_PATH);
     }
 
-    const size_t size = sys_vfs_size(kmod_getcap(fd));
+    const size_t size = sys_vfs_size(kmod_getcap(fd)).value();
     kmod_fclose(fd);
     if (size != 0) {
         printf("test_ext4_create: created file size mismatch=%u\n",
@@ -162,13 +168,15 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
         exit(-1);
     }
 
-    CapIdx ext4_dir = sys_vfs_opendir(root_cap, "test_img", flags::O_READ);
+    auto ext4_dir_res = sys_vfs_opendir(root_cap, "test_img", flags::O_READ).to_result();
+    CapIdx ext4_dir =
+        ext4_dir_res.has_value() ? ext4_dir_res.value() : cap::error;
     if (ext4_dir == cap::null || ext4_dir == cap::error) {
         printf("test_ext4_create: opendir /test_img failed\n");
         exit(-1);
     }
     const bool found = dir_has_entry(ext4_dir, CREATE_NAME, true);
-    sys_cap_remove(ext4_dir);
+    (void)sys_cap_remove(ext4_dir).to_result();
     if (!found) {
         printf("test_ext4_create: created file not found in root dir\n");
         exit(-1);

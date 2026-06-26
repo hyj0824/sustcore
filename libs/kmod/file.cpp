@@ -219,7 +219,8 @@ int kmod_fopen(const char *path, const char *options) {
         return -1;
     }
 
-    CapIdx cap = sys_vfs_open(base.cap, base.relpath, oflags);
+    auto cap_res = sys_vfs_open(base.cap, base.relpath, oflags).to_result();
+    CapIdx cap   = cap_res.has_value() ? cap_res.value() : cap::error;
     if (cap == cap::error || cap == cap::null) {
         g_files[fd] = {};
         return -1;
@@ -227,7 +228,8 @@ int kmod_fopen(const char *path, const char *options) {
 
     g_files[fd].cap = cap;
     if (append) {
-        g_files[fd].offset = sys_vfs_size(cap);
+        auto size_res = sys_vfs_size(cap).to_result();
+        g_files[fd].offset = size_res.has_value() ? size_res.value() : 0;
     }
     return fd;
 }
@@ -245,7 +247,9 @@ int kmod_opendir(const char *path) {
         return -1;
     }
 
-    CapIdx cap = sys_vfs_opendir(base.cap, base.relpath, flags::O_READ);
+    auto cap_res =
+        sys_vfs_opendir(base.cap, base.relpath, flags::O_READ).to_result();
+    CapIdx cap = cap_res.has_value() ? cap_res.value() : cap::error;
     if (cap == cap::error || cap == cap::null) {
         g_files[fd] = {};
         return -1;
@@ -261,7 +265,8 @@ size_t kmod_fread(int fd, void *buf, size_t len) {
     if (file == nullptr || buf == nullptr) {
         return 0;
     }
-    size_t got    = sys_vfs_read(file->cap, file->offset, buf, len);
+    auto got_res  = sys_vfs_read(file->cap, file->offset, buf, len).to_result();
+    size_t got    = got_res.has_value() ? got_res.value() : 0;
     file->offset += got;
     return got;
 }
@@ -271,7 +276,8 @@ size_t kmod_fwrite(int fd, const void *buf, size_t len) {
     if (file == nullptr || buf == nullptr) {
         return 0;
     }
-    size_t written  = sys_vfs_write(file->cap, file->offset, buf, len);
+    auto write_res = sys_vfs_write(file->cap, file->offset, buf, len).to_result();
+    size_t written = write_res.has_value() ? write_res.value() : 0;
     file->offset   += written;
     return written;
 }
@@ -292,13 +298,15 @@ int kmod_mkdir(const char *path) {
         return -1;
     }
 
-    CapIdx cap =
+    auto cap_res =
         sys_vfs_mkdir(base.cap, base.relpath,
-                      flags::O_READ | flags::O_WRITE | flags::O_EXECUTE);
+                      flags::O_READ | flags::O_WRITE | flags::O_EXECUTE)
+            .to_result();
+    CapIdx cap = cap_res.has_value() ? cap_res.value() : cap::error;
     if (cap == cap::error || cap == cap::null) {
         return -1;
     }
-    sys_cap_remove(cap);
+    (void)sys_cap_remove(cap);
     return 0;
 }
 
@@ -329,11 +337,12 @@ int kmod_truncate(const char *path, size_t new_size) {
     {
         return -1;
     }
-    CapIdx cap = sys_vfs_open(base.cap, base.relpath, flags::O_WRITE);
+    auto cap_res = sys_vfs_open(base.cap, base.relpath, flags::O_WRITE).to_result();
+    CapIdx cap = cap_res.has_value() ? cap_res.value() : cap::error;
     if (cap == cap::error || cap == cap::null)
         return -1;
     bool ok = sys_vfs_truncate(cap, new_size);
-    sys_cap_remove(cap);
+    (void)sys_cap_remove(cap);
     return ok ? 0 : -1;
 }
 
@@ -375,12 +384,14 @@ int kmod_link(const char *path, const char *target_path) {
     {
         return -1;
     }
-    CapIdx target =
-        sys_vfs_open(target_base.cap, target_base.relpath, flags::O_READ);
+    auto target_res =
+        sys_vfs_open(target_base.cap, target_base.relpath, flags::O_READ)
+            .to_result();
+    CapIdx target = target_res.has_value() ? target_res.value() : cap::error;
     if (target == cap::error || target == cap::null)
         return -1;
     bool ok = sys_vfs_link(base.cap, base.relpath, target);
-    sys_cap_remove(target);
+    (void)sys_cap_remove(target);
     return ok ? 0 : -1;
 }
 
@@ -395,14 +406,15 @@ int kmod_mkfile(const char *path, const char *options) {
     }
     (void)append;
 
-    CapIdx cap = sys_vfs_mkfile(base.cap, base.relpath, oflags);
+    auto cap_res = sys_vfs_mkfile(base.cap, base.relpath, oflags).to_result();
+    CapIdx cap = cap_res.has_value() ? cap_res.value() : cap::error;
     if (cap == cap::error || cap == cap::null) {
         return -1;
     }
 
     int fd = alloc_fd();
     if (fd < 0) {
-        sys_cap_remove(cap);
+        (void)sys_cap_remove(cap);
         return -1;
     }
 
@@ -416,7 +428,7 @@ void kmod_fclose(int fd) {
         return;
     }
     if (file->cap != cap::null && file->cap != cap::error) {
-        sys_cap_remove(file->cap);
+        (void)sys_cap_remove(file->cap);
     }
     *file = {};
 }

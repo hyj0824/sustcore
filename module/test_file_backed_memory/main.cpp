@@ -44,7 +44,7 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     (void)envp;
     (void)bsargv;
 
-    printf("test_file_backed_memory: start pid=%u\n", sys_getpid(__pcb_cap));
+    printf("test_file_backed_memory: start pid=%u\n", sys_getpid(__pcb_cap).value());
     fill_data();
 
     kmod_unlink(TEST_FILE);
@@ -55,12 +55,14 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     check(file_cap != cap::null && file_cap != cap::error,
           "file capability missing");
 
-    size_t wrote = sys_vfs_write(file_cap, 0, g_data, sizeof(g_data));
+    size_t wrote = sys_vfs_write(file_cap, 0, g_data, sizeof(g_data)).value();
     check(wrote == sizeof(g_data), "write test file failed");
     check(sys_vfs_sync(file_cap), "sync test file failed");
 
-    CapIdx mem_cap = sys_mem_create(file_cap, PAGE_SIZE, false, false,
-                                    MEMORY_GROWTH_FIXED, PAGE_SIZE);
+    auto mem_res = sys_mem_create(file_cap, PAGE_SIZE, false, false,
+                                  MEMORY_GROWTH_FIXED, PAGE_SIZE)
+                       .to_result();
+    CapIdx mem_cap = mem_res.has_value() ? mem_res.value() : cap::error;
     check(mem_cap != cap::null && mem_cap != cap::error,
           "file-backed memory create failed");
 
@@ -76,7 +78,8 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
 
     check(sys_mem_unmap(mem_cap, const_cast<char *>(mapped)),
           "unmap file-backed memory failed");
-    check(sys_cap_remove(mem_cap), "remove memory cap failed");
+    check(sys_cap_remove(mem_cap),
+          "remove memory cap failed");
     kmod_unlink(TEST_FILE);
 
     printf("test_file_backed_memory: PASS\n");

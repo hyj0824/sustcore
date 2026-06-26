@@ -49,7 +49,13 @@ static uint64_t call_service(CapIdx endpoint, uint64_t op, uint64_t value) {
         .capsz = 0,
     };
 
-    endpoint_call(endpoint, &send_packet, &reply_packet);
+    if (!endpoint_call(endpoint, &send_packet, &reply_packet)
+             .to_result()
+             .has_value())
+    {
+        printf("test_call_user: endpoint_call failed\n");
+        exit(-1);
+    }
     if (reply_packet.msgsz != sizeof(reply) || reply_packet.capsz != 0) {
         printf("test_call_user: reply格式错误 msgsz=%u capsz=%u\n",
                reply_packet.msgsz, reply_packet.capsz);
@@ -65,7 +71,7 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     (void)argv;
     (void)envp;
     (void)bsargv;
-    printf("test_call_user: start pid=%u\n", sys_getpid(__pcb_cap));
+    printf("test_call_user: start pid=%u\n", sys_getpid(__pcb_cap).value());
     CapIdx endpoint = bootstrap_endpoint();
 
     uint64_t encrypted       = call_service(endpoint, kOpEncrypt, kValue);
