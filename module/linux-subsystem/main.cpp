@@ -206,7 +206,7 @@ namespace {
     [[nodiscard]]
     size_t choose_mmap_base(size_t length) {
         VMAInfo infos[LINUX_MMAP_QUERY_BATCH]{};
-        size_t offset = 0;
+        size_t offset  = 0;
         size_t max_end = 0;
         while (true) {
             auto count_res = sys_pcb_query_vspace(__prog_pcb_cap, offset, infos,
@@ -485,8 +485,8 @@ extern "C" void linux_main(const void *stack_sp, size_t argc,
     dump_vector("argv", argv);
     // printf("\nenvp:\n");
     // dump_vector("envp", envp);
-    // printf("\nauxv:\n");
-    // dump_auxv(auxv);
+    printf("\nauxv:\n");
+    dump_auxv(auxv);
     // printf("\nbsargc & bsargv:\n");
     // printf("bsargc = %u\n", static_cast<unsigned>(bsargc));
     // dump_bsargv(bsargc, bsargv);
@@ -524,14 +524,14 @@ size_t linux_sys_mmap(void *addr, size_t length, size_t prot, size_t flags,
         static_cast<unsigned long>(prot), prot_str.c_str(),
         static_cast<unsigned long>(flags), flags_str.c_str(),
         static_cast<long>(fd), static_cast<unsigned long>(offset));
-    
+
     bool is_anonymous = (flags & MAP_ANONYMOUS) != 0;
     bool is_fixed     = (flags & MAP_FIXED) != 0;
     bool no_replace   = (flags & MAP_FIXED_NOREPLACE) != 0;
     bool is_private   = (flags & MAP_PRIVATE) != 0;
     bool is_shared    = (flags & MAP_SHARED) != 0;
 
-    if (! is_anonymous && fd == static_cast<size_t>(-1)) {
+    if (!is_anonymous && fd == static_cast<size_t>(-1)) {
         loggers::LXSC::ERROR(
             "mmap requires either MAP_ANONYMOUS or a valid fd, flags=0x%lx, "
             "fd=%ld",
@@ -539,7 +539,7 @@ size_t linux_sys_mmap(void *addr, size_t length, size_t prot, size_t flags,
         return INVALID_VALUE;
     }
 
-    if (! (is_private ^ is_shared)) {
+    if (!(is_private ^ is_shared)) {
         loggers::LXSC::ERROR(
             "mmap requires either MAP_PRIVATE or MAP_SHARED, flags=0x%lx",
             static_cast<unsigned long>(flags));
@@ -552,9 +552,8 @@ size_t linux_sys_mmap(void *addr, size_t length, size_t prot, size_t flags,
     }
 
     if ((offset % PAGESIZE) != 0) {
-        loggers::LXSC::ERROR(
-            "mmap requires page-aligned offset, offset=%lu",
-            static_cast<unsigned long>(offset));
+        loggers::LXSC::ERROR("mmap requires page-aligned offset, offset=%lu",
+                             static_cast<unsigned long>(offset));
         return INVALID_VALUE;
     }
 
@@ -564,11 +563,10 @@ size_t linux_sys_mmap(void *addr, size_t length, size_t prot, size_t flags,
     }
 
     size_t aligned_length = page_align_up_user(length);
-    size_t target_addr    = is_fixed
-                                ? reinterpret_cast<size_t>(addr)
-                                : choose_mmap_base(aligned_length);
-    
-    if (! is_fixed) {
+    size_t target_addr    = is_fixed ? reinterpret_cast<size_t>(addr)
+                                     : choose_mmap_base(aligned_length);
+
+    if (!is_fixed) {
         loggers::LXSC::INFO(
             "mmap chose target address=[%p, %p) for length=%lu",
             reinterpret_cast<void *>(target_addr),
@@ -577,9 +575,8 @@ size_t linux_sys_mmap(void *addr, size_t length, size_t prot, size_t flags,
     }
 
     if ((target_addr % PAGESIZE) != 0) {
-        loggers::LXSC::ERROR(
-            "mmap target address is not page-aligned, addr=%p",
-            reinterpret_cast<void *>(target_addr));
+        loggers::LXSC::ERROR("mmap target address is not page-aligned, addr=%p",
+                             reinterpret_cast<void *>(target_addr));
         return INVALID_VALUE;
     }
 
@@ -613,9 +610,8 @@ size_t linux_sys_mmap(void *addr, size_t length, size_t prot, size_t flags,
     size_t file_offset      = 0;
     if (is_anonymous) {
         if (fd != static_cast<size_t>(-1)) {
-            loggers::LXSC::ERROR(
-                "anonymous mmap requires fd=-1, got fd=%ld",
-                static_cast<long>(fd));
+            loggers::LXSC::ERROR("anonymous mmap requires fd=-1, got fd=%ld",
+                                 static_cast<long>(fd));
             return INVALID_VALUE;
         }
     } else {
@@ -628,10 +624,9 @@ size_t linux_sys_mmap(void *addr, size_t length, size_t prot, size_t flags,
         file_offset = offset;
     }
 
-    auto mem_cap_res =
-        sys_mem_create(backing_file_cap, aligned_length, false, false,
-                       MEMORY_GROWTH_FIXED, file_offset)
-            .to_result();
+    auto mem_cap_res = sys_mem_create(backing_file_cap, aligned_length, false,
+                                      false, MEMORY_GROWTH_FIXED, file_offset)
+                           .to_result();
     if (!mem_cap_res.has_value()) {
         loggers::LXSC::ERROR("mmap failed to create memory capability");
         return INVALID_VALUE;
@@ -665,6 +660,7 @@ size_t linux_sys_munmap(void *addr, size_t length) {
 extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
                                  size_t a4, size_t a5, size_t a6, size_t a7,
                                  addr_t dispatch_frame_sp) {
+    // loggers::LXSC::INFO("linux syscall %s (%lu)", syscall_to_string(a7), a7);
     switch (a7) {
         case __NR_write:
             return linux_sys_write(a0, reinterpret_cast<const void *>(a1), a2);

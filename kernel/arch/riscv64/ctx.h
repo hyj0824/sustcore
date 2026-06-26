@@ -103,6 +103,17 @@ namespace rv64 {
             return _sp;
         }
 
+        [[nodiscard]]
+        constexpr umb_t &tls()
+        {
+            return tp;
+        }
+
+        [[nodiscard]]
+        constexpr const umb_t &tls() const {
+            return tp;
+        }
+
         constexpr void set_init_regs(umb_t arg0, umb_t arg1, umb_t arg2) noexcept {
             a0 = arg0;
             a1 = arg1;

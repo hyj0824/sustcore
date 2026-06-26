@@ -333,7 +333,7 @@ namespace task {
             AT_PAGESZ, PAGESIZE,
             AT_CLKTCK, platform->clock_source()->frequency().to_hz(),
             AT_ENTRY,  spec.program_entrypoint.arith(),
-            AT_BASE,   task::GENERIC_INTERPRET_BASE.arith(),
+            AT_BASE,   spec.has_interp ? task::GENERIC_INTERPRET_BASE.arith() : 0,
             AT_UID,    0,
             AT_EUID,   0,
             AT_GID,    0,

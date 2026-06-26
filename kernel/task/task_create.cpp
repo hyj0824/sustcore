@@ -353,6 +353,19 @@ namespace task {
         }
 
         [[nodiscard]]
+        Result<void> patch_auxv_value(StartupStackBuilder &builder,
+                                      uint64_t key, uint64_t value) {
+            for (size_t i = 0; i + 1 < builder.auxv_entries.size(); i += 2) {
+                if (builder.auxv_entries[i] != key) {
+                    continue;
+                }
+                builder.auxv_entries[i + 1] = value;
+                void_return();
+            }
+            unexpect_return(ErrCode::ENTRY_NOT_FOUND);
+        }
+
+        [[nodiscard]]
         Result<void> build_bsargv(
             StartupStackBuilder &builder,
             const std::vector<TaskSpec::BootstrapRecordData> &bsargv) {
@@ -555,6 +568,18 @@ namespace task {
         propagate(envp_res);
         propagate(auxv_res);
         propagate(bsargv_res);
+
+        if (spec.phdr.stack_copy_required) {
+            if (spec.phdr.bytes.empty()) {
+                unexpect_return(ErrCode::INVALID_PARAM);
+            }
+            auto phdr_sp_res =
+                push_bytes(builder, spec.phdr.bytes.data(), spec.phdr.bytes.size(), 8);
+            propagate(phdr_sp_res);
+            auto patch_res =
+                patch_auxv_value(builder, AT_PHDR, phdr_sp_res.value().arith());
+            propagate(patch_res);
+        }
 
         std::vector<uint64_t> layout{};
         layout.reserve(1 + builder.argv_ptrs.size() + 1 +

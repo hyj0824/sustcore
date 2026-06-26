@@ -278,6 +278,9 @@ concept ContextTrait = requires(T *ctx, void *context) {
         ctx->sp()
     } -> std::same_as<umb_t &>;
     {
+        ctx->tls()
+    } -> std::same_as<umb_t &>;
+    {
         ctx->kstack_top()
     } -> std::same_as<umb_t &>;
     {

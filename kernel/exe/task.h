@@ -51,6 +51,12 @@ struct TaskSpec {
         std::vector<char> bytes{};
     };
 
+    struct ProgramHeaderInfo {
+        VirAddr vaddr = VirAddr(static_cast<addr_t>(0));
+        std::vector<char> bytes{};
+        bool stack_copy_required = false;
+    };
+
     // 进程内存管理
     util::owner<TaskMemoryManager *> tmm;
     // 进程Capability Holder
@@ -70,6 +76,7 @@ struct TaskSpec {
     VirAddr phdr_vaddr           = VirAddr(static_cast<addr_t>(0));
     size_t phdr_num              = 0;
     size_t phdr_entsize          = 0;
+    ProgramHeaderInfo phdr{};
     // 堆的起始地址
     VirAddr heap_vaddr;
     CapIdx heap_mem_cap = cap::null;
