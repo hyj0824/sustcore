@@ -27,8 +27,15 @@
     _Pragma("GCC diagnostic ignored \"-Wliteral-suffix\"")
 #define SUPPRESS_SELF_MOVE _Pragma("GCC diagnostic ignored \"-Wself-move\"")
 #define SUPPRESS_SELF_ASSIGN
+
+// GCC 16 之后才有 SFINAE_INCOMPLETE 警告, 之前的版本没有该警告, 因此不需要处理
+#if __GNUC__ < 16
+#define SUPPRESS_SFINAE_INCOMPLETE
+#else
 #define SUPPRESS_SFINAE_INCOMPLETE \
     _Pragma("GCC diagnostic ignored \"-Wsfinae-incomplete\"")
+#endif
+
 #else
 #warning "Failed at suppressing diagnostic infomations!"
 // 其他编译器中不处理该警告

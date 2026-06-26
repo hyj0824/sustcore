@@ -27,9 +27,9 @@ namespace {
      * @param area 原始物理区间.
      * @return PhyArea 页对齐后的物理区间.
      */
-    [[nodiscard]]
+    [[nodiscard]] __ATTR_ALWAYS_INLINE__
     PhyArea page_align_area(const PhyArea &area) noexcept {
-        return PhyArea(area.begin.page_align_down(), area.end.page_align_up());
+        return {area.begin.page_align_down(), area.end.page_align_up()};
     }
 }  // namespace
 

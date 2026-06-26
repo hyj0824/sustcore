@@ -80,10 +80,10 @@ typedef smb_t ssize_t;
 // 逐位计算的话, 则其相当于 (y & x) == y
 #define BITS_IMPLIES(x, y) (((x) & (y)) == (y))
 
-#define QWORD_MAX (0xFFFF'FFFF'FFFF'FFFF)
-#define DWORD_MAX (0xFFFF'FFFF)
-#define WORD_MAX  (0xFFFF)
-#define BYTE_MAX  (0xFF)
+#define QWORD_MAX ((qword)0xFFFFFFFFFFFFFFFF)
+#define DWORD_MAX ((dword)0xFFFFFFFF)
+#define WORD_MAX  ((word)0xFFFF)
+#define BYTE_MAX  ((byte)0xFF)
 
 // Attributes
 
