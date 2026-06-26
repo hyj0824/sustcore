@@ -7,7 +7,7 @@
 VFS 当前承担四类职责:
 
 1. **文件系统注册表**: 通过文件系统名称管理 `IFsDriver` 实例。
-2. **挂载表**: 将规范化后的挂载路径映射到 `VSuperblock` 和可选 `BufferCache`。
+2. **挂载表**: 维护目录树中的挂载点位置与 `VSuperblock` 的映射。
 3. **路径解析**: 从全局路径找到对应挂载点，再沿目录逐级 lookup 到目标 inode。
 4. **能力对象入口**: `open()` / `opendir()` 创建 `VFile` / `VDirectory` payload 并插入 `cap::CHolder`，后续文件操作经 capability 对象转回 VFS。
 
@@ -90,6 +90,7 @@ VFS 当前承担四类职责:
 
 - `util::refc_ptr<VINode> _vind`
 - `util::Path _mount_path`
+- `util::Path _global_path`
 - `VFS *_vfs`
 
 其主要用途是:
@@ -119,65 +120,53 @@ VFS 当前承担四类职责:
 
 ## 挂载接口
 
-VFS 当前区分普通块设备文件系统和伪文件系统。
+VFS 当前同时保留传统路径挂载接口和新的 mount capability 路径。
 
-### 块设备挂载
+### 传统挂载
 
 接口为:
 
 ```cpp
-Result<void> mount(const char *fs_name, IBlockDeviceOps *device,
+Result<void> mount(const char *fs_name, size_t devno,
                    const char *mountpoint, MountFlags flags,
                    const char *options);
-```
-
-主要规则:
-
-- `device == nullptr` 返回 `ErrCode::NULLPTR`。
-- `mountpoint` 会通过 `util::Path::normalize()` 规范化。
-- 同一挂载点重复挂载返回 `ErrCode::INVALID_PARAM`。
-- 找不到文件系统驱动返回 `ErrCode::INVALID_PARAM`。
-- 若目标驱动是伪文件系统，返回 `ErrCode::NOT_SUPPORTED`。
-
-若驱动 `is_block_fs()`，VFS 会为该设备创建长期存在的 `blk::BufferCache`，并调用 `IBlockFsDriver::mount(BufferCache &, options)`。否则直接调用 `IFsDriver::mount(IBlockDeviceOps *, options)`。
-
-### 伪文件系统挂载
-
-接口为:
-
-```cpp
 Result<void> mount(const char *fs_name, const char *mountpoint,
                    const char *options);
 ```
 
-主要规则:
+其中块设备文件系统现在通过 `devno` 挂载，而不是直接传 `IBlockDeviceOps *`。
 
-- 只能挂载 `is_pseudo() == true` 的文件系统。
-- 非伪文件系统会返回 `ErrCode::NOT_SUPPORTED`。
-- 挂载时调用 `IPesudoFsDriver::mount(fs_name, options)`。
-- 挂载记录不会持有 `BufferCache`。
+### Mount capability
+
+VFS 还提供:
+
+- `create_mount(...)`
+- `mount_attach(...)`
+- `mount_detach(...)`
+- `mount_root(...)`
+
+用于先创建 `VMount` payload，再把它附着到某个已打开目录下。
 
 ## 挂载记录
 
-每个挂载点对应一个 `MountRecord`:
+当前内部挂载记录至少包含:
 
 ```cpp
 struct MountRecord {
+    VINode *parent_vinode;
+    std::string entry_name;
+    util::Path mount_path;
     util::owner<VSuperblock *> superblock;
-    util::owner<blk::BufferCache *> cache;
+    size_t devno;
+    bool is_block_mount;
     size_t active_files = 0;
+    VMount *owner_mount;
 };
 ```
 
-其中:
-
-- `superblock` 是挂载点的 VFS superblock。
-- `cache` 只对块文件系统存在。
-- `active_files` 记录当前打开但尚未销毁的 `VFile` 数量。
-
 ## 卸载
 
-`umount(mountpoint)` 的流程是:
+传统 `umount(mountpoint)` 的流程仍保留；使用 mount capability 时，更常通过 `mount_detach()` 完成分离。
 
 1. 规范化挂载点路径。
 2. 找不到挂载点时返回 `ErrCode::INVALID_PARAM`。
@@ -275,7 +264,7 @@ VFS 提供四个运行时文件接口:
 
 - `sync()` 需要 `perm::vdir::WRITE`
 
-当前目录 capability 的主要用途仍是“作为父目录继续打开子项”，而不是提供完整目录 I/O。
+当前目录 capability 的主要用途仍是“作为父目录继续打开子项”和“作为 mount attach 的父目录”，而不是提供完整目录 I/O。
 
 ## 当前限制
 

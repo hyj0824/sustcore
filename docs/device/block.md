@@ -210,33 +210,21 @@ BufferCache(IBlockDeviceOps *dev_ops, size_t devno);
 
 VFS 与块设备的连接点主要在 `kernel/vfs/ops.h` 和 `kernel/vfs/vfs.cpp`。
 
-### `IBlockFsDriver`
-
-`IBlockFsDriver` 是块文件系统驱动适配层。它把传统的 `IBlockDeviceOps *` 入口转换成 `BufferCache &` 入口:
-
-- `probe(IBlockDeviceOps *, options)` 会临时构造 `BufferCache` 后调用 `probe(BufferCache &, options)`。
-- `mount(IBlockDeviceOps *, options)` 会临时构造 `BufferCache` 后调用 `mount(BufferCache &, options)`。
-- `is_block_fs()` 固定返回 `true`。
-
-这使得真正的块文件系统实现可以直接围绕缓存层编写。
-
 ### VFS 挂载记录
 
-`VFS::mount(fs_name, device, mountpoint, flags, options)` 对块文件系统会:
+`VFS::mount(fs_name, devno, mountpoint, flags, options)` 对块文件系统会:
 
-1. 校验设备指针和挂载点。
+1. 校验设备号和挂载点。
 2. 查找文件系统驱动。
-3. 为该设备创建一个长期存在的 `BufferCache`。
-4. 调用块文件系统驱动的 `mount(cache, options)`。
-5. 在 `MountRecord` 中同时保存 `VSuperblock` 和 `BufferCache`。
+3. 调用文件系统驱动的 `mount(devno, options)`。
+4. 在 `MountRecord` 中记录 `VSuperblock`、`devno`、挂载位置和活跃文件数。
 
 卸载时，VFS 会:
 
 1. 拒绝仍有打开文件的挂载点。
 2. 调用 superblock 的 `sync()`。
-3. 若挂载记录持有 `BufferCache`，调用 `cache->sync_all()`。
-4. 调用文件系统驱动的 `unmount()`。
-5. 删除 superblock 和缓存对象。
+3. 调用文件系统驱动的 `unmount()`。
+4. 删除 superblock。
 
 ## 当前测试覆盖
 
@@ -256,6 +244,6 @@ VFS 与块设备的连接点主要在 `kernel/vfs/ops.h` 和 `kernel/vfs/vfs.cpp
 - 缓存淘汰策略是线性查找空闲槽，没有 LRU 或优先级。
 - `BufferCache` 不会主动校验 `blkno < block_cnt()`，越界错误由底层设备读写接口返回。
 - `readonly()` 目前没有被 `BufferCache::write()` 或 `sync()` 强制检查。
-- `BlkManager` 尚未成为 VFS 挂载路径的必经入口。
+- `BlkManager` 与 `devno` 分配仍然是块文件系统挂载的前置条件。
 
 新增真实块设备驱动时，应至少实现 `IBlockDeviceOps` 的完整容量、读写和同步语义，并确保短读短写路径能被调用方明确识别。

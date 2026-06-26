@@ -65,7 +65,10 @@
 
 - `get_pid()`
 - `kill(exit_code)`
-- `map(memory, vaddr, rwx, growth)`
+- `map(memory, offset, vaddr, sz, protflg)`
+- `unmap(vaddr, sz)`
+- `query_vaddr(vaddr, mem_cap)`
+- `query_vspace(offset, max_entries, expose_mem_cap)`
 - `require_new_thread()`
 - `require_new_process()`
 - `require_execute()`
@@ -94,7 +97,7 @@
 4. 清空该进程的 `CHolder`
 5. 遍历所有线程
 6. 将其他 READY 线程从调度器中移除
-7. 把线程状态改成 `WAITING`
+7. 把线程状态改成 `DYING`
 8. 若正在杀当前进程，则标记需要重调度并立即 `schedule()`
 
 ### 对能力系统的影响
@@ -106,14 +109,15 @@
 
 所以 `kill()` 同时也是 capability 释放入口。
 
-## `map(memory, vaddr, rwx, growth)`
+## `map(memory, offset, vaddr, sz, protflg)`
 
 要求 `VMCONTEXT` 权限。
 
 它并不直接操作页表，而是:
 
 1. 检查 PCB 是否存在及其 `tmm` 是否存在
-2. 调用 `memory.map_into(*_obj->pcb->tmm, vaddr, rwx, growth)`
+2. 校验 offset、地址和大小的页对齐与范围合法性
+3. 通过目标 TMM 的 `add_vma(...)` 建立映射
 
 因此:
 
@@ -121,6 +125,13 @@
 - Memory capability 继续负责授权“这段 Memory 允许怎样映射”
 
 这是两个 capability 的权限叠加。
+
+## `unmap()` 与查询接口
+
+`unmap(vaddr, sz)` 同样要求 `VMCONTEXT`，会调用目标 TMM 的
+`remove_vma_range()`。
+
+`query_vaddr()` 与 `query_vspace()` 也要求 `VMCONTEXT`，并把 TMM 查询结果包装为 `VMAInfo` 供 syscall 层返回。
 
 ## `require_*` 系列接口
 
@@ -155,13 +166,7 @@
 
 `task.cpp` 里有一个内部辅助函数 `current_object_tcb()`。
 
-它优先从:
-
-- `syscall::active_context()`
-
-获取当前线程；若没有显式 syscall 上下文，则退化为:
-
-- `Scheduler::inst().current_tcb()`
+它当前直接退化为 `Scheduler::inst().current_tcb()`。
 
 这主要服务于 `kill()`，使它在普通路径和 syscall 协程路径下都能正确判断“是否正在杀当前进程”。
 

@@ -45,7 +45,7 @@ SchedMeta *ready = nullptr;
 
 ### put_prev
 
-`put_prev()` 把 idle 线程重新设为 ready，并记录到单槽 ready 指针。
+`put_prev()` 把 idle 线程重新设为 ready，并记录回唯一的 ready 指针。
 
 ## 抢占
 

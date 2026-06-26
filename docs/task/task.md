@@ -19,6 +19,9 @@
 - `tmm`: 进程地址空间管理器。
 - `cholder`: 进程 capability holder。
 - `entrypoint`: 用户镜像入口地址。
+- `linuxproc_entrypoint`: Linux 进程真实入口地址。
+- `linux_subsystem_entry`: Linux 子系统入口地址。
+- `is_linux_process`: 是否为 Linux 子系统进程。
 - `pcb_cap`: 进程自身 PCB capability 所在槽位。
 - `main_tcb_cap`: 主线程 TCB capability 所在槽位。
 
@@ -31,6 +34,7 @@
 - 分配 `pid` / `tid`
 - 创建、填充、终止 PCB/TCB
 - 加载 ELF 并创建进程
+- 加载 Linux 子系统进程
 - fork / exec 当前进程
 - 创建内核进程与内核线程
 - 维护 `pid -> PCB` 映射
@@ -213,7 +217,7 @@ PCB 和 TCB 都使用 KOP 对象池，`task::init_kop()` 会初始化 `kop::pcb`
 1. 校验 `KILL` 权限。
 2. 设置 `exit_code` 和 `exiting`。
 3. 清空进程 holder。
-4. 将该进程所有线程标为 `WAITING`。
+4. 将该进程所有线程标为 `DYING`。
 5. READY 线程会从调度队列中移除。
 6. 如果杀死当前进程，则设置当前线程 `NEED_RESCHED` 并触发调度。
 

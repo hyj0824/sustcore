@@ -15,21 +15,22 @@
 
 ## `NotificationPayload`
 
-它包含两个核心字段:
+它包含三个核心字段:
 
-- `b32 signalbits`
-- `wait::wd_t wait_wds[perm::notif::MAX_SIGNALS]`
+- `std::atomic<b32> signalbits`
+- `std::vector<wait::Promise<bool>> waiters[perm::notif::MAX_SIGNALS]`
+- `SpinLocker spinlock`
 
 ### `signalbits`
 
 当前实现中信号位图用 `b32` 保存，注释说明“实际长 24 位”。  
 每一位表示一个 signal 当前是否被置位。
 
-### `wait_wds`
+### `waiters`
 
-每个 signal 都有自己独立的等待描述符，因此不同信号的等待者不会互相干扰。
-
-构造时会为每个信号调用 `wait::alloc_reason()`。
+当前实现不再为每个 signal 固定分配 `wait_wd`；等待方会把
+`wait::Promise<bool>` 挂到对应 signal 的等待者数组中，signal 到来时批量
+完成这些 promise。
 
 ## 权限模型
 
@@ -69,7 +70,7 @@ Notification 的权限设计与其它对象不同，不是整对象一组 READ/W
 其中:
 
 - 前四个接口仍然同步返回 `Result<bool>`
-- `wait(idx)` 当前返回 `wait::cotask<Result<bool>>`
+- `wait(idx)` 当前返回 `Result<wait::Future<bool>>`
 
 ## 下标合法性
 
@@ -89,7 +90,7 @@ idx < perm::notif::MAX_SIGNALS
 
 1. 进入中断临界区
 2. 把对应位设置为 1
-3. `wake_all(wait_wds[idx])`
+3. 完成 `waiters[idx]` 中的所有 promise
 
 返回值为 `true`。
 
@@ -142,13 +143,13 @@ idx < perm::notif::MAX_SIGNALS
 
 ### 行为
 
-当前实现已经改为 coroutine 等待路径，大致流程是:
+当前实现已经改为 future/promise 等待路径，大致流程是:
 
 1. 检查 `idx` 与 `QUERY` 权限
-2. 在循环内进入临界区
-3. 如果对应位已经为 1，则立即 `co_return true`
-4. 否则 `co_await wait::FutureAwaiter(...)`
-5. 被恢复后重新检查 signalbit，直到该位为 1
+2. 在锁保护下检查 signalbit
+3. 如果对应位已经为 1，则立即返回就绪 future
+4. 否则将 promise 挂入 `waiters[idx]`
+5. `signal(idx)` 到来时完成该 promise
 
 ### 重要语义
 
@@ -161,19 +162,13 @@ idx < perm::notif::MAX_SIGNALS
 
 ## 同步原子性
 
-`wait()` 的实现特别强调了一个点:
+`wait()` 的实现特别强调一个点:
 
-- 对象层仍然需要在临界区内检查 signalbit，避免和 signal/unsignal 并发修改
-- 真正的线程等待登记不再由 `NotificationObject::wait()` 自己完成
-- `FutureAwaiter` 只负责 suspend coroutine 并写入 `WaitContext`
-- 最外层 syscall 路径再根据 `wait_wd` 统一调用
-  `wait::register_syscall_wait(...)`
+- signalbit 检查和 waiter 挂接在同一把锁保护下完成
+- signal 路径也在同一把锁下同时修改位图和取出 waiter 列表
 
-因此当前 notif wait 的 race-safe 依赖于:
-
-1. 对象层的临界区状态检查
-2. `FutureAwaiter` 的 ready predicate
-3. 外层统一的等待登记路径
+因此当前 notif wait 的 race-safe 主要依赖 payload 内部的锁保护，而不是旧的
+`wait_wd + FutureAwaiter` 组合。
 
 ## 权限分片的意义
 

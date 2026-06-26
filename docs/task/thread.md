@@ -19,8 +19,8 @@
 
 每个线程都有独立内核栈:
 
-- `KSTACK_PAGES = 8`
-- `KSTACK_SIZE = 32 KiB`
+- `KSTACK_PAGES = 64`
+- `KSTACK_SIZE = 256 KiB`
 - `kstack_phy`: 内核栈顶对应物理地址记录。
 - `kstack_bottom`: 内核栈顶虚拟地址。
 
@@ -64,8 +64,7 @@
 1. 分配新 tid。
 2. 设置所属 PCB。
 3. 清空等待、syscall 和链表状态。
-4. 通过 GFP 分配 4 页内核栈。
-4. 通过 GFP 分配 8 页内核栈。
+4. 通过 GFP 分配 64 页内核栈。
 5. 计算 `kstack_phy` 和 `kstack_bottom`。
 
 用户线程上下文由 `build_user_contexts()` 构造: 它会在内核栈中压入用户 trap 上下文，并把内核上下文入口设置为 `new_utask_trampoline`。内核线程上下文由 `build_kernel_context()` 直接构造到 `kernel_ctx`。
@@ -156,6 +155,9 @@
 1. `FutureAwaiter`
 2. `wait::WaitContext`
 3. `wait::cotask`
+
+需要注意的是，普通线程等待与 notification / endpoint 等对象内部使用的
+`Future/Promise` 机制已经并存；当前 TCB 不再保存旧式 coroutine handle。
 
 `FutureAwaiter` 挂起时只负责:
 

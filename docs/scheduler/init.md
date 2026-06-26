@@ -12,29 +12,30 @@ constexpr static ClassType CLASS_TYPE = ClassType::INIT;
 
 优先级高于 `RR`，低于 `RT`。
 
-INIT 与 IDLE 类似，是单槽调度类:
+INIT 当前内部维护两个 ready 槽:
 
 ```cpp
-SchedMeta *ready = nullptr;
+SchedMeta *kinit_ready = nullptr;
+SchedMeta *init_ready = nullptr;
 ```
 
 ## 队列行为
 
 ### enqueue
 
-将线程设为 `READY`，并记录到 `ready`。
+将线程设为 `READY`，并按 `BootThreadRole` 记录到 `kinit_ready` 或 `init_ready`。
 
 ### dequeue
 
-要求目标实体等于 `ready`，然后清空 ready 并设为 `EMPTY`。
+要求目标实体位于对应 ready 槽中，然后清空该槽并设为 `EMPTY`。
 
 ### pick_next
 
-若 ready 存在，则取出该线程，状态设为 `RUNNING`，并更新 `cursched`。
+若 ready 槽存在，则优先取 `kinit_ready`，否则取 `init_ready`，并更新 `cursched`。
 
 ### put_prev
 
-把当前 init 线程重新设为 `READY` 并记录到 ready 槽。
+把当前 init 线程重新设为 `READY` 并记录回对应 ready 槽。
 
 ## tick 与 yield
 
@@ -54,4 +55,5 @@ constexpr schd::ClassType INIT_SCHED_CLASS = schd::ClassType::INIT;
 
 ## 当前限制
 
-INIT 当前是单槽模型，没有多个 init 类线程的队列语义。它更像启动阶段的特殊优先级，而不是通用高优先级调度策略。
+INIT 当前不是单一 ready 槽，而是按 `BootThreadRole` 区分 `KINIT` 和
+`INIT_USER` 两类启动线程；它仍然更像启动阶段的特殊调度类，而不是通用高优先级调度策略。

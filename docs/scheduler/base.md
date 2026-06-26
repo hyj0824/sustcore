@@ -18,9 +18,10 @@
 - `rq_head`
 - `flags`
 
-当前 flags 只有:
+当前 flags 至少包括:
 
 - `FLAGS_NEED_RESCHED`: 需要重新调度。
+- `FLAGS_PREEMPT_DISABLED`: 当前线程处于禁止抢占状态。
 
 ## 线程状态
 
@@ -32,6 +33,7 @@
 - `RUNNING`: 正在运行。
 - `YIELD`: 已主动让出，当前实现使用较少。
 - `WAITING`: 等待事件，不参与普通调度。
+- `DYING`: 正在退出，不应重新进入普通运行队列。
 
 调度类在 enqueue、dequeue、pick、put_prev 中负责维护这些状态。
 
@@ -66,7 +68,8 @@ RT -> INIT -> RR -> FCFS -> IDLE
 - `fcfs_list`
 - `rr_list`
 
-`INIT` 和 `IDLE` 是单槽调度类，不使用 `RQ` 链表保存 ready 队列。
+`IDLE` 是单槽调度类；`INIT` 当前则按 `BootThreadRole` 维护
+`kinit_ready/init_ready` 两个 ready 槽。
 
 ## 调度类接口
 
@@ -102,7 +105,7 @@ class BaseSched
 1. 将 idle TCB 标为 `RUNNING`。
 2. 设置 IDLE 调度类当前线程。
 3. 将 init TCB 标为 `READY`。
-4. 设置 INIT 调度类 ready 槽。
+4. 设置 INIT 调度类的 `kinit_ready` 槽。
 5. 给 idle TCB 设置 `NEED_RESCHED`，让第一次调度切到 init。
 
 ## 地址空间切换
@@ -188,5 +191,5 @@ class BaseSched
 - 当前更偏单 hart 模型，`RQ` 来自当前 `env::hart_ctx`。
 - 调度队列操作没有显式锁。
 - `RT` 当前是 FIFO 风格，不含优先级或 deadline。
-- `INIT` 和 `IDLE` 是单槽调度类。
+- `IDLE` 是单槽调度类，`INIT` 则拆成 `kinit_ready/init_ready` 两个启动槽。
 - `YIELD` 状态尚未形成独立语义。

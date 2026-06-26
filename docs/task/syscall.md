@@ -58,7 +58,7 @@ RISC-V 用户态通过 `ecall` 进入内核。当前路径已经拆成:
 - `tmm`
 - `trap_context`
 
-轻量 syscall coroutine 不能依赖动态全局 current task，因此 syscall 层通过 `syscall::set_active_context()` 设置当前上下文。对象方法若需要当前线程，也会优先使用 `syscall::active_context()`。
+当前主路径中，syscall 分发由 `dispatch_sync(tcb, trap_context, args)` 完成；对象方法若需要当前线程，通常直接退化到 `Scheduler::current_tcb()`。
 
 这套显式上下文主要服务于对象方法和用户缓冲区访问辅助；当前 `TCB::SyscallInfo` 本身不保存 `SyscallContext`。
 

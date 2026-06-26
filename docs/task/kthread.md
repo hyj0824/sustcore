@@ -110,7 +110,7 @@ while (true) {
 
 内核 PCB 没有 holder，因此内核线程不通过 PCB/TCB capability 暴露自己。它们也不能走用户态 `create_thread_current()` 路径。
 
-内核线程如果操作 capability 对象，通常是作为内核内部逻辑直接持有对象指针；对象方法中如果需要“当前线程”，会优先读取 `syscall::active_context()`，否则退化到 `Scheduler::current_tcb()`。
+内核线程如果操作 capability 对象，通常是作为内核内部逻辑直接持有对象指针；对象方法中如果需要“当前线程”，当前实现通常直接退化到 `Scheduler::current_tcb()`。
 
 ## 当前限制
 

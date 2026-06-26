@@ -17,24 +17,27 @@ Memory syscall helper 包括:
 
 ## 创建 Memory
 
-`mem_create(memsz, shared, continuity, growth)` 会:
+`mem_create(file_cap, memsz, shared, continuity, growth, file_offset)` 会:
 
 1. 如果 `shared == true` 但 growth 不是 `FIXED`，返回 `ErrCode::INVALID_PARAM`。
-2. 创建 `cap::MemoryPayload`。
-3. 将 payload 插入当前进程 holder 空闲槽。
-4. 返回 capability 槽位。
+2. 如果 `file_cap` 有效，则要求它是当前 holder 中一个带 `READ` 权限的
+   `VFILE` capability，并为该 backing file clone 一份只读 capability。
+3. 创建 `cap::MemoryPayload`。
+4. 将 payload 插入当前进程 holder 空闲槽。
+5. 返回 capability 槽位。
 
 新 Memory 不会立即分配物理页。物理页由 `MemoryPayload::ensure_page()` 懒分配。
+若提供了 `file_cap`，则 Memory 会成为 file-backed memory。
 
 ## 映射 Memory
 
 映射入口是:
 
 ```cpp
-pcb_map(pcb_cap, mem_cap, vaddr, rwx, growth)
+pcb_map(pcb_cap, mem_cap, offset, vaddr, sz, protflg)
 ```
 
-它通过目标 PCB capability 把 Memory capability 映射到某个进程地址空间。
+它通过目标 PCB capability 把 Memory capability 的一段区间映射到某个进程地址空间。
 
 权限规则:
 
@@ -78,7 +81,7 @@ pcb_map(pcb_cap, mem_cap, vaddr, rwx, growth)
 - 调整 `MemoryPayload::memsz`。
 - 对关联 VMA 调用 `sync_memory_vmas()` 同步范围。
 
-shared memory 当前不支持 resize。
+shared memory 当前仍不支持 resize。
 
 ## query
 
@@ -123,5 +126,6 @@ fork 时:
 
 - `UBuffer` 输出要求用户缓冲区落在单个 VMA 中。
 - shared memory 不支持 resize。
+- `shared + file-backed` 当前不支持。
 - COW 不支持大页。
 - `mem_unmap` 只作用于当前进程 TMM。
