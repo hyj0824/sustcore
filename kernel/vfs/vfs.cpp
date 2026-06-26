@@ -1284,26 +1284,94 @@ Result<util::refc_ptr<VINode>> VFS::_resolve_path(
 }
 
 Result<VFile *> VFS::_open_file_at(VINode &parent, const util::Path &mount_path,
-                                   const char *relpath) {
-    auto valid_res = validate_relpath(relpath);
-    propagate(valid_res);
+                                   const util::Path &base_path,
+                                   const char *relpath, flags::oflg_t oflags) {
+    auto oflag_res = validate_file_oflags(oflags);
+    propagate(oflag_res);
 
     auto parent_dir_res = parent.inode()->as_directory();
     propagate(parent_dir_res);
 
-    auto target_res = _resolve_from(util::refc_ptr(&parent), mount_path,
-                                    util::Path::from(relpath).normalize(),
-                                    &parent.superblock());
+    auto create_target_res = parse_create_target(relpath);
+    propagate(create_target_res);
+    const auto &target = create_target_res.value();
+
+    auto resolved_parent_res =
+        _resolve_from(util::refc_ptr(&parent), base_path, target.parent_path,
+                      &parent.superblock());
+    propagate(resolved_parent_res);
+
+    auto resolved_dir_res = resolved_parent_res.value()->inode()->as_directory();
+    propagate(resolved_dir_res);
+
+    auto lookup_res = resolved_dir_res.value()->lookup(target.name);
+    if (!lookup_res.has_value()) {
+        if (lookup_res.error() != ErrCode::ENTRY_NOT_FOUND ||
+            (oflags & flags::O_CREAT) == 0)
+        {
+            propagate_return(lookup_res);
+        }
+
+        auto inode_res = resolved_dir_res.value()->mkfile(target.name, nullptr);
+        propagate(inode_res);
+
+        // refresh parent dir VINode so subsequent lookup sees the new entry
+        auto invalidate_res =
+            resolved_parent_res.value()->superblock().invalidate_inode(
+                resolved_parent_res.value()->inode()->inode_id());
+        propagate(invalidate_res);
+
+        lookup_res = resolved_dir_res.value()->lookup(target.name);
+        propagate(lookup_res);
+    } else {
+        propagate(lookup_res);
+    }
+
+    auto target_res =
+        resolved_parent_res.value()->superblock().get_vnode(lookup_res.value());
     propagate(target_res);
+    util::Path target_mount_path{};
+    for (const auto &[_, record] : mount_table) {
+        if (record.superblock.get() == &target_res.value()->superblock()) {
+            target_mount_path = record.mount_path;
+            break;
+        }
+    }
+    if (target_mount_path.view().empty()) {
+        unexpect_return(ErrCode::FS_ERROR);
+    }
+
+    auto symlink_res = target_res.value()->superblock().sb()->is_symlink(
+        lookup_res.value());
+    propagate(symlink_res);
+    if (symlink_res.value()) {
+        const util::Path target_global_path =
+            (base_path.normalize() / util::Path::from(relpath)).normalize();
+        target_res = _follow_symlink(target_res.value(), target_mount_path,
+                                     target_global_path, util::Path("."),
+                                     kMaxSymlinkDepth, true);
+        propagate(target_res);
+
+        target_mount_path = {};
+        for (const auto &[_, record] : mount_table) {
+            if (record.superblock.get() == &target_res.value()->superblock()) {
+                target_mount_path = record.mount_path;
+                break;
+            }
+        }
+        if (target_mount_path.view().empty()) {
+            unexpect_return(ErrCode::FS_ERROR);
+        }
+    }
     auto file_res = target_res.value()->inode()->as_file();
     propagate(file_res);
-
-    auto *file = new VFile(*target_res.value().get(), mount_path, *this);
+    auto *file =
+        new VFile(*target_res.value().get(), target_mount_path, *this);
     if (file == nullptr) {
         unexpect_return(ErrCode::ALLOCATION_FAILED);
     }
 
-    auto key_res = _build_mount_key(mount_path);
+    auto key_res = _build_mount_key(target_mount_path);
     propagate(key_res);
     auto mount_res = _lookup_mount_record(key_res.value().first);
     if (!mount_res.has_value()) {
@@ -1463,22 +1531,8 @@ Result<CapIdx> VFS::open(cap::Capability &parent_dir_cap, const char *relpath,
         unexpect_return(ErrCode::TYPE_NOT_MATCHED);
     }
 
-    if ((oflags & flags::O_EXECUTE) == 0) {
-        auto ensure_res = _ensure_parent_directory(*parent, relpath);
-        propagate(ensure_res);
-    }
-
-    auto global_res = _global_target_path(*parent, relpath);
-    propagate(global_res);
-    auto file_res =
-        _open_file_at(*parent->vinode(), parent->mount_path(), relpath);
-    if (!file_res.has_value() && file_res.error() == ErrCode::ENTRY_NOT_FOUND &&
-        (oflags & flags::O_EXECUTE) == 0 && (oflags & flags::O_CREAT) != 0)
-    {
-        auto create_res = mkfile(parent_dir_cap, relpath, oflags, holder);
-        propagate(create_res);
-        return create_res.value();
-    }
+    auto file_res = _open_file_at(*parent->vinode(), parent->mount_path(),
+                                  parent->global_path(), relpath, oflags);
     propagate(file_res);
 
     auto insert_res =
@@ -1876,6 +1930,11 @@ Result<util::refc_ptr<VINode>> VFS::_ensure_directory_path(
         auto next_res = current->superblock().get_vnode(lookup_res.value());
         propagate(next_res);
         auto next_dir_res = next_res.value()->inode()->as_directory();
+        if (! next_dir_res.has_value())
+        {
+            loggers::VFS::ERROR("VFS: expected directory at %s", next_path.c_str());
+            unexpect_return(ErrCode::TYPE_NOT_MATCHED);
+        }
         propagate(next_dir_res);
         current      = next_res.value();
         current_path = next_path;

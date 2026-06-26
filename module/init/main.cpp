@@ -113,9 +113,10 @@ CapIdx spawn_with_root_dir(int fd, size_t sched_class, CapIdx root_dir_cap) {
     CapIdx initial_caps[] = {child_root_cap, cap::null};
     const char *bsargv[]  = {reinterpret_cast<const char *>(&bootstrap),
                              nullptr};
-    auto child_pcb_res    = sys_create_process(
-        kmod_getcap(fd), sched_class, initial_caps, nullptr, nullptr, bsargv)
-                            .to_result();
+    auto child_pcb_res =
+        sys_create_process(kmod_getcap(fd), sched_class, initial_caps, nullptr,
+                           nullptr, bsargv)
+            .to_result();
     (void)sys_cap_remove(child_root_cap).to_result();
     return child_pcb_res.has_value() ? child_pcb_res.value() : cap::error;
 }
@@ -155,9 +156,10 @@ CapIdx spawn_linux_with_root_dir(int fd, size_t sched_class,
     CapIdx initial_caps[] = {child_root_cap, cap::null};
     const char *bsargv[]  = {reinterpret_cast<const char *>(&bootstrap),
                              nullptr};
-    auto child_pcb_res    = sys_create_linux_process(
-        kmod_getcap(fd), sched_class, initial_caps, nullptr, nullptr, bsargv)
-                            .to_result();
+    auto child_pcb_res =
+        sys_create_linux_process(kmod_getcap(fd), sched_class, initial_caps,
+                                 nullptr, nullptr, bsargv)
+            .to_result();
     (void)sys_cap_remove(child_root_cap).to_result();
     return child_pcb_res.has_value() ? child_pcb_res.value() : cap::error;
 }
@@ -265,7 +267,7 @@ void print_tree(CapIdx dir_cap, const char *path, size_t depth = 0) {
         }
 
         NodeMeta st{};
-        bool stat_ok = sys_vfs_lstat(dir_cap, name.c_str(), &st);
+        bool stat_ok      = sys_vfs_lstat(dir_cap, name.c_str(), &st);
         const bool is_dir = stat_ok && st.type == EntryType::DIR;
         const char *kind =
             !stat_ok
@@ -295,7 +297,8 @@ void print_tree(CapIdx dir_cap, const char *path, size_t depth = 0) {
 
         if (is_dir && depth + 1 < kMaxPrintDepth) {
             auto subdir_res =
-                sys_vfs_opendir(dir_cap, name.c_str(), flags::O_READ).to_result();
+                sys_vfs_opendir(dir_cap, name.c_str(), flags::O_READ)
+                    .to_result();
             CapIdx subdir =
                 subdir_res.has_value() ? subdir_res.value() : cap::error;
             if (subdir != cap::null && subdir != cap::error) {
@@ -400,7 +403,7 @@ void mount_testing_ext4(CapIdx root_dir_cap) {
 
     auto mnt_cap_res = sys_mnt_create(blk_cap, "ext4", 0, nullptr).to_result();
     CapIdx mnt_cap = mnt_cap_res.has_value() ? mnt_cap_res.value() : cap::error;
-    bool mounted = false;
+    bool mounted   = false;
     if (mnt_cap == cap::null || mnt_cap == cap::error) {
         printf("init: create ext4 mount failed\n");
     } else {
@@ -455,14 +458,15 @@ void run_requests(const std::vector<SpawnRequest> &requests,
         kmod_fclose(fd);
 
         CapIdx wait_caps[] = {child_pcb, cap::null};
-        
-        auto wait_ret = sys_tcb_wait(__main_tcb_cap, wait_caps, nullptr, 0).to_result();
+
+        auto wait_ret =
+            sys_tcb_wait(__main_tcb_cap, wait_caps, nullptr, 0).to_result();
         if (!wait_ret.has_value()) {
             printf("init: 等待 %s 失败\n", request.dispname);
             continue;
         }
 
-        CapIdx exited_cap  = wait_ret.value();
+        CapIdx exited_cap = wait_ret.value();
         assert(exited_cap != cap::null && exited_cap != cap::error);
         printf("init: %s 已完成!\n", request.dispname);
     }
@@ -485,23 +489,51 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
 
 #if defined(__ARCH_riscv64__)
 
-#define LIB_PATH "/lib"
+#define LIB_PATH    "/lib"
+#define USRLIB_PATH "/usr/lib"
 
 #elif defined(__ARCH_loongarch64__)
 
-#define LIB_PATH "/lib64"
+#define LIB_PATH    "/lib64"
+#define USRLIB_PATH "/usr/lib64"
 
 #endif
-
-    if (!force_symlink(LIB_PATH, "/initrd/tmp/lib")) {
-        printf("init: create /lib symlink failed\n");
-    } else {
-        printf("link " LIB_PATH " -> /initrd/tmp/lib created\n");
-    }
 
     create_blk_linkings(root_dir_cap);
     setup_stdout_link();
     mount_testing_ext4(root_dir_cap);
+
+    if (!force_symlink(LIB_PATH, "/testing/glibc/lib")) {
+        printf("init: create /lib symlink failed\n");
+    } else {
+        printf("link " LIB_PATH " -> /testing/glibc/lib created\n");
+    }
+
+    if (!force_symlink(USRLIB_PATH, "/testing/glibc/lib")) {
+        printf("init: create /usr/lib symlink failed\n");
+    } else {
+        printf("link " USRLIB_PATH " -> /testing/glibc/lib created\n");
+    }
+
+    // try open /testing/glibc/lib/libc.so.6
+    int fd = 0;
+    fd = kmod_fopen(USRLIB_PATH "/libc.so.6", "r");
+    if (fd >= 0) {
+        printf("init: open " USRLIB_PATH "/libc.so.6 succeeded\n");
+        kmod_fclose(fd);
+    } else {
+        printf("init: open " USRLIB_PATH "/libc.so.6 failed\n");
+    }
+
+    fd = kmod_fopen("/testing/glibc/lib/libc.so.6", "r");
+    if (fd >= 0) {
+        printf("init: open /testing/glibc/lib/libc.so.6 succeeded\n");
+        kmod_fclose(fd);
+    } else {
+        printf("init: open /testing/glibc/lib/libc.so.6 failed\n");
+    }
+
+    // print_tree(root_dir_cap, "/");
 
     std::vector<SpawnRequest> requests{
         // SpawnRequest{
@@ -535,14 +567,13 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
         //     .is_linuxproc = true,
         // },
         SpawnRequest{
-            .path       = "/initrd/contest-runner.mod",
-            .dispname   = "contest-runner",
+            .path         = "/initrd/contest-runner.mod",
+            .dispname     = "contest-runner",
             .is_linuxproc = false,
         },
     };
-
     // try write file /sys/dev/serial@1fe001e0/serial
-    int fd = kmod_fopen("/sys/dev/serial@1fe001e0/serial", "w");
+    fd = kmod_fopen("/sys/dev/serial@1fe001e0/serial", "w");
     if (fd >= 0) {
         kmod_fwrite(fd, "Hello, World!\n", 14);
         printf(

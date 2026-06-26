@@ -16,13 +16,12 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
-#include <string>
-#include <vector>
+
+#include "ltp.h"
 
 namespace contest_runner {
     namespace {
         constexpr size_t PATH_BUFFER_SIZE   = 256;
-        constexpr size_t DIRENT_BUFFER_SIZE = 16384;
 
         [[nodiscard]]
         bool make_path(char *buf, size_t bufsiz, const char *lhs,
@@ -34,66 +33,6 @@ namespace contest_runner {
             }
             int len = snprintf(buf, bufsiz, "%s/%s", lhs, rhs);
             return len > 0 && static_cast<size_t>(len) < bufsiz;
-        }
-
-        [[nodiscard]]
-        bool collect_ltp_cases(CapIdx dir_cap, std::vector<std::string> &cases) {
-            char buffer[DIRENT_BUFFER_SIZE]{};
-            size_t offset = 0;
-
-            while (true) {
-                memset(buffer, 0, sizeof(buffer));
-                auto getdents_res =
-                    sys_vfs_getdents(dir_cap, buffer, sizeof(buffer), offset)
-                        .to_result();
-                size_t bytes =
-                    getdents_res.has_value() ? getdents_res.value() : 0;
-                if (bytes == 0) {
-                    break;
-                }
-
-                size_t parsed = 0;
-                for (size_t pos = 0; pos < bytes;) {
-                    if (bytes - pos < sizeof(dir_entry_header)) {
-                        return false;
-                    }
-
-                    auto *header = reinterpret_cast<const dir_entry_header *>(
-                        buffer + pos);
-                    const char *name = buffer + pos + sizeof(dir_entry_header);
-                    size_t name_room = bytes - pos - sizeof(dir_entry_header);
-                    if (memchr(name, '\0', name_room) == nullptr) {
-                        return false;
-                    }
-
-                    if (strcmp(name, ".") != 0 && strcmp(name, "..") != 0) {
-                        NodeMeta meta{};
-                        if (!sys_vfs_stat(dir_cap, name, &meta))
-                        {
-                            return false;
-                        }
-                        if (meta.type == EntryType::FILE) {
-                            cases.emplace_back(name);
-                        }
-                    }
-
-                    ++parsed;
-                    if (header->next_offset == 0 ||
-                        pos + header->next_offset > bytes)
-                    {
-                        return false;
-                    }
-                    pos += header->next_offset;
-                }
-
-                if (parsed == 0) {
-                    return false;
-                }
-                offset += parsed;
-            }
-
-            std::sort(cases.begin(), cases.end());
-            return true;
         }
     }  // namespace
 
@@ -116,44 +55,44 @@ namespace contest_runner {
             return stats;
         }
 
-        std::vector<std::string> cases{};
-        if (!collect_ltp_cases(cwd.cap, cases)) {
-            printf("contest-runner: ltp enumerate failed %s\n", ltp_root);
-            close_cwd_dir(cwd);
-            printf("#### OS COMP TEST GROUP END ltp-%s ####\n", ctx.libc_name);
-            return stats;
-        }
-
-        for (const auto &case_name : cases) {
-            ++stats.total;
-            printf("RUN LTP CASE %s\n", case_name.c_str());
-
-            char case_path[PATH_BUFFER_SIZE]{};
-            if (!make_path(case_path, sizeof(case_path), ltp_root,
-                           case_name.c_str()))
+        for (size_t group_idx = 0; ltp::testcases[group_idx] != nullptr;
+             ++group_idx)
+        {
+            auto testcase_group = ltp::testcases[group_idx];
+            for (size_t case_idx = 0; testcase_group[case_idx] != nullptr;
+                 ++case_idx)
             {
-                ++stats.failed;
-                printf("FAIL LTP CASE %s : -1\n", case_name.c_str());
-                continue;
-            }
+                const char *case_name = testcase_group[case_idx];
+                ++stats.total;
+                printf("RUN LTP CASE %s\n", case_name);
 
-            const char *argv[] = {case_name.c_str(), nullptr};
-            int status         = 0;
-            auto err = run_program(ctx, cwd, case_path, argv, status);
-            if (err != RunProgramError::NONE) {
-                ++stats.failed;
-                printf("FAIL LTP CASE %s : -1\n", case_name.c_str());
-                printf("contest-runner: ltp failed error=%s case=%s\n",
-                       run_error_string(err), case_name.c_str());
-                continue;
-            }
+                char case_path[PATH_BUFFER_SIZE]{};
+                if (!make_path(case_path, sizeof(case_path), ltp_root,
+                               case_name))
+                {
+                    ++stats.failed;
+                    printf("FAIL LTP CASE %s : -1\n", case_name);
+                    continue;
+                }
 
-            int ret = run_exit_code(status);
-            printf("FAIL LTP CASE %s : %d\n", case_name.c_str(), ret);
-            if (run_status_success(status)) {
-                ++stats.passed;
-            } else {
-                ++stats.failed;
+                const char *argv[] = {case_name, nullptr};
+                int status         = 0;
+                auto err = run_program(ctx, cwd, case_path, argv, status);
+                if (err != RunProgramError::NONE) {
+                    ++stats.failed;
+                    printf("FAIL LTP CASE %s : -1\n", case_name);
+                    printf("contest-runner: ltp failed error=%s case=%s\n",
+                           run_error_string(err), case_name);
+                    continue;
+                }
+
+                int ret = run_exit_code(status);
+                printf("FAIL LTP CASE %s : %d\n", case_name, ret);
+                if (run_status_success(status)) {
+                    ++stats.passed;
+                } else {
+                    ++stats.failed;
+                }
             }
         }
 

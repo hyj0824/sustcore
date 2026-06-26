@@ -392,7 +392,8 @@ private:
 
     [[nodiscard]]
     Result<VFile *> _open_file_at(VINode &parent, const util::Path &mount_path,
-                                  const char *relpath);
+                                  const util::Path &base_path, const char *relpath,
+                                  flags::oflg_t oflags);
 
     [[nodiscard]]
     Result<VDirectory *> _open_dir_at(VINode &parent,

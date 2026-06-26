@@ -22,6 +22,7 @@
 
 #include <cstddef>
 #include <cstring>
+#include <string>
 #include <syscall.h.in>
 
 #include "fdtable.h"
@@ -43,10 +44,43 @@ namespace {
     constexpr size_t VMA_PROT_R             = 0x1;
     constexpr size_t VMA_PROT_W             = 0x2;
     constexpr size_t VMA_PROT_X             = 0x4;
-    constexpr size_t MAP_PRIVATE            = 0x02;
-    constexpr size_t MAP_FIXED              = 0x10;
-    constexpr size_t MAP_ANONYMOUS          = 0x20;
-    constexpr uint64_t MEMORY_GROWTH_FIXED  = 0;
+
+    // 共享映射, 修改同步到文件并对其他进程可见
+    constexpr size_t MAP_SHARED          = 0x01;
+    // 私有映射 (写时复制), 修改不写回文件
+    constexpr size_t MAP_PRIVATE         = 0x02;
+    // 验证额外标志是否被内核支持 (需与 MAP_SHARED 联用)
+    constexpr size_t MAP_SHARED_VALIDATE = 0x03;
+    // 固定地址映射, 若指定地址不可用则失败
+    constexpr size_t MAP_FIXED           = 0x10;
+    // 匿名映射, 不与文件关联, 内容初始化为 0
+    constexpr size_t MAP_ANONYMOUS       = 0x20;
+    // 将映射放在地址空间的低 2GB (仅 x86-64)
+    constexpr size_t MAP_32BIT           = 0x40;
+    // 映射可向下增长 (通常用于栈)
+    constexpr size_t MAP_GROWSDOWN       = 0x00100;
+    // 拒绝写入该文件 (忽略)
+    constexpr size_t MAP_DENYWRITE       = 0x00800;
+    // 标记为可执行 (忽略)
+    constexpr size_t MAP_EXECUTABLE      = 0x01000;
+    // 锁定内存页, 防止被交换到 swap
+    constexpr size_t MAP_LOCKED          = 0x02000;
+    // 不预留交换空间 (可能因内存不足导致 SIGSEGV)
+    constexpr size_t MAP_NORESERVE       = 0x04000;
+    // 预填充页表 (预读文件), 减少后续缺页中断
+    constexpr size_t MAP_POPULATE        = 0x08000;
+    // 在 I/O 操作时不要阻塞 (与 MAP_POPULATE 联用)
+    constexpr size_t MAP_NONBLOCK        = 0x10000;
+    // 用于线程栈的映射
+    constexpr size_t MAP_STACK           = 0x20000;
+    // 使用大页 (Huge Page)
+    constexpr size_t MAP_HUGETLB         = 0x40000;
+    // DAX 持久性保证 (需与 MAP_SHARED_VALIDATE 联用)
+    constexpr size_t MAP_SYNC            = 0x80000;
+    // 固定地址映射, 但绝不替换已有映射 (若冲突则失败)
+    constexpr size_t MAP_FIXED_NOREPLACE = 0x100000;
+
+    constexpr uint64_t MEMORY_GROWTH_FIXED = 0;
 
     struct linux_iovec {
         const void *iov_base;
@@ -73,16 +107,110 @@ namespace {
         return vma_prot;
     }
 
+    void append_flag_name(std::string &out, bool &first, const char *name) {
+        if (!first) {
+            out += " | ";
+        }
+        out   += name;
+        first  = false;
+    }
+
+    [[nodiscard]]
+    std::string mmap_prot_to_string(size_t prot) {
+        std::string out{};
+        bool first = true;
+
+        if ((prot & PROT_READ) != 0) {
+            append_flag_name(out, first, "PROT_READ");
+        }
+        if ((prot & PROT_WRITE) != 0) {
+            append_flag_name(out, first, "PROT_WRITE");
+        }
+        if ((prot & PROT_EXEC) != 0) {
+            append_flag_name(out, first, "PROT_EXEC");
+        }
+
+        size_t unknown = prot & ~(PROT_READ | PROT_WRITE | PROT_EXEC);
+        if (unknown != 0) {
+            char buffer[32]{};
+            snprintf(buffer, sizeof(buffer), "0x%lx",
+                     static_cast<unsigned long>(unknown));
+            append_flag_name(out, first, buffer);
+        }
+
+        if (out.empty()) {
+            out = "0";
+        }
+        return out;
+    }
+
+    [[nodiscard]]
+    std::string mmap_flags_to_string(size_t flags) {
+        std::string out{};
+        bool first       = true;
+        size_t rem_flags = flags;
+
+        struct FlagMap {
+            size_t mask;
+            const char *name;
+        };
+
+        if ((rem_flags & MAP_SHARED_VALIDATE) == MAP_SHARED_VALIDATE) {
+            append_flag_name(out, first, "MAP_SHARED_VALIDATE");
+            rem_flags &= ~MAP_SHARED_VALIDATE;
+        } else if ((rem_flags & MAP_SHARED) != 0) {
+            append_flag_name(out, first, "MAP_SHARED");
+            rem_flags &= ~MAP_SHARED;
+        }
+
+        const FlagMap flag_map[] = {
+            {.mask = MAP_PRIVATE, .name = "MAP_PRIVATE"},
+            {.mask = MAP_FIXED, .name = "MAP_FIXED"},
+            {.mask = MAP_ANONYMOUS, .name = "MAP_ANONYMOUS"},
+            {.mask = MAP_32BIT, .name = "MAP_32BIT"},
+            {.mask = MAP_GROWSDOWN, .name = "MAP_GROWSDOWN"},
+            {.mask = MAP_DENYWRITE, .name = "MAP_DENYWRITE"},
+            {.mask = MAP_EXECUTABLE, .name = "MAP_EXECUTABLE"},
+            {.mask = MAP_LOCKED, .name = "MAP_LOCKED"},
+            {.mask = MAP_NORESERVE, .name = "MAP_NORESERVE"},
+            {.mask = MAP_POPULATE, .name = "MAP_POPULATE"},
+            {.mask = MAP_NONBLOCK, .name = "MAP_NONBLOCK"},
+            {.mask = MAP_STACK, .name = "MAP_STACK"},
+            {.mask = MAP_HUGETLB, .name = "MAP_HUGETLB"},
+            {.mask = MAP_SYNC, .name = "MAP_SYNC"},
+            {.mask = MAP_FIXED_NOREPLACE, .name = "MAP_FIXED_NOREPLACE"},
+        };
+
+        for (const auto &[mask, name] : flag_map) {
+            if ((rem_flags & mask) == 0) {
+                continue;
+            }
+            append_flag_name(out, first, name);
+            rem_flags &= ~mask;
+        }
+
+        if (rem_flags != 0) {
+            char buffer[32]{};
+            snprintf(buffer, sizeof(buffer), "0x%lx",
+                     static_cast<unsigned long>(rem_flags));
+            append_flag_name(out, first, buffer);
+        }
+
+        if (out.empty()) {
+            out = "0";
+        }
+        return out;
+    }
+
     [[nodiscard]]
     size_t choose_mmap_base(size_t length) {
         VMAInfo infos[LINUX_MMAP_QUERY_BATCH]{};
         size_t offset = 0;
         size_t cursor = page_align_up_user(__linuxss_ssheap_base + PAGESIZE);
         while (true) {
-            auto count_res =
-                sys_pcb_query_vspace(__prog_pcb_cap, offset, infos,
-                                     LINUX_MMAP_QUERY_BATCH)
-                    .to_result();
+            auto count_res = sys_pcb_query_vspace(__prog_pcb_cap, offset, infos,
+                                                  LINUX_MMAP_QUERY_BATCH)
+                                 .to_result();
             if (!count_res.has_value()) {
                 return cursor;
             }
@@ -244,7 +372,8 @@ void dump_bsargv(size_t bsargc, const bsheader *const *bsargv) {
                     continue;
                 }
                 printf(
-                    "bsargv[%u] = { type=TYPE_PATHEXP, size=%u, path_desc=%s }\n",
+                    "bsargv[%u] = { type=TYPE_PATHEXP, size=%u, path_desc=%s "
+                    "}\n",
                     static_cast<unsigned>(i), record->size,
                     path_view.path_desc);
                 continue;
@@ -331,10 +460,29 @@ size_t linux_sys_writev(size_t fd, const linux_iovec *iov, size_t iovcnt) {
 
 size_t linux_sys_mmap(void *addr, size_t length, size_t prot, size_t flags,
                       size_t fd, size_t offset) {
+    auto prot_str  = mmap_prot_to_string(prot);
+    auto flags_str = mmap_flags_to_string(flags);
+    loggers::LXSC::INFO(
+        "mmap addr=%p length=%lu prot=0x%lx (%s) flags=0x%lx (%s) fd=%ld "
+        "offset=%lu",
+        addr, static_cast<unsigned long>(length),
+        static_cast<unsigned long>(prot), prot_str.c_str(),
+        static_cast<unsigned long>(flags), flags_str.c_str(),
+        static_cast<long>(fd), static_cast<unsigned long>(offset));
+
     if ((flags & MAP_ANONYMOUS) == 0 || (flags & MAP_PRIVATE) == 0) {
+        loggers::LXSC::ERROR(
+            "mmap only supports MAP_ANONYMOUS | MAP_PRIVATE, flags=0x%lx",
+            static_cast<unsigned long>(flags));
         return INVALID_VALUE;
     }
+
     if (fd != static_cast<size_t>(-1) || offset != 0 || length == 0) {
+        loggers::LXSC::ERROR(
+            "mmap only supports fd=-1, offset=0, length>0, got fd=%ld, "
+            "offset=%lu, length=%lu",
+            static_cast<long>(fd), static_cast<unsigned long>(offset),
+            static_cast<unsigned long>(length));
         return INVALID_VALUE;
     }
 
@@ -343,14 +491,17 @@ size_t linux_sys_mmap(void *addr, size_t length, size_t prot, size_t flags,
                                 ? reinterpret_cast<size_t>(addr)
                                 : choose_mmap_base(aligned_length);
     if ((target_addr % PAGESIZE) != 0) {
+        loggers::LXSC::ERROR(
+            "mmap target address is not page-aligned, addr=%p",
+            reinterpret_cast<void *>(target_addr));
         return INVALID_VALUE;
     }
 
-    auto mem_cap_res =
-        sys_mem_create(cap::null, aligned_length, false, false,
-                       MEMORY_GROWTH_FIXED, 0)
-            .to_result();
+    auto mem_cap_res = sys_mem_create(cap::null, aligned_length, false, false,
+                                      MEMORY_GROWTH_FIXED, 0)
+                           .to_result();
     if (!mem_cap_res.has_value()) {
+        loggers::LXSC::ERROR("mmap failed to create memory capability");
         return INVALID_VALUE;
     }
     CapIdx mem_cap = mem_cap_res.value();
@@ -358,6 +509,7 @@ size_t linux_sys_mmap(void *addr, size_t length, size_t prot, size_t flags,
                      reinterpret_cast<void *>(target_addr), aligned_length,
                      prot_to_vma_prot(prot)))
     {
+        loggers::LXSC::ERROR("mmap failed to map memory capability to vspace");
         return INVALID_VALUE;
     }
     return target_addr;
@@ -397,11 +549,10 @@ extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
             return linux_sys_clone(a0, a1, reinterpret_cast<int *>(a2),
                                    reinterpret_cast<int *>(a3), a4,
                                    dispatch_frame_sp);
-        case __NR_brk:
-            return linux_sys_brk(a0);
+        case __NR_brk:   return linux_sys_brk(a0);
         case __NR_uname: return linux_sys_uname(reinterpret_cast<void *>(a0));
         case __NR_faccessat:
-            // TODO: 实现 __NR_faccessat 系统调用，目前先返回 -ENOENT;
+            // TODO: 实现 __NR_faccessat 系统调用, 目前先返回 -ENOENT;
             return -ENOENT;
         case __NR_wait4:
             return linux_sys_wait4(
@@ -416,12 +567,12 @@ extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
         case __NR_getpid:      return linux_sys_getpid();
         case __NR_getppid:     return linux_sys_getppid();
         case __NR_sched_yield: return linux_sys_sched_yield();
-        case __NR_times: return linux_sys_times(reinterpret_cast<void *>(a0));
+        case __NR_times:       return linux_sys_times(reinterpret_cast<void *>(a0));
         case __NR_chdir:
             return linux_sys_chdir(reinterpret_cast<const char *>(a0));
         case __NR_getdents64:
             return linux_sys_getdents64(static_cast<int>(a0),
-            reinterpret_cast<void *>(a1), a2);
+                                        reinterpret_cast<void *>(a1), a2);
         case __NR_readlinkat:
             return linux_sys_readlinkat(static_cast<int>(a0),
                                         reinterpret_cast<const char *>(a1),
@@ -435,15 +586,17 @@ extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
             return linux_sys_fstat(static_cast<int>(a0),
                                    reinterpret_cast<void *>(a1));
         case __NR_statx:
-            return linux_sys_statx(static_cast<int>(a0),
-                                   reinterpret_cast<const char *>(a1),
-                                   static_cast<int>(a2),
-                                   static_cast<unsigned>(a3),
-                                   reinterpret_cast<void *>(a4));
-        case __NR_exit: linux_sys_exit(a0); return 0;
+            return linux_sys_statx(
+                static_cast<int>(a0), reinterpret_cast<const char *>(a1),
+                static_cast<int>(a2), static_cast<unsigned>(a3),
+                reinterpret_cast<void *>(a4));
+        case __NR_exit:
+            // 先注释, 默认均为 exit_group
+            // linux_sys_exit(a0);
+            // return 0;
         case __NR_exit_group: linux_sys_exit_group(a0); return 0;
-        case __NR_close: return linux_sys_close(static_cast<int>(a0));
-        case __NR_dup: return linux_sys_dup(static_cast<int>(a0));
+        case __NR_close:      return linux_sys_close(static_cast<int>(a0));
+        case __NR_dup:        return linux_sys_dup(static_cast<int>(a0));
         case __NR_dup3:
             return linux_sys_dup3(static_cast<int>(a0), static_cast<int>(a1),
                                   static_cast<int>(a2));

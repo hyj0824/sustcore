@@ -177,10 +177,6 @@ size_t clone_process(size_t flags, addr_t newsp, int *parent_tid,
         parent_tid, child_tid, reinterpret_cast<void *>(tls),
         reinterpret_cast<void *>(dispatch_frame_sp));
 
-    if (newsp != 0) {
-        loggers::LXSC::INFO("clone_process 忽略 newsp=%p",
-                            reinterpret_cast<void *>(newsp));
-    }
     if (parent_tid != nullptr || child_tid != nullptr || tls != 0) {
         loggers::LXSC::INFO("clone_process 忽略 父子 tid 与 tls");
     }

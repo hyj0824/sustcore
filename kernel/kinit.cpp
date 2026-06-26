@@ -236,24 +236,6 @@ namespace {
         void_return();
     }
 
-    Result<void> mount_test_img() {
-        auto mount_res = VFS::inst().mount("ext4", TEST_IMG_DEVNO,
-                                           TEST_IMG_PATH, MountFlags::NONE,
-                                           nullptr);
-        if (!mount_res.has_value()) {
-            loggers::SUSTCORE::ERROR(
-                "挂载 ext4 测试镜像失败: devno=%u path=%s err=%s",
-                static_cast<unsigned>(TEST_IMG_DEVNO), TEST_IMG_PATH,
-                to_cstring(mount_res.error()));
-            propagate_return(mount_res);
-        }
-
-        loggers::SUSTCORE::INFO("已挂载 ext4 测试镜像: devno=%u path=%s",
-                                static_cast<unsigned>(TEST_IMG_DEVNO),
-                                TEST_IMG_PATH);
-        void_return();
-    }
-
     Result<void> load_runtime_init() {
         auto load_res = task::TaskManager::inst().load_init(INITMOD_PATH);
         if (!load_res.has_value()) {
@@ -303,13 +285,6 @@ void kinit_runtime_entry() {
         panic("kinit 初始化 DriverModel 失败");
     }
     loggers::SUSTCORE::INFO("已初始化 DriverModel");
-
-    init_res = mount_test_img();
-    if (!init_res.has_value()) {
-        loggers::SUSTCORE::FATAL("kinit 挂载 ext4 测试镜像失败: %s",
-                                 to_cstring(init_res.error()));
-        panic("kinit 挂载 ext4 测试镜像失败");
-    }
 
 #ifdef __CONF_KERNEL_TIMEKEEPER_TEST
     register_timekeeper_log_test();

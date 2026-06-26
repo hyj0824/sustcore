@@ -346,14 +346,14 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
             .libc_name    = LIBC_TARGETS[i].name,
         };
 
-        contest_runner::accumulate_stats(total,
-                                         contest_runner::run_basic(ctx));
+        // contest_runner::accumulate_stats(total,
+        //                                  contest_runner::run_basic(ctx));
         // contest_runner::accumulate_stats(total,
         //                                  contest_runner::run_busybox(ctx));
         // contest_runner::accumulate_stats(total,
         //                                  contest_runner::run_libctest(ctx));
-        // contest_runner::accumulate_stats(total,
-        //                                  contest_runner::run_ltp(ctx));
+        contest_runner::accumulate_stats(total,
+                                         contest_runner::run_ltp(ctx));
     }
 
     printf("contest-runner: all done total=%lu passed=%lu failed=%lu\n",

@@ -242,7 +242,7 @@ size_t linux_sys_uname(void *buf) {
     }
 
     linux_utsname uts{};
-    copy_uts_field(uts.sysname, "sustcore");
+    copy_uts_field(uts.sysname, "linux");
     copy_uts_field(uts.nodename, "qemu");
     copy_uts_field(uts.release, "4.15.0");
     copy_uts_field(uts.version, "build 0");

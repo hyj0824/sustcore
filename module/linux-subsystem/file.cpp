@@ -669,6 +669,8 @@ namespace {
             return -EIO;
         } else if (node_type == ResolvedNodeType::MISSING) {
             if (!flg_create) {
+                loggers::LXSC::ERROR("openat path=%s does not exist and O_CREAT not set",
+                                 resolved.absolute_path.c_str());
                 return -ENOENT;
             }
             loggers::LXSC::INFO("openat create path=%s type=%s",
