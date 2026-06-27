@@ -315,6 +315,11 @@ namespace task {
          * @note 在调用本函数前应确保已经调用 `init()` 进行初始化.
          */
         static TaskManager &inst();
+        [[nodiscard]]
+        Result<void> kill_pcb_impl(PCB *pcb, TCB *current_tcb,
+                                   int exit_code) noexcept;
+        [[noreturn]]
+        void on_segv(int exit_code = 0) noexcept;
 
         /**
          * @brief 创建并返回 init 进程的 PCB, 用于系统初始化任务.

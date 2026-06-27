@@ -566,6 +566,6 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     printf("init: 初始化, 开始启动\n");
     run_requests(requests, root_dir_cap);
     printf("init: 全部运行完成! done!\n");
-    exit(0);
+    sys_shutdown();
     return 0;
 }

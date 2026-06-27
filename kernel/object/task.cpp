@@ -53,45 +53,8 @@ namespace cap {
 
         task::PCB *pcb    = _obj->pcb;
         auto *current_tcb = current_object_tcb();
-        auto *runtime_tcb = schd::Scheduler::inst().current_tcb();
-        bool killing_current =
-            current_tcb != nullptr && current_tcb->task == pcb;
-
-        loggers::TASK::DEBUG("开始终止进程: pid=%lu exit_code=%d",
-                            pcb->pid, exit_code);
-        pcb->exit_code = exit_code;
-        if (pcb->exiting) {
-            void_return();
-        }
-        pcb->exiting = true;
-        auto wake_res = wait::wake_all(task::task_exit_wait_wd());
-        if (!wake_res.has_value()) {
-            loggers::TASK::ERROR("唤醒等待退出进程的线程失败: pid=%lu err=%d",
-                                 pcb->pid, wake_res.error());
-        }
-        for (auto &tcb : pcb->threads) {
-            if (&tcb != current_tcb &&
-                tcb.basic_entity.state == ThreadState::READY)
-            {
-                auto dequeue_res =
-                    schd::Scheduler::inst().dequeue(util::nnullforce(&tcb));
-                if (!dequeue_res.has_value()) {
-                    loggers::TASK::ERROR("pcb kill移除线程失败: tid=%d err=%d",
-                                         tcb.tid, dequeue_res.error());
-                }
-            }
-            tcb.basic_entity.state = ThreadState::DYING;
-        }
-        task::TaskManager::inst().enqueue_recycle(pcb);
-        if (killing_current) {
-            current_tcb->basic_entity.state = ThreadState::DYING;
-            current_tcb->basic_entity
-                .template flags_set<schd::SchedMeta::FLAGS_NEED_RESCHED>();
-            if (runtime_tcb == current_tcb) {
-                schd::Scheduler::inst().schedule();
-            }
-        }
-        void_return();
+        return task::TaskManager::inst().kill_pcb_impl(pcb, current_tcb,
+                                                       exit_code);
     }
 
     Result<void> PCBObject::map(MemoryObject &memory, size_t offset,

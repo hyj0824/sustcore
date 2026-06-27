@@ -307,6 +307,21 @@ namespace exception {
         dump_regs(ctx);
         loggers::INTERRUPT::ERROR(
             "=======UNRECOVERABLE EXCEPTION END===========");
+        if (task::TaskManager::initialized() &&
+            schd::Scheduler::initialized())
+        {
+            auto *tcb = schd::Scheduler::inst().current_tcb();
+            if (tcb != nullptr && tcb->task != nullptr && !tcb->is_kernel) {
+                // 孩子咳嗽感冒老不好
+                // 打一顿就好
+                // 程序出了异常怎么办
+                // 我只要把出异常的程序杀了就行了
+                // 杀! 杀! 杀!
+                // 三军听令! 战至最后一刻, 自刎归天!
+                // 你别管怎么退出的, 反正就是 tmd 退出了哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈哈
+                task::TaskManager::inst().on_segv();
+            }
+        }
         while (true) {
         }
     }

@@ -332,6 +332,14 @@ namespace exception {
         dump_regs(ctx);
         loggers::EXCEPTION::ERROR(
             "=======UNRECOVERABLE EXCEPTION END===========");
+        if (task::TaskManager::initialized() &&
+            schd::Scheduler::initialized())
+        {
+            auto *tcb = schd::Scheduler::inst().current_tcb();
+            if (tcb != nullptr && tcb->task != nullptr && !tcb->is_kernel) {
+                task::TaskManager::inst().on_segv();
+            }
+        }
         while (true) {
         }
     }

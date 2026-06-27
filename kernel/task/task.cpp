@@ -214,6 +214,74 @@ namespace task {
             });
     }
 
+    Result<void> TaskManager::kill_pcb_impl(PCB *pcb, TCB *current_tcb,
+                                            int exit_code) noexcept {
+        if (pcb == nullptr) {
+            unexpect_return(ErrCode::NULLPTR);
+        }
+        auto *runtime_tcb = schd::Scheduler::initialized()
+                                ? schd::Scheduler::inst().current_tcb()
+                                : nullptr;
+        bool killing_current =
+            current_tcb != nullptr && current_tcb->task == pcb;
+
+        loggers::TASK::DEBUG("开始终止进程: pid=%lu exit_code=%d", pcb->pid,
+                             exit_code);
+        pcb->exit_code = exit_code;
+        if (pcb->exiting) {
+            void_return();
+        }
+        pcb->exiting = true;
+        auto wake_res = wait::wake_all(task::task_exit_wait_wd());
+        if (!wake_res.has_value()) {
+            loggers::TASK::ERROR("唤醒等待退出进程的线程失败: pid=%lu err=%d",
+                                 pcb->pid, wake_res.error());
+        }
+        for (auto &tcb : pcb->threads) {
+            if (&tcb != current_tcb &&
+                tcb.basic_entity.state == ThreadState::READY &&
+                schd::Scheduler::initialized())
+            {
+                auto dequeue_res =
+                    schd::Scheduler::inst().dequeue(util::nnullforce(&tcb));
+                if (!dequeue_res.has_value()) {
+                    loggers::TASK::ERROR("pcb kill移除线程失败: tid=%d err=%d",
+                                         tcb.tid, dequeue_res.error());
+                }
+            }
+            tcb.basic_entity.state = ThreadState::DYING;
+        }
+        enqueue_recycle(pcb);
+        if (killing_current) {
+            current_tcb->basic_entity.state = ThreadState::DYING;
+            current_tcb->basic_entity
+                .template flags_set<schd::SchedMeta::FLAGS_NEED_RESCHED>();
+            if (runtime_tcb == current_tcb) {
+                schd::Scheduler::inst().schedule();
+            }
+        }
+        void_return();
+    }
+
+    [[noreturn]]
+    void TaskManager::on_segv(int exit_code) noexcept {
+        if (!schd::Scheduler::initialized()) {
+            panic("Scheduler 未初始化, 无法处理 segv");
+        }
+        auto *current_tcb = schd::Scheduler::inst().current_tcb();
+        if (current_tcb == nullptr || current_tcb->task == nullptr ||
+            current_tcb->is_kernel)
+        {
+            panic("当前上下文无法按进程处理 segv");
+        }
+
+        auto kill_res = kill_pcb_impl(current_tcb->task, current_tcb, exit_code);
+        if (!kill_res.has_value()) {
+            panic("on_segv 终止进程失败");
+        }
+        panic("on_segv 调度后意外返回");
+    }
+
     /**************************************************************************
      * TCB / PCB 基础处理
      **************************************************************************/
