@@ -1082,7 +1082,9 @@ namespace {
         if ((oflags & ~valid_mask) != 0 || oflags == 0) {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
-        if ((oflags & O_EXECUTE) != 0 && oflags != O_EXECUTE) {
+        if ((oflags & O_EXECUTE) != 0 &&
+            (oflags & (O_WRITE | O_CREAT)) != 0)
+        {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
         void_return();

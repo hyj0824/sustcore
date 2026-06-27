@@ -112,7 +112,7 @@ namespace task {
         if (cap_res.value()->payload()->type_id() != PayloadType::VFILE) {
             unexpect_return(ErrCode::TYPE_NOT_MATCHED);
         }
-        if (!cap_res.value()->imply(perm::vfile::EXEC)) {
+        if (!cap_res.value()->imply(perm::vfile::READ | perm::vfile::EXEC)) {
             unexpect_return(ErrCode::INSUFFICIENT_PERMISSIONS);
         }
 

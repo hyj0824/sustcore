@@ -143,7 +143,7 @@ namespace syscall {
         if (cap_res.value()->payload()->type_id() != PayloadType::VFILE) {
             unexpect_return(ErrCode::TYPE_NOT_MATCHED);
         }
-        if (!cap_res.value()->imply(perm::vfile::EXEC)) {
+        if (!cap_res.value()->imply(perm::vfile::READ | perm::vfile::EXEC)) {
             unexpect_return(ErrCode::INSUFFICIENT_PERMISSIONS);
         }
         return cap_res.value();
@@ -311,7 +311,8 @@ namespace syscall {
         }
 
         auto child_image_cap_res = child_holder->insert_to_free(
-            image_res.value()->payload(), perm::vfile::EXEC);
+            image_res.value()->payload(),
+            perm::vfile::READ | perm::vfile::EXEC);
         propagate(child_image_cap_res);
 
         // 2) 使用已预配置的 CHolder 加载子进程 ELF
@@ -394,7 +395,8 @@ namespace syscall {
         }
 
         auto child_image_cap_res = child_holder->insert_to_free(
-            image_res.value()->payload(), perm::vfile::EXEC);
+            image_res.value()->payload(),
+            perm::vfile::READ | perm::vfile::EXEC);
         propagate(child_image_cap_res);
         auto subsystem_cap_res =
             VFS::inst().open(POSIX_SUBSYSTEM_IMAGE, *child_holder);

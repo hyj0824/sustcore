@@ -15,8 +15,8 @@
 // read means you're capable to read the file,
 // write means you're capable to write the file,
 // execute means you're capable to execute the file (if it's executable)
-// execute is somehow special cuz when the execute flag is set
-// and you're opening a file, the read & write flags are ignored.
+// execute can be combined with read when an executable image must be lazily read.
+// write/create cannot be combined with execute.
 // you need to open an executable file with execute flag,
 // and when calling create_process and execve,
 // you need to open the executable file with execute flag at first

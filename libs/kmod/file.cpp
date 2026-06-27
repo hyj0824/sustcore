@@ -187,7 +187,7 @@ namespace {
             return true;
         }
         if (strcmp(options, "x") == 0) {
-            oflags = flags::O_EXECUTE;
+            oflags = flags::O_READ | flags::O_EXECUTE;
             return true;
         }
         return false;

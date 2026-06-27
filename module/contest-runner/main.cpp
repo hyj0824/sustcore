@@ -123,8 +123,8 @@ namespace contest_runner {
             };
 
             char cwd_desc[256]{};
-            int cwd_desc_len = snprintf(cwd_desc, sizeof(cwd_desc), "#cwd:%s",
-                                        cwd_path);
+            int cwd_desc_len =
+                snprintf(cwd_desc, sizeof(cwd_desc), "#cwd:%s", cwd_path);
             if (cwd_desc_len <= 0 ||
                 static_cast<size_t>(cwd_desc_len) >= sizeof(cwd_desc))
             {
@@ -132,16 +132,16 @@ namespace contest_runner {
             }
 
             char exe_desc[256]{};
-            int exe_desc_len = snprintf(exe_desc, sizeof(exe_desc), "#exe:%s",
-                                        program_path);
+            int exe_desc_len =
+                snprintf(exe_desc, sizeof(exe_desc), "#exe:%s", program_path);
             if (exe_desc_len <= 0 ||
                 static_cast<size_t>(exe_desc_len) >= sizeof(exe_desc))
             {
                 return cap::error;
             }
 
-            alignas(bsheader) char cwd_path_bootstrap[sizeof(bsheader) +
-                                                      sizeof(cwd_desc)]{};
+            alignas(bsheader) char
+                cwd_path_bootstrap[sizeof(bsheader) + sizeof(cwd_desc)]{};
             auto *cwd_header = reinterpret_cast<bsheader *>(cwd_path_bootstrap);
             cwd_header->size =
                 sizeof(bsheader) + static_cast<size_t>(cwd_desc_len) + 1;
@@ -149,8 +149,8 @@ namespace contest_runner {
             memcpy(cwd_path_bootstrap + sizeof(bsheader), cwd_desc,
                    static_cast<size_t>(cwd_desc_len) + 1);
 
-            alignas(bsheader) char exe_path_bootstrap[sizeof(bsheader) +
-                                                      sizeof(exe_desc)]{};
+            alignas(bsheader) char
+                exe_path_bootstrap[sizeof(bsheader) + sizeof(exe_desc)]{};
             auto *exe_header = reinterpret_cast<bsheader *>(exe_path_bootstrap);
             exe_header->size =
                 sizeof(bsheader) + static_cast<size_t>(exe_desc_len) + 1;
@@ -257,7 +257,7 @@ namespace contest_runner {
     }
 
     bool open_cwd_dir(const char *path, OpenDirHandle &cwd) {
-        cwd = {};
+        cwd    = {};
         cwd.fd = kmod_opendir(path);
         if (cwd.fd < 0) {
             printf("contest-runner: opendir failed %s\n", path);
@@ -320,8 +320,8 @@ namespace contest_runner {
 
     RunProgramError spawn_program(const RunnerContext &ctx,
                                   const OpenDirHandle &cwd,
-                                  const char *program_path,
-                                  const char *argv[], CapIdx &child_pcb) {
+                                  const char *program_path, const char *argv[],
+                                  CapIdx &child_pcb) {
         child_pcb = cap::null;
         int fd    = kmod_fopen(program_path, "x");
         if (fd < 0) {
@@ -345,8 +345,8 @@ namespace contest_runner {
         }
 
         CapIdx wait_caps[] = {child_pcb, cap::null};
-        auto wait_ret = sys_tcb_wait(__main_tcb_cap, wait_caps, &status, 0)
-                            .to_result();
+        auto wait_ret =
+            sys_tcb_wait(__main_tcb_cap, wait_caps, &status, 0).to_result();
         if (!wait_ret.has_value()) {
             return RunProgramError::WAIT_FAILED;
         }
@@ -365,16 +365,16 @@ namespace contest_runner {
 
     const char *run_error_string(RunProgramError error) {
         switch (error) {
-            case RunProgramError::NONE:        return "none";
-            case RunProgramError::OPEN_FAILED: return "open";
+            case RunProgramError::NONE:         return "none";
+            case RunProgramError::OPEN_FAILED:  return "open";
             case RunProgramError::SPAWN_FAILED: return "spawn";
-            case RunProgramError::WAIT_FAILED: return "wait";
-            default:                           return "unknown";
+            case RunProgramError::WAIT_FAILED:  return "wait";
+            default:                            return "unknown";
         }
     }
 
     void accumulate_stats(TestRunStats &total, const TestRunStats &part) {
-        total.total += part.total;
+        total.total  += part.total;
         total.passed += part.passed;
         total.failed += part.failed;
     }
@@ -398,9 +398,9 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
         const char *root;
     };
     constexpr LibcTarget LIBC_TARGETS[] = {
-        {.name="glibc", .root="/testing/glibc"},
-        {.name="musl", .root="/testing/musl"},
-        {.name=nullptr, .root=nullptr},
+        {.name = "glibc", .root = "/testing/glibc"},
+        {.name = "musl", .root = "/testing/musl"},
+        {.name = nullptr, .root = nullptr},
     };
 
     contest_runner::TestRunStats total{};
@@ -416,14 +416,13 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
             return 1;
         }
 
+        contest_runner::accumulate_stats(total, contest_runner::run_basic(ctx));
         // contest_runner::accumulate_stats(total,
-                                        //  contest_runner::run_basic(ctx));
-        contest_runner::accumulate_stats(total,
-                                         contest_runner::run_busybox(ctx));
+        //                                  contest_runner::run_busybox(ctx));
         // contest_runner::accumulate_stats(total,
-                                        //  contest_runner::run_libctest(ctx));
+        //                                  contest_runner::run_libctest(ctx));
         // contest_runner::accumulate_stats(total,
-                                        //  contest_runner::run_ltp(ctx));
+        // contest_runner::run_ltp(ctx));
         contest_runner::cleanup_runner_context_caps(ctx);
     }
 

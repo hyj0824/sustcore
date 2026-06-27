@@ -137,13 +137,14 @@ namespace cap {
     MemoryPayload::MemoryPayload(size_t memsz, bool shared, bool continuity,
                                  MemoryGrowth growth,
                                  util::owner<Capability *> file,
-                                 size_t file_offset)
+                                 size_t file_offset, size_t file_data_size)
         : memsz(memsz),
           shared(shared),
           continuity(continuity),
           growth(growth),
           file(file),
           file_offset(file_offset),
+          file_data_size(file_data_size),
           phy_pages() {}
 
     MemoryPayload::~MemoryPayload() {
@@ -167,7 +168,8 @@ namespace cap {
                                ? util::owner<Capability *>(file->clone())
                                : util::owner<Capability *>(nullptr);
         auto *cloned = new MemoryPayload(memsz, shared, continuity, growth,
-                                         cloned_file, file_offset);
+                                         cloned_file, file_offset,
+                                         file_data_size);
         for (auto &page : phy_pages) {
             GFP::keep_page(page.second.addr, 1);
             page.second.refcount++;
@@ -207,12 +209,22 @@ namespace cap {
             }
             // Short reads leave the remaining zero-filled bytes in place, which
             // matches file-backed mmap semantics for pages extending past EOF.
-            auto read_res = file_obj.read(file_offset + page_file_offset,
-                                          convert<KpaAddr>(paddr).addr(),
-                                          PAGESIZE);
-            if (!read_res.has_value()) {
-                GFP::put_page(paddr, 1);
-                propagate_return(read_res);
+            size_t read_len = PAGESIZE;
+            if (file_data_size != static_cast<size_t>(-1)) {
+                if (page_file_offset >= file_data_size) {
+                    read_len = 0;
+                } else if (file_data_size - page_file_offset < read_len) {
+                    read_len = file_data_size - page_file_offset;
+                }
+            }
+            if (read_len != 0) {
+                auto read_res = file_obj.read(file_offset + page_file_offset,
+                                              convert<KpaAddr>(paddr).addr(),
+                                              read_len);
+                if (!read_res.has_value()) {
+                    GFP::put_page(paddr, 1);
+                    propagate_return(read_res);
+                }
             }
         }
         phy_pages.insert_or_assign(offvpn, PhyPage{paddr, 1});

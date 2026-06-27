@@ -531,7 +531,7 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
 
     // try open /testing/glibc/lib/libc.so.6
     int fd = 0;
-    fd = kmod_fopen(USRLIB_PATH "/libc.so.6", "r");
+    fd     = kmod_fopen(USRLIB_PATH "/libc.so.6", "r");
     if (fd >= 0) {
         printf("init: open " USRLIB_PATH "/libc.so.6 succeeded\n");
         kmod_fclose(fd);
@@ -571,9 +571,14 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
         //     .is_linuxproc = false,
         // },
         // SpawnRequest{
-        //     .path       = "/initrd/test-linux.mod",
-        //     .dispname   = "test-linux",
-        //     .is_linuxproc = true,
+        //     .path         = "/initrd/test-elf-demand.mod",
+        //     .dispname     = "test-elf-demand",
+        //     .is_linuxproc = false,
+        // },
+        // SpawnRequest{
+        //     .path         = "/initrd/test-elf-demand-perf.mod",
+        //     .dispname     = "test-elf-demand-perf",
+        //     .is_linuxproc = false,
         // },
         // SpawnRequest{
         //     .path       = "/initrd/tmp/write",
