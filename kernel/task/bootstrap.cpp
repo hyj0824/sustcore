@@ -241,9 +241,6 @@ namespace task {
         const VirAddr user_program_phdr_vaddr  = spec.phdr_vaddr;
         const size_t user_program_phdr_num     = spec.phdr_num;
         const size_t user_program_phdr_entsize = spec.phdr_entsize;
-        const VirAddr user_program_tls_vaddr   = spec.tls_vaddr;
-        const size_t user_program_tls_memsz    = spec.tls_memsz;
-        const VirAddr user_program_image_end   = spec.image_end_vaddr;
 
         VirAddr runtime_entry = user_program_entrypoint;
         if (spec.dyn) {
@@ -303,9 +300,6 @@ namespace task {
         spec.phdr_vaddr         = user_program_phdr_vaddr;
         spec.phdr_num           = user_program_phdr_num;
         spec.phdr_entsize       = user_program_phdr_entsize;
-        spec.tls_vaddr          = user_program_tls_vaddr;
-        spec.tls_memsz          = user_program_tls_memsz;
-        spec.image_end_vaddr    = user_program_image_end;
 
         spec.argv = argv;
         spec.envp = envp;

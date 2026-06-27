@@ -37,14 +37,13 @@ namespace task {
         extern "C" [[noreturn]] void new_utask_trampoline();
 
         void init_user_context(Context *ctx, void *entrypoint, void *stack_top,
-                               void *kstack_top, umb_t tls,
+                               void *kstack_top,
                                umb_t linuxproc_entrypoint = 0) noexcept {
             assert(ctx != nullptr);
             *ctx = {};
             ctx->setup_regs<SetupCase::USER_THREAD>();
             ctx->pc()         = reinterpret_cast<umb_t>(entrypoint);
             ctx->sp()         = reinterpret_cast<umb_t>(stack_top);
-            ctx->tls()        = tls;
             ctx->linux_ra()   = linuxproc_entrypoint;
             ctx->kstack_top() = reinterpret_cast<umb_t>(kstack_top);
         }
@@ -69,12 +68,12 @@ namespace task {
         }
 
         void build_user_contexts(util::nonnull<TCB *> tcb, void *entrypoint,
-                                 void *user_stack_top, umb_t tls,
+                                 void *user_stack_top,
                                  umb_t linuxproc_entrypoint = 0) noexcept {
             tcb->reset_kstack();
             auto *user_ctx = tcb->push<Context>();
             init_user_context(user_ctx, entrypoint, user_stack_top,
-                              tcb->kstack_top(), tls, linuxproc_entrypoint);
+                              tcb->kstack_top(), linuxproc_entrypoint);
             init_kernel_context<SetupCase::UTHREAD_TRAMPOLINE>(
                 tcb->kernel_context_ptr(),
                 reinterpret_cast<void *>(&new_utask_trampoline), user_ctx,
@@ -91,7 +90,6 @@ namespace task {
         void prepare_user_thread(util::nonnull<TCB *> tcb, void *entrypoint,
                                  void *user_stack_top,
                                  schd::ClassType schd_class,
-                                 umb_t tls,
                                  umb_t linuxproc_entrypoint = 0) noexcept {
             tcb->is_kernel  = false;
             tcb->boot_role  = BootThreadRole::NONE;
@@ -100,7 +98,7 @@ namespace task {
             assert(tcb->ext_ctx != nullptr);
             init_ext_context(*tcb->ext_ctx);
             tcb->ext_ctx_live = false;
-            build_user_contexts(tcb, entrypoint, user_stack_top, tls,
+            build_user_contexts(tcb, entrypoint, user_stack_top,
                                 linuxproc_entrypoint);
         }
 
@@ -418,9 +416,6 @@ namespace task {
                 .phdr_vaddr           = VirAddr::null,
                 .phdr_num             = 0,
                 .phdr_entsize         = 0,
-                .tls_vaddr            = VirAddr::null,
-                .tls_memsz            = 0,
-                .image_end_vaddr      = VirAddr::null,
                 .linuxss_heap_vaddr   = VirAddr::null,
                 .linuxss_heap_mem_cap = cap::null,
             };
@@ -676,7 +671,6 @@ namespace task {
                              pcb->pid, stack_mem, stack_mem->allocated_size());
         prepare_user_thread(tcb, pcb->entrypoint.addr(), init_layout.sp.addr(),
                             tcb->schd_class,
-                            spec.tls_vaddr.arith() + spec.tls_memsz,
                             spec.linuxproc_entrypoint.arith());
 
         tcb->context()->set_init_regs(static_cast<umb_t>(init_layout.argc),
@@ -701,26 +695,7 @@ namespace task {
         if (kernel_thread) {
             prepare_kernel_thread(tcb, entrypoint, nullptr, schd_class);
         } else {
-            if (pcb->tmm.get() == nullptr) {
-                unexpect_return(ErrCode::NULLPTR);
-            }
-            VirAddr tls_base =
-                VirAddr(reinterpret_cast<addr_t>(stack_top)).page_align_up();
-            auto *tls_mem = new cap::MemoryPayload(PAGESIZE, false, false,
-                                                   VMA::Growth::FIXED);
-            if (tls_mem == nullptr) {
-                unexpect_return(ErrCode::OUT_OF_MEMORY);
-            }
-            auto add_res = pcb->tmm->add_vma(
-                VMA::Type::DATA, VMA::Growth::FIXED,
-                VirArea(tls_base, tls_base + PAGESIZE), tls_mem,
-                VMA::PROT_R | VMA::PROT_W);
-            if (!add_res.has_value()) {
-                delete tls_mem;
-                propagate_return(add_res);
-            }
-            prepare_user_thread(tcb, entrypoint, stack_top, schd_class,
-                                (tls_base + PAGESIZE).arith());
+            prepare_user_thread(tcb, entrypoint, stack_top, schd_class);
         }
 
         pcb->threads.push_back(*tcb);

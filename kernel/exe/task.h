@@ -76,9 +76,6 @@ struct TaskSpec {
     VirAddr phdr_vaddr           = VirAddr(static_cast<addr_t>(0));
     size_t phdr_num              = 0;
     size_t phdr_entsize          = 0;
-    VirAddr tls_vaddr            = VirAddr(static_cast<addr_t>(0));
-    size_t tls_memsz             = 0;
-    VirAddr image_end_vaddr      = VirAddr(static_cast<addr_t>(0));
     ProgramHeaderInfo phdr{};
     // 堆的起始地址
     VirAddr heap_vaddr;
