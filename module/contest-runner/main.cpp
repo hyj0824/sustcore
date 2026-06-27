@@ -158,7 +158,8 @@ namespace contest_runner {
             memcpy(exe_path_bootstrap + sizeof(bsheader), exe_desc,
                    static_cast<size_t>(exe_desc_len) + 1);
 
-            CapIdx initial_caps[] = {prepared_root_dir_cap, prepared_cwd_dir_cap,
+            CapIdx initial_caps[] = {prepared_root_dir_cap,
+                                     prepared_cwd_dir_cap,
                                      prepared_parent_pcb_cap, cap::null};
             const char *bsargv[]  = {
                 reinterpret_cast<const char *>(&root_bootstrap),
@@ -176,9 +177,9 @@ namespace contest_runner {
                 .envp      = nullptr,
                 .bsargv    = bsargv,
             };
-            auto child_pcb_res    = sys_create_linux_process(
-                SCHED_CLASS_FCFS, &request)
-                                        .to_result();
+            auto child_pcb_res =
+                sys_create_linux_process(SCHED_CLASS_FCFS, &request)
+                    .to_result();
             if (!child_pcb_res.has_value()) {
                 return cap::error;
             }
@@ -231,8 +232,9 @@ namespace contest_runner {
             return false;
         }
 
-        auto parent_res = sys_cap_derive(
-            __pcb_cap, PERM_PCB_GETPID | PERM_BASIC_CLONE).to_result();
+        auto parent_res =
+            sys_cap_derive(__pcb_cap, PERM_PCB_GETPID | PERM_BASIC_CLONE)
+                .to_result();
         if (!parent_res.has_value()) {
             cleanup_runner_context_caps(ctx);
             return false;
@@ -421,8 +423,7 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
         //                                  contest_runner::run_busybox(ctx));
         // contest_runner::accumulate_stats(total,
         //                                  contest_runner::run_libctest(ctx));
-        // contest_runner::accumulate_stats(total,
-        // contest_runner::run_ltp(ctx));
+        // contest_runner::accumulate_stats(total, contest_runner::run_ltp(ctx));
         contest_runner::cleanup_runner_context_caps(ctx);
     }
 

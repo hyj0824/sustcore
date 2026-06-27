@@ -790,6 +790,11 @@ extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
             }
             return tid_res.value();
         }
+        case __NR_sched_getaffinity:
+            loggers::LXSC::ERROR(
+                "unsupported syscall %s (%lu), ignoring pid=%d and returning 1 for compatibility",
+                syscall_to_string(a7), a7, static_cast<int>(a0));
+            return 1;
         default:
             loggers::LXSC::ERROR("unsupported syscall %s (%lu)",
                                  syscall_to_string(a7), a7);
