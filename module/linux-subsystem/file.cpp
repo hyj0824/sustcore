@@ -29,6 +29,7 @@
 namespace {
     constexpr size_t INVALID_VALUE  = 0xFFFF'FFFF'FFFF'FFFF;
     constexpr int AT_FDCWD          = -100;
+    constexpr int AT_SYMLINK_NOFOLLOW = 0x100;
     constexpr int AT_EMPTY_PATH     = 0x1000;
     constexpr int LINUX_O_RDONLY    = 0;
     constexpr int LINUX_O_WRONLY    = 1;
@@ -596,6 +597,28 @@ namespace {
         kst.st_atime_sec  = FIXED_TIME;
         kst.st_mtime_sec  = FIXED_TIME;
         kst.st_ctime_sec  = FIXED_TIME;
+    }
+
+    [[nodiscard]]
+    size_t stat_path_at(int dirfd, const char *pathname, bool nofollow,
+                        NodeMeta &meta) {
+        auto resolved = resolve_path_at(dirfd, pathname);
+        if (resolved.parent_cap == cap::null || resolved.parent_cap == cap::error ||
+            resolved.relative_path.empty())
+        {
+            return -ENOENT;
+        }
+
+        auto stat_res =
+            (nofollow ? sys_vfs_lstat(resolved.parent_cap,
+                                      resolved.relative_path.c_str(), &meta)
+                      : sys_vfs_stat(resolved.parent_cap,
+                                     resolved.relative_path.c_str(), &meta))
+                .to_result();
+        if (!stat_res.has_value()) {
+            return stat_res.error() == ErrCode::ENTRY_NOT_FOUND ? -ENOENT : -EIO;
+        }
+        return 0;
     }
 
     void copy_dir_fd_state(int oldfd, int newfd, bool pinned) {
@@ -1378,6 +1401,45 @@ size_t linux_sys_fstat(int fd, void *statbuf) {
     NodeMeta meta{};
     if (!sys_vfs_fstat(cap, &meta)) {
         return -EIO;
+    }
+
+    linux_kstat kst{};
+    fill_kstat_from_node_meta(meta, kst);
+    memcpy(statbuf, &kst, sizeof(kst));
+    return 0;
+}
+
+size_t linux_sys_newfstatat(int dirfd, const char *pathname, void *statbuf,
+                            int flags) {
+    constexpr int SUPPORTED_FLAGS = AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH;
+
+    if (statbuf == nullptr || pathname == nullptr) {
+        return -EINVAL;
+    }
+    if ((flags & ~SUPPORTED_FLAGS) != 0) {
+        return -EINVAL;
+    }
+
+    NodeMeta meta{};
+    if (pathname[0] == '\0') {
+        if ((flags & AT_EMPTY_PATH) == 0) {
+            return -ENOENT;
+        }
+
+        CapIdx cap = fd_to_cap(dirfd);
+        if (cap == cap::error || cap == cap::null) {
+            return -EBADF;
+        }
+        if (!sys_vfs_fstat(cap, &meta)) {
+            return -EIO;
+        }
+    } else {
+        size_t stat_ret =
+            stat_path_at(dirfd, pathname, (flags & AT_SYMLINK_NOFOLLOW) != 0,
+                         meta);
+        if (static_cast<long>(stat_ret) < 0) {
+            return stat_ret;
+        }
     }
 
     linux_kstat kst{};
