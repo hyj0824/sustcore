@@ -65,9 +65,16 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     int fd                = kmod_fopen("/initrd/test_rpc_client.mod", "x");
     CapIdx client_pcb = cap::error;
     if (fd >= 0) {
+        ExecveRequest request{
+            .image_cap = kmod_getcap(fd),
+            .execfn    = nullptr,
+            .caps      = initial_caps,
+            .argv      = nullptr,
+            .envp      = nullptr,
+            .bsargv    = bsargv,
+        };
         auto client_pcb_res =
-            sys_create_process(kmod_getcap(fd), SCHED_CLASS_FCFS,
-                               initial_caps, nullptr, nullptr, bsargv)
+            sys_create_process(SCHED_CLASS_FCFS, &request)
                 .to_result();
         if (client_pcb_res.has_value()) {
             client_pcb = client_pcb_res.value();

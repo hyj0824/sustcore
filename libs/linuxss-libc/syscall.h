@@ -14,6 +14,7 @@
 #include <cstddef>
 
 #include <sustcore/capability.h>
+#include <sustcore/execve.h>
 #include <sustcore/files.h>
 #include <sustcore/msg.h>
 #include <sustcore/sysret.h>
@@ -39,27 +40,19 @@ extern "C" SysRet<void> sys_tcb_kill(CapIdx tcb_cap, int exit_code);
 extern "C" SysRet<void> sys_pcb_kill(CapIdx pcb_cap, int exit_code);
 extern "C" SysRet<size_t> sys_pcb_query_vaddr(CapIdx pcb_cap, void *vaddr,
                                               VMAInfo *info);
-extern "C" SysRet<CapIdx> sys_pcb_create_process(CapIdx pcb_cap, CapIdx image_cap,
-                                                 size_t sched_class, CapIdx caps[],
-                                                 const char *argv[],
-                                                 const char *envp[],
-                                                 const char *bsargv[]);
-extern "C" SysRet<CapIdx> sys_pcb_create_linux_process(CapIdx pcb_cap,
-                                                       CapIdx image_cap,
-                                                       size_t sched_class,
-                                                       CapIdx caps[],
-                                                       const char *argv[],
-                                                       const char *envp[],
-                                                       const char *bsargv[]);
+extern "C" SysRet<CapIdx> sys_pcb_create_process(CapIdx pcb_cap,
+                                                 size_t sched_class,
+                                                 const ExecveRequest *request);
+extern "C" SysRet<CapIdx> sys_pcb_create_linux_process(
+    CapIdx pcb_cap, size_t sched_class, const ExecveRequest *request);
 extern "C" SysRet<CapIdx> sys_pcb_create_thread(CapIdx pcb_cap, void (*entry)(),
                                                 void *stack_addr,
                                                 size_t stack_size);
 extern "C" SysRet<CapIdx> sys_tcb_wait(CapIdx tcb_cap, CapIdx pcbs_idx[],
                                        int *status, size_t options);
 extern "C" SysRet<size_t> sys_pcb_fork(CapIdx pcb_cap, CapIdx *child_pcb_cap);
-extern "C" SysRet<void> sys_pcb_execve(CapIdx pcb_cap, CapIdx image_cap,
-                                       CapIdx rsvdlst[], const char *argv[],
-                                       const char *envp[], const char *bsargv[]);
+extern "C" SysRet<void> sys_pcb_execve(CapIdx pcb_cap,
+                                       const ExecveRequest *request);
 extern "C" SysRet<size_t> sys_yield();
 extern "C" SysRet<size_t> sys_getpid(CapIdx pcb_cap);
 extern "C" SysRet<CapIdx> sys_notif_create();

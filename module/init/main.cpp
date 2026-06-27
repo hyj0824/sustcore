@@ -113,9 +113,16 @@ CapIdx spawn_with_root_dir(int fd, size_t sched_class, CapIdx root_dir_cap) {
     CapIdx initial_caps[] = {child_root_cap, cap::null};
     const char *bsargv[]  = {reinterpret_cast<const char *>(&bootstrap),
                              nullptr};
+    ExecveRequest request{
+        .image_cap = kmod_getcap(fd),
+        .execfn    = nullptr,
+        .caps      = initial_caps,
+        .argv      = nullptr,
+        .envp      = nullptr,
+        .bsargv    = bsargv,
+    };
     auto child_pcb_res =
-        sys_create_process(kmod_getcap(fd), sched_class, initial_caps, nullptr,
-                           nullptr, bsargv)
+        sys_create_process(sched_class, &request)
             .to_result();
     (void)sys_cap_remove(child_root_cap).to_result();
     return child_pcb_res.has_value() ? child_pcb_res.value() : cap::error;
@@ -156,9 +163,16 @@ CapIdx spawn_linux_with_root_dir(int fd, size_t sched_class,
     CapIdx initial_caps[] = {child_root_cap, cap::null};
     const char *bsargv[]  = {reinterpret_cast<const char *>(&bootstrap),
                              nullptr};
+    ExecveRequest request{
+        .image_cap = kmod_getcap(fd),
+        .execfn    = nullptr,
+        .caps      = initial_caps,
+        .argv      = nullptr,
+        .envp      = nullptr,
+        .bsargv    = bsargv,
+    };
     auto child_pcb_res =
-        sys_create_linux_process(kmod_getcap(fd), sched_class, initial_caps,
-                                 nullptr, nullptr, bsargv)
+        sys_create_linux_process(sched_class, &request)
             .to_result();
     (void)sys_cap_remove(child_root_cap).to_result();
     return child_pcb_res.has_value() ? child_pcb_res.value() : cap::error;

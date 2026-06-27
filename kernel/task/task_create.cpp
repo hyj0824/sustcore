@@ -888,10 +888,11 @@ namespace task {
         CapIdx image_cap, cap::CHolder *holder, schd::ClassType schd_class,
         bool wakeup, const std::vector<std::string> &argv,
         const std::vector<std::string> &envp,
-        const std::vector<TaskSpec::BootstrapRecordData> &bsargv) {
+        const std::vector<TaskSpec::BootstrapRecordData> &bsargv,
+        const std::string &execfn) {
         auto spec_res =
             load_task_spec_impl(*this, &TaskManager::load_task_spec, image_cap,
-                                holder, argv, envp, bsargv);
+                                holder, argv, envp, bsargv, execfn);
         propagate(spec_res);
         TaskSpec spec = std::move(spec_res.value());
         TaskSpecGuard spec_guard(spec);
@@ -906,10 +907,11 @@ namespace task {
         schd::ClassType schd_class, bool wakeup,
         const std::vector<std::string> &argv,
         const std::vector<std::string> &envp,
-        const std::vector<TaskSpec::BootstrapRecordData> &bsargv) {
+        const std::vector<TaskSpec::BootstrapRecordData> &bsargv,
+        const std::string &execfn) {
         auto spec_res = load_task_spec_impl(
             *this, &TaskManager::load_linux_task_spec, image_cap, holder,
-            subsystem_image_cap, argv, envp, bsargv);
+            subsystem_image_cap, argv, envp, bsargv, execfn);
         propagate(spec_res);
         TaskSpec spec = std::move(spec_res.value());
         TaskSpecGuard spec_guard(spec);
@@ -928,18 +930,21 @@ namespace task {
         CapIdx image_cap, cap::CHolder *holder, schd::ClassType schd_class,
         const std::vector<std::string> &argv,
         const std::vector<std::string> &envp,
-        const std::vector<TaskSpec::BootstrapRecordData> &bsargv) {
+        const std::vector<TaskSpec::BootstrapRecordData> &bsargv,
+        const std::string &execfn) {
         return load_task_image(image_cap, holder, schd_class, true, argv, envp,
-                               bsargv);
+                               bsargv, execfn);
     }
 
     Result<util::nonnull<PCB *>> TaskManager::load_linux_elf_into(
         CapIdx image_cap, cap::CHolder *holder, CapIdx subsystem_image_cap,
         schd::ClassType schd_class, const std::vector<std::string> &argv,
         const std::vector<std::string> &envp,
-        const std::vector<TaskSpec::BootstrapRecordData> &bsargv) {
+        const std::vector<TaskSpec::BootstrapRecordData> &bsargv,
+        const std::string &execfn) {
         return load_linux_task_image(image_cap, holder, subsystem_image_cap,
-                                     schd_class, true, argv, envp, bsargv);
+                                     schd_class, true, argv, envp, bsargv,
+                                     execfn);
     }
 
     Result<util::nonnull<PCB *>> TaskManager::load_init(const char *path) {
@@ -1018,7 +1023,8 @@ namespace task {
         }
         auto loaded_spec_res = load_task_spec_impl(
             *this, &TaskManager::load_task_spec, image_res.value(), holder,
-            std::vector<std::string>{}, std::vector<std::string>{}, bsargv);
+            std::vector<std::string>{}, std::vector<std::string>{}, bsargv,
+            std::string{"<cap>"});
         propagate(loaded_spec_res);
 
         TaskSpec loaded_spec = std::move(loaded_spec_res.value());
@@ -1236,7 +1242,8 @@ namespace task {
         const CapIdx *reserved_caps, size_t reserved_count,
         const std::vector<std::string> &argv,
         const std::vector<std::string> &envp,
-        const std::vector<TaskSpec::BootstrapRecordData> &bsargv) {
+        const std::vector<TaskSpec::BootstrapRecordData> &bsargv,
+        const std::string &execfn) {
         PCB *pcb = target.get();
         if (pcb->is_kernel) {
             unexpect_return(ErrCode::INVALID_PARAM);
@@ -1260,7 +1267,7 @@ namespace task {
         TaskSpecGuard spec_guard(spec);
         LoadPrm load_prm{};
         auto load_spec_res = load_task_spec(image_cap, pcb->cholder, argv, envp,
-                                            bsargv, spec, load_prm);
+                                            bsargv, execfn, spec, load_prm);
         propagate(load_spec_res);
 
         auto prune_res = remove_unreserved_caps(pcb->cholder, reserved);

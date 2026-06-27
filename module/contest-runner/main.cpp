@@ -169,9 +169,16 @@ namespace contest_runner {
                 exe_path_bootstrap,
                 nullptr,
             };
+            ExecveRequest request{
+                .image_cap = kmod_getcap(fd),
+                .execfn    = program_path,
+                .caps      = initial_caps,
+                .argv      = argv,
+                .envp      = nullptr,
+                .bsargv    = bsargv,
+            };
             auto child_pcb_res    = sys_create_linux_process(
-                kmod_getcap(fd), SCHED_CLASS_FCFS, initial_caps, argv, nullptr,
-                bsargv)
+                SCHED_CLASS_FCFS, &request)
                                         .to_result();
             (void)sys_cap_remove(child_root_cap).to_result();
             (void)sys_cap_remove(child_cwd_dir_cap).to_result();
@@ -347,13 +354,13 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
         };
 
         // contest_runner::accumulate_stats(total,
-        //                                  contest_runner::run_basic(ctx));
+                                        //  contest_runner::run_basic(ctx));
         // contest_runner::accumulate_stats(total,
                                         //  contest_runner::run_busybox(ctx));
-        contest_runner::accumulate_stats(total,
-                                         contest_runner::run_libctest(ctx));
         // contest_runner::accumulate_stats(total,
-                                        //  contest_runner::run_ltp(ctx));
+                                        //  contest_runner::run_libctest(ctx));
+        contest_runner::accumulate_stats(total,
+                                         contest_runner::run_ltp(ctx));
     }
 
     printf("contest-runner: all done total=%lu passed=%lu failed=%lu\n",

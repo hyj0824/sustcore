@@ -21,18 +21,14 @@ void exit(int exit_code) {
     while (true) {}
 }
 
-SysRet<CapIdx> sys_create_process(CapIdx image_cap, size_t sched_class, CapIdx caps[],
-                          const char *argv[], const char *envp[],
-                          const char *bsargv[]) {
-    return sys_pcb_create_process(__pcb_cap, image_cap, sched_class, caps,
-                                  argv, envp, bsargv);
+SysRet<CapIdx> sys_create_process(size_t sched_class,
+                                  const ExecveRequest *request) {
+    return sys_pcb_create_process(__pcb_cap, sched_class, request);
 }
 
-SysRet<CapIdx> sys_create_linux_process(CapIdx image_cap, size_t sched_class,
-                                CapIdx caps[], const char *argv[],
-                                const char *envp[], const char *bsargv[]) {
-    return sys_pcb_create_linux_process(__pcb_cap, image_cap, sched_class,
-                                        caps, argv, envp, bsargv);
+SysRet<CapIdx> sys_create_linux_process(size_t sched_class,
+                                        const ExecveRequest *request) {
+    return sys_pcb_create_linux_process(__pcb_cap, sched_class, request);
 }
 
 SysRet<CapIdx> sys_create_thread(void (*entry)(), void *stack_addr,
@@ -54,14 +50,12 @@ SysRet<size_t> fork(CapIdx *child_pcb_cap) {
     return fork_ret;
 }
 
-SysRet<void> sys_execve(CapIdx image_cap, CapIdx rsvdlst[], const char *argv[],
-                const char *envp[], const char *bsargv[]) {
-    return sys_pcb_execve(__pcb_cap, image_cap, rsvdlst, argv, envp, bsargv);
+SysRet<void> sys_execve(const ExecveRequest *request) {
+    return sys_pcb_execve(__pcb_cap, request);
 }
 
-SysRet<void> execve(CapIdx image_cap, CapIdx rsvdlst[], const char *argv[],
-            const char *envp[], const char *bsargv[]) {
-    return sys_execve(image_cap, rsvdlst, argv, envp, bsargv);
+SysRet<void> execve(const ExecveRequest *request) {
+    return sys_execve(request);
 }
 
 SysRet<void> sys_mem_map(CapIdx idx, void *vaddr, uint64_t rwx, uint64_t growth) {

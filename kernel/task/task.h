@@ -270,7 +270,8 @@ namespace task {
                                     const std::vector<std::string> &envp,
                                     const std::vector<
                                         TaskSpec::BootstrapRecordData> &bsargv,
-                                    TaskSpec &spec, LoadPrm &prm);
+                                    const std::string &execfn, TaskSpec &spec,
+                                    LoadPrm &prm);
         Result<void> load_linux_task_spec(CapIdx image_cap,
                                           cap::CHolder *holder,
                                           CapIdx subsystem_image_cap,
@@ -279,6 +280,7 @@ namespace task {
                                           const std::vector<
                                               TaskSpec::BootstrapRecordData>
                                               &bsargv,
+                                          const std::string &execfn,
                                           TaskSpec &spec, LoadPrm &prm);
         /**
          * @brief 装载 ELF 并直接构造对应的用户进程.
@@ -287,13 +289,15 @@ namespace task {
             CapIdx image_cap, cap::CHolder *holder, schd::ClassType schd_class,
             bool wakeup, const std::vector<std::string> &argv = {},
             const std::vector<std::string> &envp = {},
-            const std::vector<TaskSpec::BootstrapRecordData> &bsargv = {});
+            const std::vector<TaskSpec::BootstrapRecordData> &bsargv = {},
+            const std::string &execfn = {});
         Result<util::nonnull<PCB *>> load_linux_task_image(
             CapIdx image_cap, cap::CHolder *holder, CapIdx subsystem_image_cap,
             schd::ClassType schd_class, bool wakeup,
             const std::vector<std::string> &argv = {},
             const std::vector<std::string> &envp = {},
-            const std::vector<TaskSpec::BootstrapRecordData> &bsargv = {});
+            const std::vector<TaskSpec::BootstrapRecordData> &bsargv = {},
+            const std::string &execfn = {});
 
     public:
         /**
@@ -404,7 +408,8 @@ namespace task {
                               const std::vector<std::string> &argv = {},
                               const std::vector<std::string> &envp = {},
                               const std::vector<TaskSpec::BootstrapRecordData>
-                                  &bsargv = {});
+                                  &bsargv = {},
+                              const std::string &execfn = {});
         /**
          * @brief 将已完成的 PCB 加入回收队列, 以便稍后统一回收.
          *
@@ -447,12 +452,14 @@ namespace task {
             CapIdx image_cap, cap::CHolder *holder, schd::ClassType schd_class,
             const std::vector<std::string> &argv = {},
             const std::vector<std::string> &envp = {},
-            const std::vector<TaskSpec::BootstrapRecordData> &bsargv = {});
+            const std::vector<TaskSpec::BootstrapRecordData> &bsargv = {},
+            const std::string &execfn = {});
         Result<util::nonnull<PCB *>> load_linux_elf_into(
             CapIdx image_cap, cap::CHolder *holder, CapIdx subsystem_image_cap,
             schd::ClassType schd_class, const std::vector<std::string> &argv = {},
             const std::vector<std::string> &envp = {},
-            const std::vector<TaskSpec::BootstrapRecordData> &bsargv = {});
+            const std::vector<TaskSpec::BootstrapRecordData> &bsargv = {},
+            const std::string &execfn = {});
         /**
          * @brief 加载并创建 init 进程的 PCB, 路径通常指向系统初始化程序.
          *

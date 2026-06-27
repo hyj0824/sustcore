@@ -111,8 +111,16 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
                                 nullptr};
         printf("test_fork(%s): child exec test_execve\n", tag);
         int fd = kmod_fopen("/initrd/test_execve.mod", "x");
+        ExecveRequest request{
+            .image_cap = fd >= 0 ? kmod_getcap(fd) : cap::error,
+            .execfn    = "/initrd/test_execve.mod",
+            .caps      = reserved_caps,
+            .argv      = nullptr,
+            .envp      = nullptr,
+            .bsargv    = bsargv,
+        };
         if (fd < 0 ||
-            !execve(kmod_getcap(fd), reserved_caps, nullptr, nullptr, bsargv)
+            !execve(&request)
                  .to_result()
                  .has_value())
         {

@@ -27,6 +27,7 @@ namespace syscall {
         std::vector<std::string> argv{};
         std::vector<std::string> envp{};
         std::vector<TaskSpec::BootstrapRecordData> bsargv{};
+        std::string execfn{};
     };
 
     /**

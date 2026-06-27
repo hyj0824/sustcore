@@ -127,7 +127,15 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
                             nullptr};
 
     printf("test_file_rw_a: execve -> %s\n", MODULE_B);
-    if (!execve(kmod_getcap(exec_fd), reserved_caps, nullptr, nullptr, bsargv)
+    ExecveRequest request{
+        .image_cap = kmod_getcap(exec_fd),
+        .execfn    = MODULE_B,
+        .caps      = reserved_caps,
+        .argv      = nullptr,
+        .envp      = nullptr,
+        .bsargv    = bsargv,
+    };
+    if (!execve(&request)
              .to_result()
              .has_value())
     {

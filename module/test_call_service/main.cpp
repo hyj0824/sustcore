@@ -84,9 +84,16 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     int fd                = kmod_fopen("/initrd/test_call_user.mod", "x");
     CapIdx user_pcb = cap::error;
     if (fd >= 0) {
+        ExecveRequest request{
+            .image_cap = kmod_getcap(fd),
+            .execfn    = nullptr,
+            .caps      = initial_caps,
+            .argv      = nullptr,
+            .envp      = nullptr,
+            .bsargv    = bsargv,
+        };
         auto user_pcb_res =
-            sys_create_process(kmod_getcap(fd), SCHED_CLASS_RR, initial_caps,
-                               nullptr, nullptr, bsargv)
+            sys_create_process(SCHED_CLASS_RR, &request)
                 .to_result();
         if (user_pcb_res.has_value()) {
             user_pcb = user_pcb_res.value();

@@ -317,7 +317,7 @@ namespace syscall {
         // 2) 使用已预配置的 CHolder 加载子进程 ELF
         auto load_res = task::TaskManager::inst().load_elf_into(
             child_image_cap_res.value(), child_holder, sched_res.value(),
-            startup.argv, startup.envp, startup.bsargv);
+            startup.argv, startup.envp, startup.bsargv, startup.execfn);
         propagate(load_res);
         holder_guard.release();
         auto pcb_guard = util::Guard([&]() {
@@ -402,7 +402,8 @@ namespace syscall {
 
         auto create_res = task::TaskManager::inst().load_linux_elf_into(
             child_image_cap_res.value(), child_holder, subsystem_cap_res.value(),
-            sched_res.value(), startup.argv, startup.envp, startup.bsargv);
+            sched_res.value(), startup.argv, startup.envp, startup.bsargv,
+            startup.execfn);
         propagate(create_res);
         holder_guard.release();
 
@@ -643,7 +644,7 @@ namespace syscall {
         auto exec_res = task::TaskManager::inst().exec_pcb(
             util::nnullforce(target_res.value()), image_cap,
             startup.caps.data(), startup.caps.size(), startup.argv,
-            startup.envp, startup.bsargv);
+            startup.envp, startup.bsargv, startup.execfn);
         propagate(exec_res);
         return true;
     }

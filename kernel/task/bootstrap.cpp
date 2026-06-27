@@ -181,7 +181,7 @@ namespace task {
         const std::vector<std::string> &argv,
         const std::vector<std::string> &envp,
         const std::vector<TaskSpec::BootstrapRecordData> &bsargv,
-        TaskSpec &spec, LoadPrm &prm) {
+        const std::string &execfn, TaskSpec &spec, LoadPrm &prm) {
         auto preload_res = holder == nullptr
                                ? preload(image_cap, spec, prm)
                                : preload_into(image_cap, holder, spec, prm);
@@ -200,6 +200,7 @@ namespace task {
 
         spec.argv = argv;
         spec.envp = envp;
+        spec.linux_execfn = execfn;
         spec.bsargv.clear();
         spec.auxv.clear();
         for (const auto &record : bsargv) {
@@ -213,7 +214,7 @@ namespace task {
         const std::vector<std::string> &argv,
         const std::vector<std::string> &envp,
         const std::vector<TaskSpec::BootstrapRecordData> &bsargv,
-        TaskSpec &spec, LoadPrm &prm) {
+        const std::string &execfn, TaskSpec &spec, LoadPrm &prm) {
         if (holder == nullptr) {
             unexpect_return(ErrCode::NULLPTR);
         }
@@ -324,8 +325,12 @@ namespace task {
         if (platform == nullptr || platform->clock_source() == nullptr) {
             unexpect_return(ErrCode::NULLPTR);
         }
-        spec.linux_execfn =
-            prm.src_path.empty() ? std::string{} : std::string(prm.src_path);
+        if (!execfn.empty()) {
+            spec.linux_execfn = execfn;
+        } else {
+            spec.linux_execfn =
+                prm.src_path.empty() ? std::string{} : std::string(prm.src_path);
+        }
         spec.auxv = {
             AT_PHDR,   spec.phdr_vaddr.arith(),
             AT_PHNUM,  spec.phdr_num,
