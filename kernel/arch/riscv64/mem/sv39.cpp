@@ -10,6 +10,7 @@
  */
 
 #include <arch/riscv64/mem/sv39.h>
+#include <env.h>
 #include <logger.h>
 #include <sustcore/addr.h>
 
@@ -90,6 +91,22 @@ void SV39PageMan::make_root(PhyAddr root) {
     memset(_convert(root).addr(), 0, PAGESIZE);
 }
 
+Result<void> SV39PageMan::init_task_root(PhyAddr root) noexcept {
+    if (!root.nonnull()) {
+        unexpect_return(ErrCode::INVALID_PARAM);
+    }
+
+    make_root(root);
+    auto kernel_pgd = env::inst().main_kernel_pgd();
+    if (!kernel_pgd.nonnull()) {
+        unexpect_return(ErrCode::INVALID_PARAM);
+    }
+
+    SV39PageMan dst(root);
+    SV39PageMan src(kernel_pgd);
+    return dst.merge_from(src);
+}
+
 Result<void> SV39PageMan::merge_from(SV39PageMan &src) noexcept {
     return merge_page_table(root(), src.root(), 0);
 }
@@ -100,6 +117,10 @@ void SV39PageMan::__switch_root(PhyAddr __root) {
     new_satp.asid = 0;  // TODO: ASID支持
     new_satp.ppn  = SV39PageMan::to_ppn(__root);
     csr_set_satp(new_satp);
+}
+
+void SV39PageMan::__kernel_switch_root(PhyAddr __root) {
+    __switch_root(__root);
 }
 
 void SV39PageMan::flush_tlb() {

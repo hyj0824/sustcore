@@ -12,9 +12,13 @@
 
 #pragma once
 
+#include <driver/int/guard.h>
+#include <guard.h>
 #include <logger.h>
 #include <mem/alloc_def.h>
 #include <mem/gfp.h>
+#include <spinlock.h>
+#include <storage.h>
 #include <sus/list.h>
 #include <sustcore/addr.h>
 
@@ -22,13 +26,12 @@
 #include <cassert>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <new>
 #include <type_traits>
 #include <utility>
 
 namespace slub {
-    // Forward declaration to force instantiation of the registrar when the
-    // allocator is used.
     template <typename ObjType>
     class SlubCollection;
 
@@ -49,8 +52,13 @@ namespace slub {
     static constexpr uintptr_t align_down(uintptr_t addr, uintptr_t align) {
         return addr & ~(align - 1);
     }
+
     static constexpr uintptr_t align_up(uintptr_t addr, uintptr_t align) {
         return (addr + align - 1) & ~(align - 1);
+    }
+
+    static constexpr bool is_pow2(size_t n) {
+        return (n > 0) && ((n & (n - 1)) == 0);
     }
 
     struct SlabHeader {
@@ -60,6 +68,7 @@ namespace slub {
         size_t inuse{};
         size_t total{};
         SlabState state{};
+
         SlabHeader()
             : list_head({}),
               freelist(nullptr),
@@ -82,28 +91,25 @@ namespace slub {
     concept HugeObjectType = (size_of_type<ObjType>::value >= SLAB_KMAX);
 
     template <typename ObjType>
-    class SlubAllocator {
+    class Slub {
     protected:
         static constexpr size_t raw_obj_size_  = size_of_type<ObjType>::value;
         static constexpr size_t raw_obj_align_ = align_of_type<ObjType>::value;
-        static constexpr bool is_pow2(size_t n) {
-            return (n > 0) && ((n & (n - 1)) == 0);
-        }
+
         static_assert(is_pow2(raw_obj_align_),
                       "raw_obj_align_ must be power-of-two");
 
         static constexpr size_t ptr_size_  = sizeof(void *);
         static constexpr size_t ptr_align_ = alignof(void *);
-        // Round up n to multiple of align; align must be power-of-two.
+
         static constexpr size_t round_up_pow2(size_t n, size_t align) {
             return (n + align - 1) & ~(align - 1);
         }
 
-        // Free-list next pointer is stored in object body, so size/alignment
-        // must be at least pointer-sized/pointer-aligned.
         static constexpr size_t max(size_t x, size_t y) {
             return (x > y) ? x : y;
         }
+
         static constexpr size_t obj_align_ = max(raw_obj_align_, ptr_align_);
         static constexpr size_t obj_size_ =
             round_up_pow2(max(raw_obj_size_, ptr_size_), obj_align_);
@@ -114,7 +120,8 @@ namespace slub {
         static_assert(is_pow2(obj_align_), "obj_align_ must be power-of-two");
 
     public:
-        SlubAllocator();
+        Slub() = default;
+
         ObjType *alloc();
         void free(ObjType *ptr);
 
@@ -123,10 +130,7 @@ namespace slub {
             size_t total_slabs   = partial.size() + full.size() + empty.size();
             size_t objects_total = 0;
             if (total_slabs > 0) {
-                // All slabs have same capacity
-                // We can get it from any slab, or calculate it.
-                // Since we don't have a slab instance, we calculate it.
-                auto base = (uintptr_t)0;
+                auto base = static_cast<uintptr_t>(0);
                 auto cur  = align_up(base + sizeof(SlabHeader), obj_align_);
                 auto end  = base + slab_bytes_;
                 size_t per_slab = 0;
@@ -136,7 +140,9 @@ namespace slub {
                 }
                 objects_total = total_slabs * per_slab;
             }
-            return {.total_slabs=total_slabs, .objects_inuse=inuse_objects_, .objects_total=objects_total,
+            return {.total_slabs=total_slabs,
+                    .objects_inuse=inuse_objects_,
+                    .objects_total=objects_total,
                     .memory_usage_bytes=total_slabs * slab_bytes_};
         }
 
@@ -153,65 +159,64 @@ namespace slub {
         void to_empty(SlabHeader *slab);
         void to_partial(SlabHeader *slab);
         void to_full(SlabHeader *slab);
-
         void inner_free(void *ptr);
     };
 
     template <HugeObjectType ObjType>
-    class SlubAllocator<ObjType> {
-    protected:
+    class Slub<ObjType> {
+    private:
         static constexpr size_t obj_pages =
             page_align_up(sizeof(ObjType)) / PAGESIZE;
+        size_t inuse_objects_ = 0;
 
     public:
-        SlubAllocator() : inuse_objects_(0) {}
+        Slub() = default;
+
         ObjType *alloc() {
             auto gfp_res = GFP::get_free_page(obj_pages);
             if (!gfp_res.has_value()) {
                 loggers::SLUB::ERROR("无法分配大对象内存");
                 return nullptr;
             }
-            PhyAddr p = gfp_res.value();
+            auto p = gfp_res.value();
             assert(p.nonnull());
             inuse_objects_++;
             return convert<KpaAddr>(p).as<ObjType>();
         }
+
         void free(ObjType *ptr) {
             if (!ptr) {
                 loggers::SLUB::WARN("can't free null pointer");
                 return;
             }
 
-            auto p     = (KpaAddr)ptr;
-            auto paddr = convert<PhyAddr>(p);
-
+            auto paddr = convert<PhyAddr>((KpaAddr)ptr);
             GFP::put_page(paddr, obj_pages);
             inuse_objects_--;
         }
+
         [[nodiscard]]
         SlubStats get_stats() const {
             return {
-                .total_slabs=inuse_objects_,  // Each huge object is effectively its own slab
-                .objects_inuse=inuse_objects_, .objects_total=inuse_objects_,
-                .memory_usage_bytes=inuse_objects_ * obj_pages * PAGESIZE};
+                .total_slabs=inuse_objects_,
+                .objects_inuse=inuse_objects_,
+                .objects_total=inuse_objects_,
+                .memory_usage_bytes=inuse_objects_ * obj_pages * PAGESIZE,
+            };
         }
-
-    private:
-        size_t inuse_objects_;
     };
 
     template <typename ObjType>
-    SlabHeader *SlubAllocator<ObjType>::slab_of(void *p) {
+    SlabHeader *Slub<ObjType>::slab_of(void *p) {
         auto ptr  = reinterpret_cast<uintptr_t>(p);
         auto base = align_down(ptr, slab_bytes_);
         return reinterpret_cast<SlabHeader *>(base);
     }
 
     template <typename ObjType>
-    void SlubAllocator<ObjType>::init_slab_headers(SlabHeader *slab) {
+    void Slub<ObjType>::init_slab_headers(SlabHeader *slab) {
         auto base       = reinterpret_cast<uintptr_t>(slab);
-        auto slab_start = base + sizeof(SlabHeader);
-        slab_start      = align_up(slab_start, obj_align_);
+        auto slab_start = align_up(base + sizeof(SlabHeader), obj_align_);
 
         constexpr size_t total =
             (slab_bytes_ - align_up(sizeof(SlabHeader), obj_align_)) /
@@ -222,8 +227,6 @@ namespace slub {
         slab->inuse = 0;
 
         void *head = nullptr;
-
-        // construct from end to start
         for (size_t i = total; i > 0; i--) {
             void *obj =
                 reinterpret_cast<void *>(slab_start + (i - 1) * obj_size_);
@@ -234,21 +237,21 @@ namespace slub {
     }
 
     template <typename ObjType>
-    SlabHeader *SlubAllocator<ObjType>::new_slab() {
-        Result<PhyAddr> gfp_res = GFP::get_free_page(pages_);
+    SlabHeader *Slub<ObjType>::new_slab() {
+        auto gfp_res = GFP::get_free_page(pages_);
         if (!gfp_res.has_value()) {
             loggers::SLUB::ERROR("无法分配新的 slab 内存");
             return nullptr;
         }
-        PhyAddr paddr    = gfp_res.value();
-        KpaAddr kpaddr   = convert<KpaAddr>(paddr);
-        SlabHeader *slab = new (kpaddr.addr()) SlabHeader{};
+        auto paddr  = gfp_res.value();
+        auto kpaddr = convert<KpaAddr>(paddr);
+        auto *slab  = new (kpaddr.addr()) SlabHeader{};
         init_slab_headers(slab);
         return slab;
     }
 
     template <typename ObjType>
-    void SlubAllocator<ObjType>::to_empty(SlabHeader *slab) {
+    void Slub<ObjType>::to_empty(SlabHeader *slab) {
         if (slab->state == SlabHeader::SlabState::PARTIAL) {
             partial.erase(typename decltype(partial)::iterator(slab));
         } else if (slab->state == SlabHeader::SlabState::FULL) {
@@ -259,7 +262,7 @@ namespace slub {
     }
 
     template <typename ObjType>
-    void SlubAllocator<ObjType>::to_partial(SlabHeader *slab) {
+    void Slub<ObjType>::to_partial(SlabHeader *slab) {
         if (slab->state == SlabHeader::SlabState::EMPTY) {
             empty.erase(typename decltype(empty)::iterator(slab));
         } else if (slab->state == SlabHeader::SlabState::FULL) {
@@ -269,13 +272,11 @@ namespace slub {
         partial.push_back(*slab);
     }
 
-    // to_full remains mostly same but for consistency safety
     template <typename ObjType>
-    void SlubAllocator<ObjType>::to_full(SlabHeader *slab) {
+    void Slub<ObjType>::to_full(SlabHeader *slab) {
         if (slab->state == SlabHeader::SlabState::PARTIAL) {
             partial.erase(typename decltype(partial)::iterator(slab));
         } else if (slab->state == SlabHeader::SlabState::EMPTY) {
-            // Should not happen for to_full usually
             empty.erase(typename decltype(empty)::iterator(slab));
         }
         slab->state = SlabHeader::SlabState::FULL;
@@ -283,14 +284,12 @@ namespace slub {
     }
 
     template <typename ObjType>
-    ObjType *SlubAllocator<ObjType>::alloc() {
+    ObjType *Slub<ObjType>::alloc() {
         SlabHeader *slab = nullptr;
         if (!partial.empty()) {
             slab = &partial.back();
-            assert(slab != nullptr);
         } else if (!empty.empty()) {
             slab = &empty.back();
-            assert(slab != nullptr);
             to_partial(slab);
         } else {
             slab = new_slab();
@@ -308,22 +307,24 @@ namespace slub {
         slab->freelist = *reinterpret_cast<void **>(obj);
         slab->inuse++;
         inuse_objects_++;
-
         if (slab->inuse == slab->total) {
             to_full(slab);
         }
-        return (ObjType *)obj;
+        return static_cast<ObjType *>(obj);
     }
 
     template <typename ObjType>
-    void SlubAllocator<ObjType>::inner_free(void *ptr) {
+    void Slub<ObjType>::inner_free(void *ptr) {
+        InterruptGuard guard;
+        guard.enter();
+
         if (!ptr) {
             loggers::SLUB::WARN("can't free null pointer");
             return;
         }
-        SlabHeader *slab_header         = slab_of(ptr);
+        auto *slab_header             = slab_of(ptr);
         *reinterpret_cast<void **>(ptr) = slab_header->freelist;
-        slab_header->freelist           = ptr;
+        slab_header->freelist         = ptr;
         slab_header->inuse--;
         inuse_objects_--;
         if (slab_header->inuse == 0) {
@@ -334,73 +335,99 @@ namespace slub {
     }
 
     template <typename ObjType>
-    void SlubAllocator<ObjType>::free(ObjType *ptr) {
+    void Slub<ObjType>::free(ObjType *ptr) {
         if (!ptr) {
             loggers::SLUB::WARN("can't free null pointer");
             return;
         }
-
         inner_free(ptr);
     }
 
-    template <typename ObjType>
-    SlubAllocator<ObjType>::SlubAllocator() {}
-
     template <size_t sz>
-    class FixedSizeAllocator {
-    public:
-        static_assert(is_pow2(sz));
-
+    class SizedSlub {
     private:
         class Object {
             char data[sz];
         };
-        static slub::SlubAllocator<Object> SLUB;
+
+        Storage<Slub<Object>> _raw_slub;
+        Storage<LockedObject<IrqSaveGuardedLock, Slub<Object>>> _slub_storage;
+
+        [[nodiscard]]
+        LockedObject<IrqSaveGuardedLock, Slub<Object>> &slub() {
+            return _slub_storage.ref();
+        }
 
     public:
-        static void *malloc() {
-            return (void *)(SLUB.alloc());
+        SizedSlub() {
+            static_assert(is_pow2(sz));
+            _raw_slub.construct();
+            _slub_storage.construct(_raw_slub.get());
         }
-        static void free(void *ptr) {
-            SLUB.free((Object *)ptr);
+
+        void *malloc() {
+            return static_cast<void *>(slub().get()->alloc());
         }
-        static void init() {
-            // construct the slub object
-            new (&SLUB) slub::SlubAllocator<Object>();
+
+        void free(void *ptr) {
+            slub().get()->free(static_cast<Object *>(ptr));
         }
     };
 
-    template <size_t sz>
-    slub::SlubAllocator<typename FixedSizeAllocator<sz>::Object>
-        FixedSizeAllocator<sz>::SLUB;
-
-    class MixedSizeAllocator {
+    class SlubMalloc {
     private:
         static constexpr size_t KMAX = 2048;
         static constexpr size_t KMIN = 8;
 
-        using _sizes =
-            std::index_sequence<8, 16, 32, 64, 128, 256, 512, 1024, 2048>;
-        static_assert(KMIN == 8);
-        static_assert(KMAX == 2048);
+        struct AllocRecord {
+            void *ptr;
+            size_t size;
+            util::ListHead<AllocRecord> list_head{};
+            static Slub<AllocRecord> *ALLOC_RECORD_SLUB;
 
-        template <typename T>
-        class _Helper;
+            constexpr AllocRecord(void *ptr, size_t size)
+                : ptr(ptr), size(size) {}
+            constexpr AllocRecord() : AllocRecord(nullptr, 0) {}
 
-        template <size_t... sizes>
-        class _Helper<std::index_sequence<sizes...>> {
-        public:
-            static void init() {
-                (FixedSizeAllocator<sizes>::init(), ...);
-            }
-
-            static bool contains(size_t sz) {
-                return ((sz == sizes) || ...);
-            }
+            void *operator new(size_t sz);
+            void operator delete(void *ptr);
         };
-        using Helper = _Helper<_sizes>;
 
-        // 将sz向上取整到一个2的幂次方
+        SizedSlub<8> _slub8{};
+        SizedSlub<16> _slub16{};
+        SizedSlub<32> _slub32{};
+        SizedSlub<64> _slub64{};
+        SizedSlub<128> _slub128{};
+        SizedSlub<256> _slub256{};
+        SizedSlub<512> _slub512{};
+        SizedSlub<1024> _slub1024{};
+        SizedSlub<2048> _slub2048{};
+
+        Slub<AllocRecord> _alloc_record_slub{};
+        util::IntrusiveList<AllocRecord> _alloc_records{};
+
+        static Storage<SlubMalloc> _INSTANCE_STORAGE;
+        static Storage<LockedObject<IrqSaveGuardedLock, SlubMalloc>>
+            _INSTANCE_LOCKED_STORAGE;
+        static bool _initialized;
+
+        [[nodiscard]]
+        bool contains_small_size(size_t sz) const {
+            switch (sz) {
+                case 8:
+                case 16:
+                case 32:
+                case 64:
+                case 128:
+                case 256:
+                case 512:
+                case 1024:
+                case 2048: return true;
+                default:   return false;
+            }
+        }
+
+        [[nodiscard]]
         static size_t up2pow(size_t n) {
             n--;
             n |= n >> 1;
@@ -415,28 +442,18 @@ namespace slub {
             return n;
         }
 
-        struct AllocRecord {
-            void *ptr;
-            size_t size;
-            // TODO: 改成用哈希表/红黑树?
-            util::ListHead<AllocRecord> list_head{};
+        [[nodiscard]]
+        static constexpr size_t get_pages(size_t rsz) {
+            return std::max(static_cast<size_t>(1),
+                            (rsz + PAGESIZE - 1) / PAGESIZE);
+        }
 
-            constexpr AllocRecord(void *ptr, size_t size)
-                : ptr(ptr), size(size) {}
-            constexpr AllocRecord() : AllocRecord(nullptr, 0) {}
-
-            void *operator new(size_t sz);
-            void operator delete(void *ptr);
-        };
-        static SlubAllocator<AllocRecord> ALLOC_RECORD_SLUB;
-        static util::IntrusiveList<AllocRecord> alloc_records;
-
-        static bool add_record(void *ptr, size_t rsz) {
+        bool add_record(void *ptr, size_t rsz) {
             auto *record  = new AllocRecord(ptr, rsz);
-            size_t before = alloc_records.size();
-            auto inserted = alloc_records.insert(alloc_records.end(), *record);
-            size_t after  = alloc_records.size();
-            if (inserted == alloc_records.end()) {
+            size_t before = _alloc_records.size();
+            auto inserted = _alloc_records.insert(_alloc_records.end(), *record);
+            size_t after  = _alloc_records.size();
+            if (inserted == _alloc_records.end()) {
                 loggers::MEMORY::ERROR(
                     "无法记录分配: ptr=%p size=%u record=%p (size before=%lu after=%lu)",
                     ptr, static_cast<unsigned int>(rsz), record,
@@ -447,131 +464,141 @@ namespace slub {
             return true;
         }
 
-        static AllocRecord *get_record(void *ptr) {
+        AllocRecord *get_record(void *ptr) {
             size_t checked = 0;
-            for (auto &rec : alloc_records) {
+            for (auto &rec : _alloc_records) {
                 checked++;
                 if (rec.ptr == ptr) {
                     return &rec;
                 }
             }
-            size_t sz = alloc_records.size();
+            auto sz = _alloc_records.size();
             if (sz != checked) {
-                loggers::MEMORY::INFO("alloc_records size mismatch: expected=%lu iterated=%lu",
-                                      (unsigned long)sz, (unsigned long)checked);
+                loggers::MEMORY::INFO(
+                    "alloc_records size mismatch: expected=%lu iterated=%lu",
+                    (unsigned long)sz, (unsigned long)checked);
             }
             return nullptr;
         }
 
-        static void remove_record(AllocRecord *record) {
-            size_t before = alloc_records.size();
-            alloc_records.remove(*record);
-            size_t after = alloc_records.size();
+        void remove_record(AllocRecord *record) {
+            size_t before = _alloc_records.size();
+            _alloc_records.remove(*record);
+            size_t after = _alloc_records.size();
             if (before == after) {
-                loggers::MEMORY::ERROR("remove_record: record=%p NOT found in list (size=%lu)",
-                                       (void*)record, (unsigned long)before);
+                loggers::MEMORY::ERROR(
+                    "remove_record: record=%p NOT found in list (size=%lu)",
+                    (void *)record, (unsigned long)before);
             }
             delete record;
         }
 
-        static constexpr size_t get_pages(size_t rsz) {
-            constexpr size_t least_pages = 1;
-            return std::max(least_pages, (rsz + PAGESIZE - 1) / PAGESIZE);
-        }
-
-        static void *large_malloc(size_t rsz) {
+        void *large_malloc(size_t rsz) {
             loggers::MEMORY::DEBUG("转交到large_malloc途径分配");
             assert(is_pow2(rsz));
             const size_t pages = get_pages(rsz);
-            assert(pages > 0);
-            Result<PhyAddr> gfp_res = GFP::get_free_page(pages);
+            auto gfp_res       = GFP::get_free_page(pages);
             if (!gfp_res.has_value()) {
                 loggers::SLUB::ERROR("无法分配大对象内存");
                 return nullptr;
             }
-            PhyAddr paddr = gfp_res.value();
-            return convert<KpaAddr>(paddr).addr();
+            return convert<KpaAddr>(gfp_res.value()).addr();
         }
 
-        static void *small_malloc(size_t rsz) {
-            assert(Helper::contains(rsz));
+        void *small_malloc(size_t rsz) {
+            assert(contains_small_size(rsz));
             switch (rsz) {
-                case 8:    return FixedSizeAllocator<8>::malloc();
-                case 16:   return FixedSizeAllocator<16>::malloc();
-                case 32:   return FixedSizeAllocator<32>::malloc();
-                case 64:   return FixedSizeAllocator<64>::malloc();
-                case 128:  return FixedSizeAllocator<128>::malloc();
-                case 256:  return FixedSizeAllocator<256>::malloc();
-                case 512:  return FixedSizeAllocator<512>::malloc();
-                case 1024: return FixedSizeAllocator<1024>::malloc();
-                case 2048: return FixedSizeAllocator<2048>::malloc();
+                case 8:    return _slub8.malloc();
+                case 16:   return _slub16.malloc();
+                case 32:   return _slub32.malloc();
+                case 64:   return _slub64.malloc();
+                case 128:  return _slub128.malloc();
+                case 256:  return _slub256.malloc();
+                case 512:  return _slub512.malloc();
+                case 1024: return _slub1024.malloc();
+                case 2048: return _slub2048.malloc();
                 default:
                     loggers::SLUB::ERROR("不支持的对象大小: %d", rsz);
                     return nullptr;
             }
         }
 
-        static void _free(void *ptr, size_t rsz) {
+        void free_inner(void *ptr, size_t rsz) {
             if (rsz >= KMAX) {
-                const size_t pages = get_pages(rsz);
-                KpaAddr kpaddr     = (KpaAddr)ptr;
-                GFP::put_page(convert<PhyAddr>(kpaddr), pages);
-            } else {
-                assert(Helper::contains(rsz));
-                switch (rsz) {
-                    case 8:    FixedSizeAllocator<8>::free(ptr); return;
-                    case 16:   FixedSizeAllocator<16>::free(ptr); return;
-                    case 32:   FixedSizeAllocator<32>::free(ptr); return;
-                    case 64:   FixedSizeAllocator<64>::free(ptr); return;
-                    case 128:  FixedSizeAllocator<128>::free(ptr); return;
-                    case 256:  FixedSizeAllocator<256>::free(ptr); return;
-                    case 512:  FixedSizeAllocator<512>::free(ptr); return;
-                    case 1024: FixedSizeAllocator<1024>::free(ptr); return;
-                    case 2048: FixedSizeAllocator<2048>::free(ptr); return;
-                    default:
-                        loggers::SLUB::ERROR("不支持的对象大小: %d", rsz);
-                        return;
-                }
+                auto pages = get_pages(rsz);
+                GFP::put_page(convert<PhyAddr>((KpaAddr)ptr), pages);
+                return;
+            }
+
+            assert(contains_small_size(rsz));
+            switch (rsz) {
+                case 8:    _slub8.free(ptr); return;
+                case 16:   _slub16.free(ptr); return;
+                case 32:   _slub32.free(ptr); return;
+                case 64:   _slub64.free(ptr); return;
+                case 128:  _slub128.free(ptr); return;
+                case 256:  _slub256.free(ptr); return;
+                case 512:  _slub512.free(ptr); return;
+                case 1024: _slub1024.free(ptr); return;
+                case 2048: _slub2048.free(ptr); return;
+                default:
+                    loggers::SLUB::ERROR("不支持的对象大小: %d", rsz);
+                    return;
             }
         }
 
     public:
-        static void init() {
-            new (&alloc_records) util::IntrusiveList<AllocRecord>();
-            new (&ALLOC_RECORD_SLUB) SlubAllocator<AllocRecord>();
-            Helper::init();
-            loggers::MEMORY::INFO("MixedSizeAllocator::init: records=%lu ALLOC_RECORD_SLUB inuse=%lu",
-                                   (unsigned long)alloc_records.size(),
-                                   (unsigned long)ALLOC_RECORD_SLUB.get_stats().objects_inuse);
+        SlubMalloc() {
+            AllocRecord::ALLOC_RECORD_SLUB = &_alloc_record_slub;
+            loggers::MEMORY::INFO(
+                "SlubMalloc 初始化完成: records=%lu alloc_record_inuse=%lu",
+                (unsigned long)_alloc_records.size(),
+                (unsigned long)_alloc_record_slub.get_stats().objects_inuse);
         }
 
-        static void *malloc(size_t sz) {
+        static LockedObject<IrqSaveGuardedLock, SlubMalloc> &INSTANCE() {
+            assert(_initialized);
+            return _INSTANCE_LOCKED_STORAGE.ref();
+        }
+
+        static void init() {
+            if (_initialized) {
+                return;
+            }
+            _INSTANCE_STORAGE.construct();
+            _INSTANCE_LOCKED_STORAGE.construct(_INSTANCE_STORAGE.get());
+            _initialized = true;
+        }
+
+        void *malloc(size_t sz) {
             const size_t rsz = std::max(up2pow(sz), KMIN);
-            assert(Helper::contains(rsz) || rsz >= KMAX);
+            assert(contains_small_size(rsz) || rsz >= KMAX);
+
             void *ptr = (rsz >= KMAX) ? large_malloc(rsz) : small_malloc(rsz);
             if (ptr == nullptr) {
                 loggers::MEMORY::ERROR("无法分配内存!");
                 return nullptr;
             }
             if (!add_record(ptr, rsz)) {
-                _free(ptr, rsz);
+                free_inner(ptr, rsz);
                 assert(false);
                 return nullptr;
             }
             return ptr;
         }
 
-        static void free(void *ptr) {
-            AllocRecord *record = get_record(ptr);
+        void free(void *ptr) {
+            auto *record = get_record(ptr);
             if (record == nullptr) {
-                loggers::MEMORY::ERROR("未查询到地址%p分配记录 (list size=%lu)",
-                                       ptr, (unsigned long)alloc_records.size());
+                loggers::MEMORY::ERROR(
+                    "未查询到地址%p分配记录 (list size=%lu)", ptr,
+                    (unsigned long)_alloc_records.size());
                 return;
             }
-            _free(ptr, record->size);
+            free_inner(ptr, record->size);
             remove_record(record);
         }
     };
 
-    static_assert(KOPTrait<SlubAllocator<int>, int>, "KOP 不满足 KOPTrait");
+    static_assert(KOPTrait<Slub<int>, int>, "KOP 不满足 KOPTrait");
 }  // namespace slub

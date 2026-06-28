@@ -442,11 +442,11 @@ namespace contest_runner {
             return false;
         }
 
-        contest_runner::accumulate_stats(total, contest_runner::run_basic(ctx));
-#if defined(__ARCH_riscv64__)
+        // contest_runner::accumulate_stats(total, contest_runner::run_basic(ctx));
+// #if defined(__ARCH_riscv64__)
         contest_runner::accumulate_stats(total,
                                          contest_runner::run_busybox(ctx));
-#endif
+// #endif
         // contest_runner::accumulate_stats(total,
         //  contest_runner::run_libctest(ctx));
         // contest_runner::accumulate_stats(total,

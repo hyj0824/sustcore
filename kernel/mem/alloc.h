@@ -14,9 +14,9 @@
 #include <mem/alloc_def.h>
 #include <mem/slub.h>
 
-using Allocator = slub::MixedSizeAllocator;
+using Allocator = slub::SlubMalloc;
 static_assert(AllocatorTrait<Allocator>, "Allocator 不满足 AllocatorTrait");
 
 template <typename ObjType>
-using KOP = slub::SlubAllocator<ObjType>;
+using KOP = slub::Slub<ObjType>;
 static_assert(KOPTrait<KOP<int>, int>, "KOP 不满足 KOPTrait");

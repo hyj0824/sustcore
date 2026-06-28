@@ -40,6 +40,7 @@ namespace contest_runner {
         "sleep 1",
         R"(echo "#### file opration test")",
         "touch test.txt",
+        // should add a echo "hello world" > test.txt here
         "cat test.txt",
         "cut -c 3 test.txt",
         "od test.txt",

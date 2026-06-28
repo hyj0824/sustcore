@@ -13,16 +13,21 @@
 #include <mem/slub.h>
 
 namespace slub {
-    SlubAllocator<MixedSizeAllocator::AllocRecord>
-        MixedSizeAllocator::ALLOC_RECORD_SLUB;
-    util::IntrusiveList<MixedSizeAllocator::AllocRecord>
-        MixedSizeAllocator::alloc_records;
+    Storage<SlubMalloc> SlubMalloc::_INSTANCE_STORAGE;
+    Storage<LockedObject<IrqSaveGuardedLock, SlubMalloc>>
+        SlubMalloc::_INSTANCE_LOCKED_STORAGE;
+    bool SlubMalloc::_initialized = false;
+    Slub<SlubMalloc::AllocRecord> *SlubMalloc::AllocRecord::ALLOC_RECORD_SLUB =
+        nullptr;
 
-    void *MixedSizeAllocator::AllocRecord::operator new(size_t sz) {
+    void *SlubMalloc::AllocRecord::operator new(size_t sz) {
         assert(sz == sizeof(AllocRecord));
-        return ALLOC_RECORD_SLUB.alloc();
+        assert(ALLOC_RECORD_SLUB != nullptr);
+        return ALLOC_RECORD_SLUB->alloc();
     }
-    void MixedSizeAllocator::AllocRecord::operator delete(void *ptr) {
-        ALLOC_RECORD_SLUB.free(static_cast<AllocRecord *>(ptr));
+
+    void SlubMalloc::AllocRecord::operator delete(void *ptr) {
+        assert(ALLOC_RECORD_SLUB != nullptr);
+        ALLOC_RECORD_SLUB->free(static_cast<AllocRecord *>(ptr));
     }
 }  // namespace slub

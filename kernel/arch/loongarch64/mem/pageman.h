@@ -222,8 +222,11 @@ namespace la64 {
         static void restore_from_cow(PTE *pte, PageFlags flags);
         static void set_paddr(PTE *pte, PhyAddr paddr);
         static PhyAddr read_root();
+        static PhyAddr __kernel_read_root();
         static void make_root(PhyAddr root);
+        static Result<void> init_task_root(PhyAddr root) noexcept;
         static void __switch_root(PhyAddr root);
+        static void __kernel_switch_root(PhyAddr root);
         static void flush_tlb();
 
     private:

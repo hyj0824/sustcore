@@ -471,52 +471,36 @@ namespace exception {
             auto &e         = env::inst();
             auto fault_addr = VirAddr(csr_get_badv().value);
             auto fault_page = fault_addr.page_align_down();
+            bool kernel_addr = is_kernel_vaddr(fault_addr);
             loggers::INTERRUPT::DEBUG(
                 "paging fault: kind=%s, badv=%p, page=%p, era=0x%lx",
                 page_fault_kind(cause), fault_addr.addr(), fault_page.addr(),
                 ctx != nullptr ? ctx->era : 0);
-            loggers::INTERRUPT::DEBUG("page fault env: pgd=%p, tm=%p",
-                                      e.pgd().addr(), e.tmm());
+            loggers::INTERRUPT::DEBUG("page fault env: upgd=%p kpgd=%p tm=%p",
+                                      e.pgd().addr(), e.kernel_pgd().addr(),
+                                      e.tmm());
 
-            if (!e.pgd().nonnull()) {
-                loggers::INTERRUPT::ERROR("page fault: 当前页表根为空");
+            PhyAddr active_root = kernel_addr ? e.kernel_pgd() : e.pgd();
+            if (!active_root.nonnull()) {
+                loggers::INTERRUPT::ERROR(
+                    "page fault: 当前%s页表根为空",
+                    kernel_addr ? "内核" : "用户");
                 auto null_pman = PageMan(PhyAddr::null);
                 exception::paging_unrecoverable(
                     cause, estat, ctx, fault_cause_name(FaultCause::UNKNOWN),
                     null_pman);
             }
 
-            PageMan pman(e.pgd());
+            PageMan pman(active_root);
             auto fault_cause = confirm_fault_cause(cause, fault_addr, pman);
             bool processed   = false;
 
             switch (fault_cause) {
                 case FaultCause::NO_PRESENT: {
-                    if (is_kernel_vaddr(fault_addr)) {
-                        auto kernel_pgd = e.main_kernel_pgd();
-                        if (!kernel_pgd.nonnull()) {
-                            loggers::INTERRUPT::ERROR(
-                                "kernel page fault: 主内核页表不可用 addr=%p",
-                                fault_addr.addr());
-                            break;
-                        }
-                        PageMan kernel_pman(kernel_pgd);
-                        auto clone_res =
-                            pman.clone_mapping_from(kernel_pman, fault_page);
-                        if (!clone_res.has_value()) {
-                            loggers::INTERRUPT::ERROR(
-                                "kernel page fault: 复制主内核页表映射失败 "
-                                "addr=%p err=%s",
-                                fault_addr.addr(),
-                                to_cstring(clone_res.error()));
-                            break;
-                        }
-                        PageMan::flush_tlb();
-                        loggers::INTERRUPT::DEBUG(
-                            "kernel page fault: 已复制主内核页表映射 addr=%p "
-                            "page=%p",
-                            fault_addr.addr(), fault_page.addr());
-                        processed = true;
+                    if (kernel_addr) {
+                        loggers::INTERRUPT::ERROR(
+                            "kernel page fault: 高半区映射缺失 addr=%p",
+                            fault_addr.addr());
                         break;
                     }
 
@@ -730,11 +714,9 @@ extern "C" void handle_trap(umb_t era, csr_estat_t estat, Context *ctx) {
     } else {
         exception::exception(estat.ecode, estat, ctx);
     }
-    Interrupt::sti();
     if (schd::Scheduler::initialized()) {
         schd::Scheduler::inst().schedule();
     }
-    Interrupt::cli();
 }
 
 void Interrupt::init() {

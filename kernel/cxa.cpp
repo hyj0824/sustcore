@@ -18,27 +18,27 @@
 // 这要求你为你的类实现自定义的new/delete操作符
 
 void* operator new(size_t size) {
-    return Allocator::malloc(size);
+    return Allocator::INSTANCE().get()->malloc(size);
 }
 
 void operator delete(void* ptr) noexcept {
-    Allocator::free(ptr);
+    Allocator::INSTANCE().get()->free(ptr);
 }
 
 void* operator new[](size_t size) {
-    return Allocator::malloc(size);
+    return Allocator::INSTANCE().get()->malloc(size);
 }
 
 void operator delete[](void* ptr) noexcept {
-    Allocator::free(ptr);
+    Allocator::INSTANCE().get()->free(ptr);
 }
 
 void operator delete(void* ptr, size_t) noexcept {
-    Allocator::free(ptr);
+    Allocator::INSTANCE().get()->free(ptr);
 }
 
 void operator delete[](void* ptr, size_t) noexcept {
-    Allocator::free(ptr);
+    Allocator::INSTANCE().get()->free(ptr);
 }
 
 // C++ 运行时支持 (C++ Runtime Support)

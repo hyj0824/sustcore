@@ -247,7 +247,12 @@ namespace rv64 {
             return from_ppn(root_ppn);
         }
 
+        static PhyAddr __kernel_read_root(void) {
+            return read_root();
+        }
+
         static void make_root(PhyAddr root);
+        static Result<void> init_task_root(PhyAddr root) noexcept;
 
     private:
         PhyAddr __root;
@@ -599,6 +604,7 @@ namespace rv64 {
 
         // 更换页表根
         static void __switch_root(PhyAddr __root);
+        static void __kernel_switch_root(PhyAddr __root);
 
         inline void switch_root() {
             __switch_root(__root);

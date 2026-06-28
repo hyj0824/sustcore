@@ -1003,10 +1003,8 @@ extern "C" void handle_trap(csr_scause_t scause, umb_t sepc, umb_t stval,
         exception::dispatch(scause, sepc, stval, ctx);
     }
 
-    Interrupt::sti();
     schd::Scheduler::inst().schedule();
 
-    Interrupt::cli();
     if (from_umode) {
         auto *tcb = schd::Scheduler::inst().current_tcb();
         if (tcb != nullptr) {

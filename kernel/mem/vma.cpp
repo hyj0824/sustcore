@@ -59,12 +59,8 @@ namespace {
 
 TaskMemoryManager::TaskMemoryManager(PhyAddr _pgd)
     : vma_list(), _pgd(_pgd), _pman(_pgd) {
-    PageMan::make_root(_pgd);
-    auto kernel_pgd = env::inst().main_kernel_pgd();
-    assert(kernel_pgd.nonnull());
-    PageMan kernel_pman(kernel_pgd);
-    auto merge_res = _pman.merge_from(kernel_pman);
-    assert(merge_res.has_value());
+    auto init_res = PageMan::init_task_root(_pgd);
+    assert(init_res.has_value());
 }
 
 TaskMemoryManager::TaskMemoryManager(ExistingPgdTag, PhyAddr _pgd)

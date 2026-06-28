@@ -14,6 +14,7 @@
 #include <env.h>
 #include <logger.h>
 #include <mem/vma.h>
+#include <storage.h>
 #include <sus/nonnull.h>
 #include <syscall/syscall.h>
 #include <task/scheduler.h>
@@ -23,8 +24,7 @@
 #include <new>
 
 namespace {
-    alignas(schd::Scheduler) unsigned char scheduler_storage[sizeof(
-        schd::Scheduler)];
+    Storage<schd::Scheduler> scheduler_storage;
     // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
     schd::Scheduler *inst_scheduler = nullptr;
     bool inst_scheduler_initialized = false;
@@ -36,7 +36,7 @@ namespace schd {
     using namespace task;
     void Scheduler::init(util::nonnull<TCB *> idle_tcb,
                          util::nonnull<TCB *> kinit_tcb) {
-        inst_scheduler = new (scheduler_storage) Scheduler(idle_tcb, kinit_tcb);
+        inst_scheduler = scheduler_storage.construct(idle_tcb, kinit_tcb);
         inst_scheduler_initialized = true;
     }
 
@@ -96,7 +96,6 @@ namespace schd {
         // 只在页表不为null且不等于当前页表时才切换
         if (tmm->pgd().nonnull() && tmm->pgd() != env::inst().pgd()) {
             tmm->pman().switch_root();
-            tmm->pman().flush_tlb();
         }
         // 更新 environment 中的 task memory
         env::inst().tmm(env::key::set()) = tmm;
@@ -251,7 +250,8 @@ namespace schd {
     }
 
     void Scheduler::schedule(bool ignore_preempt_disabled) {
-        Interrupt::cli();
+        InterruptGuard guard;
+        guard.enter();
         // 首先获得当前正在运行的线程
         auto *current = current_tcb();
         if (current == nullptr) {
@@ -296,7 +296,6 @@ namespace schd {
         if (prev != next && prev != nullptr) {
             switch_to(prev, next);
         }
-        Interrupt::sti();
     }
 
     Result<void> Scheduler::enqueue(util::nonnull<TCB *> tcb) {

@@ -512,7 +512,7 @@ void env_setup() {
 #endif
 
     loggers::SUSTCORE::INFO("切换到新内核页表");
-    kernelman.switch_root();
+    PageMan::__kernel_switch_root(new_pgd);
     kernelman.flush_tlb();
 
     // 初始化中断处理程序
@@ -524,7 +524,8 @@ void env_setup() {
     Allocator::init();
     init_kop();
 
-    void *copied_fdt = Allocator::malloc(static_cast<size_t>(dtb_size));
+    void *copied_fdt =
+        Allocator::INSTANCE().get()->malloc(static_cast<size_t>(dtb_size));
     if (copied_fdt == nullptr) {
         panic("无法复制 FDT");
     }

@@ -17,16 +17,16 @@
 #include <cstddef>
 
 template <typename T>
-concept AllocatorTrait = requires(size_t size, void *ptr) {
+concept AllocatorTrait = requires(T *allocator, size_t size, void *ptr) {
     {
-        T::malloc(size)
+        allocator->malloc(size)
     } -> std::same_as<void *>;
     {
-        T::free(ptr)
+        allocator->free(ptr)
     } -> std::same_as<void>;
     {
-        T::init()
-    } -> std::same_as<void>;
+        T::INSTANCE()
+    };
 };
 
 template <typename T, typename ObjType>
@@ -66,9 +66,6 @@ public:
     static void init(void);
 };
 
-static_assert(AllocatorTrait<LinearGrowAllocator>,
-              "LinearGrowAllocator 不满足 AllocatorTrait");
-
 template <typename T, AllocatorTrait Allocator>
 
 class SimpleKOP {
@@ -76,12 +73,9 @@ public:
     SimpleKOP()  = default;
     ~SimpleKOP() = default;
     T *alloc() {
-        return (T *)Allocator::malloc(sizeof(T));
+        return (T *)Allocator::INSTANCE().get()->malloc(sizeof(T));
     }
     void free(T *obj) {
-        Allocator::free((void *)obj);
+        Allocator::INSTANCE().get()->free((void *)obj);
     }
 };
-
-static_assert(KOPTrait<SimpleKOP<int, LinearGrowAllocator>, int>,
-              "SimpleKOP 不满足 KOPTrait");

@@ -85,9 +85,12 @@ namespace la64 {
         static void restore_from_cow(PTE *, PageFlags) {}
         static void set_paddr(PTE *, PhyAddr);
         static PhyAddr read_root();
+        static PhyAddr __kernel_read_root();
         static void init();
         static void make_root(PhyAddr root);
+        static Result<void> init_task_root(PhyAddr root) noexcept;
         static void __switch_root(PhyAddr root);
+        static void __kernel_switch_root(PhyAddr root);
         static void flush_tlb();
 
         static constexpr size_t PTE_CNT = 512;

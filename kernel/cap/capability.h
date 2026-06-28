@@ -13,7 +13,6 @@
 
 #include <fwd.h>
 #include <cap/permission.h>
-#include <mem/alloc.h>
 #include <sus/nonnull.h>
 #include <sus/owner.h>
 #include <sus/raii.h>

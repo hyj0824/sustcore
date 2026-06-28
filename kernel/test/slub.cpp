@@ -29,7 +29,7 @@ namespace test::slub {
     public:
         CaseSmallObjAlloc() : TestCase("SLUB 小对象分配与释放") {}
         void _run(void* env [[maybe_unused]]) const noexcept override {
-            ::slub::SlubAllocator<SlubSmallObj> alloc;
+            ::slub::Slub<SlubSmallObj> alloc;
             constexpr int kSmallCount             = 16;
             SlubSmallObj* small_objs[kSmallCount] = {nullptr};
 
@@ -59,7 +59,7 @@ namespace test::slub {
     public:
         CaseObjectReuse() : TestCase("SLUB 对象重用趋势测试") {}
         void _run(void* env [[maybe_unused]]) const noexcept override {
-            ::slub::SlubAllocator<SlubSmallObj> alloc;
+            ::slub::Slub<SlubSmallObj> alloc;
             
             expect("分配并立即释放一个对象");
             SlubSmallObj* p1 = alloc.alloc();
@@ -78,7 +78,7 @@ namespace test::slub {
     public:
         CaseHugeObjPath() : TestCase("SLUB 大对象路径 (Huge Page) 测试") {}
         void _run(void* env [[maybe_unused]]) const noexcept override {
-            ::slub::SlubAllocator<SlubHugeObj> huge_alloc;
+            ::slub::Slub<SlubHugeObj> huge_alloc;
             
             expect("分配两个跨页的大对象");
             SlubHugeObj* h1 = huge_alloc.alloc();
@@ -101,7 +101,7 @@ namespace test::slub {
     public:
         CaseMultiSlab() : TestCase("SLUB 多 Slab 页面扩张测试") {}
         void _run(void* env [[maybe_unused]]) const noexcept override {
-            ::slub::SlubAllocator<SlubSmallObj> alloc;
+            ::slub::Slub<SlubSmallObj> alloc;
             
             // 假设一个小对象 40 字节, 4KB 页面大约容纳 100 个
             // 分配 150 个强制触发第二个 Slab 页面的创建
@@ -136,7 +136,7 @@ namespace test::slub {
     public:
         CaseStressFreelist() : TestCase("SLUB 空闲列表一致性压力测试") {}
         void _run(void* env [[maybe_unused]]) const noexcept override {
-            ::slub::SlubAllocator<SlubSmallObj> alloc;
+            ::slub::Slub<SlubSmallObj> alloc;
             constexpr int kIter = 100;
             SlubSmallObj* pool[kIter] = {nullptr};
 
@@ -182,7 +182,8 @@ namespace test::slub {
             expect("通过 Allocator 批量分配不同尺寸对象");
             for (int round = 0; round < kRounds; ++round) {
                 for (int i = 0; i < kSizeCount; ++i) {
-                    ptrs[round][i] = Allocator::malloc(kSizes[i]);
+                    ptrs[round][i] =
+                        Allocator::INSTANCE().get()->malloc(kSizes[i]);
                     if (ptrs[round][i] == nullptr) {
                         test(false, "Allocator 分配失败");
                         break;
@@ -194,7 +195,7 @@ namespace test::slub {
             for (int round = 0; round < kRounds; round += 2) {
                 for (int i = 0; i < kSizeCount; ++i) {
                     if (ptrs[round][i] != nullptr) {
-                        Allocator::free(ptrs[round][i]);
+                        Allocator::INSTANCE().get()->free(ptrs[round][i]);
                         ptrs[round][i] = nullptr;
                     }
                 }
@@ -203,7 +204,8 @@ namespace test::slub {
             action("重新填充已释放槽位");
             for (int round = 0; round < kRounds; round += 2) {
                 for (int i = 0; i < kSizeCount; ++i) {
-                    ptrs[round][i] = Allocator::malloc(kSizes[i]);
+                    ptrs[round][i] =
+                        Allocator::INSTANCE().get()->malloc(kSizes[i]);
                     if (ptrs[round][i] == nullptr) {
                         test(false, "Allocator 复用分配失败");
                         break;
@@ -215,7 +217,7 @@ namespace test::slub {
             for (int round = 0; round < kRounds; ++round) {
                 for (int i = 0; i < kSizeCount; ++i) {
                     if (ptrs[round][i] != nullptr) {
-                        Allocator::free(ptrs[round][i]);
+                        Allocator::INSTANCE().get()->free(ptrs[round][i]);
                         ptrs[round][i] = nullptr;
                     }
                 }

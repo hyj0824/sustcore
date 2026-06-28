@@ -15,14 +15,29 @@
 #include <task/wait.h>
 #include <vfs/tarfs.h>
 #include <mem/alloc.h>
+#include <storage.h>
 
 #include <algorithm>
 #include <cstddef>
 
 // TarFile / TarDirectory 使用 KOP 内存池
 namespace kop {
-	KOP<tarfs::TarFile> TarFile;
-	KOP<tarfs::TarDirectory> TarDirectory;
+	Storage<KOP<tarfs::TarFile>> TarFileRaw;
+	Storage<KOP<tarfs::TarDirectory>> TarDirectoryRaw;
+	Storage<LockedObject<IrqSaveGuardedLock, KOP<tarfs::TarFile>>>
+		TarFileStorage;
+	Storage<LockedObject<IrqSaveGuardedLock, KOP<tarfs::TarDirectory>>>
+		TarDirectoryStorage;
+
+	[[nodiscard]]
+	LockedObject<IrqSaveGuardedLock, KOP<tarfs::TarFile>> &TarFile() {
+		return TarFileStorage.ref();
+	}
+
+	[[nodiscard]]
+	LockedObject<IrqSaveGuardedLock, KOP<tarfs::TarDirectory>> &TarDirectory() {
+		return TarDirectoryStorage.ref();
+	}
 }
 
 namespace tarfs {
@@ -40,11 +55,11 @@ namespace tarfs {
 
     void *TarFile::operator new(size_t size) {
 		assert(size == sizeof(TarFile));
-		return kop::TarFile.alloc();
+		return kop::TarFile().get()->alloc();
 	}
 
 	void TarFile::operator delete(void *ptr) {
-		kop::TarFile.free(static_cast<TarFile *>(ptr));
+		kop::TarFile().get()->free(static_cast<TarFile *>(ptr));
 	}
 
 	TarFile::TarFile(TarSuperblock *sb, const TarBlock *header, inode_t id)
@@ -73,11 +88,11 @@ namespace tarfs {
 
 	void *TarDirectory::operator new(size_t size) {
 		assert(size == sizeof(TarDirectory));
-		return kop::TarDirectory.alloc();
+		return kop::TarDirectory().get()->alloc();
 	}
 
 	void TarDirectory::operator delete(void *ptr) {
-		kop::TarDirectory.free(static_cast<TarDirectory *>(ptr));
+		kop::TarDirectory().get()->free(static_cast<TarDirectory *>(ptr));
 	}
 
 	Result<inode_t> TarDirectory::lookup(std::string_view name) {
@@ -332,7 +347,9 @@ namespace tarfs {
 	}
 
 	void init_kop() {
-		new (&kop::TarFile) KOP<TarFile>();
-		new (&kop::TarDirectory) KOP<TarDirectory>();
+		kop::TarFileRaw.construct();
+		kop::TarDirectoryRaw.construct();
+		kop::TarFileStorage.construct(kop::TarFileRaw.get());
+		kop::TarDirectoryStorage.construct(kop::TarDirectoryRaw.get());
 	}
 }  // namespace tarfs

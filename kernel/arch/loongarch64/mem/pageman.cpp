@@ -12,6 +12,7 @@
 #include <arch/loongarch64/csr.h>
 #include <arch/loongarch64/mem/pageman.h>
 #include <arch/loongarch64/mem/paging.h>
+#include <env.h>
 #include <logger.h>
 
 using namespace la64;
@@ -155,13 +156,31 @@ PhyAddr PageMan::read_root() {
     return PhyAddr(pgdl & PAGE_ADDR_MASK);
 }
 
+PhyAddr PageMan::__kernel_read_root() {
+    auto pgdh = static_cast<umb_t>(LA64_CSR_READ(CSR_PGDH));
+    return PhyAddr(pgdh & PAGE_ADDR_MASK);
+}
+
 void PageMan::make_root(PhyAddr root) {
     memset(_convert(root).addr(), 0, PAGESIZE);
+}
+
+Result<void> PageMan::init_task_root(PhyAddr root) noexcept {
+    if (!root.nonnull()) {
+        unexpect_return(ErrCode::INVALID_PARAM);
+    }
+    make_root(root);
+    void_return();
 }
 
 void PageMan::__switch_root(PhyAddr root) {
     umb_t root_val = root.arith() & PAGE_ADDR_MASK;
     LA64_CSR_WRITE(CSR_PGDL, root_val);
+    flush_tlb();
+}
+
+void PageMan::__kernel_switch_root(PhyAddr root) {
+    umb_t root_val = root.arith() & PAGE_ADDR_MASK;
     LA64_CSR_WRITE(CSR_PGDH, root_val);
     flush_tlb();
 }

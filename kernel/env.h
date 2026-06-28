@@ -86,6 +86,8 @@ namespace env {
 
         [[nodiscard]]
         PhyAddr pgd() const noexcept;
+        [[nodiscard]]
+        PhyAddr kernel_pgd() const noexcept;
 
         [[nodiscard]]
         const BootInfoHeader *bootinfo() const noexcept;
@@ -398,6 +400,10 @@ namespace env {
 
     inline PhyAddr Environment::pgd() const noexcept {
         return PageMan::read_root();
+    }
+
+    inline PhyAddr Environment::kernel_pgd() const noexcept {
+        return PageMan::__kernel_read_root();
     }
 
     inline const BootInfoHeader *Environment::bootinfo() const noexcept {

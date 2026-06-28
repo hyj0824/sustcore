@@ -44,6 +44,77 @@ public:
 template <typename GL>
 concept GuardedLockLike = requires(SpinLocker &spinlock) { GL{spinlock}; };
 
+template <GuardedLockLike LockType, typename ObjectType>
+class LockedHandle {
+private:
+    LockType _lock;
+    ObjectType *_obj;
+
+public:
+    LockedHandle(SpinLocker &spinlock, ObjectType *obj)
+        : _lock(spinlock), _obj(obj) {
+        assert(_obj != nullptr);
+    }
+
+    LockedHandle(const LockedHandle &)            = delete;
+    LockedHandle &operator=(const LockedHandle &) = delete;
+    LockedHandle(LockedHandle &&)                 = delete;
+    LockedHandle &operator=(LockedHandle &&)      = delete;
+    ~LockedHandle()                               = default;
+
+    [[nodiscard]]
+    ObjectType *operator->() {
+        assert(_obj != nullptr);
+        return _obj;
+    }
+
+    [[nodiscard]]
+    const ObjectType *operator->() const {
+        assert(_obj != nullptr);
+        return _obj;
+    }
+
+    [[nodiscard]]
+    ObjectType *get() {
+        assert(_obj != nullptr);
+        return _obj;
+    }
+
+    [[nodiscard]]
+    const ObjectType *get() const {
+        assert(_obj != nullptr);
+        return _obj;
+    }
+};
+
+template <GuardedLockLike LockType, typename ObjectType>
+class LockedObject {
+private:
+    mutable SpinLocker _lock;
+    ObjectType *_obj;
+
+public:
+    explicit LockedObject(ObjectType *obj) : _obj(obj) {
+        assert(_obj != nullptr);
+    }
+
+    LockedObject(const LockedObject &)            = delete;
+    LockedObject &operator=(const LockedObject &) = delete;
+    LockedObject(LockedObject &&)                 = delete;
+    LockedObject &operator=(LockedObject &&)      = delete;
+    ~LockedObject()                               = default;
+
+    [[nodiscard]]
+    LockedHandle<LockType, ObjectType> get() {
+        return LockedHandle<LockType, ObjectType>(_lock, _obj);
+    }
+
+    [[nodiscard]]
+    LockedHandle<LockType, const ObjectType> get() const {
+        return LockedHandle<LockType, const ObjectType>(_lock, _obj);
+    }
+};
+
 class GuardedLock {
 private:
     SpinLocker &_lock;
@@ -130,7 +201,7 @@ private:
 
     __ATTR_ALWAYS_INLINE__
     bool crit_enter() {
-        if (!Interrupt::enabled()) {
+        if (Interrupt::enabled()) {
             Interrupt::cli();
             return false;
         }

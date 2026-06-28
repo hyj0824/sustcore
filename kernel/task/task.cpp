@@ -15,6 +15,7 @@
 #include <mem/alloc.h>
 #include <mem/slub.h>
 #include <object/task.h>
+#include <storage.h>
 #include <sus/raii.h>
 #include <task/task.h>
 #include <task/wait.h>
@@ -488,30 +489,44 @@ namespace task {
     }
 
     namespace kop {
-        KOP<PCB> pcb;
-        KOP<TCB> tcb;
+        Storage<KOP<PCB>> pcb_raw;
+        Storage<KOP<TCB>> tcb_raw;
+        Storage<LockedObject<IrqSaveGuardedLock, KOP<PCB>>> pcb_storage;
+        Storage<LockedObject<IrqSaveGuardedLock, KOP<TCB>>> tcb_storage;
+
+        [[nodiscard]]
+        LockedObject<IrqSaveGuardedLock, KOP<PCB>> &pcb() {
+            return pcb_storage.ref();
+        }
+
+        [[nodiscard]]
+        LockedObject<IrqSaveGuardedLock, KOP<TCB>> &tcb() {
+            return tcb_storage.ref();
+        }
     }  // namespace kop
 
     void init_kop() {
-        new (&kop::pcb) KOP<PCB>();
-        new (&kop::tcb) KOP<TCB>();
+        kop::pcb_raw.construct();
+        kop::tcb_raw.construct();
+        kop::pcb_storage.construct(kop::pcb_raw.get());
+        kop::tcb_storage.construct(kop::tcb_raw.get());
     }
 
     void *PCB::operator new(size_t size) {
         assert(size == sizeof(PCB));
-        return kop::pcb.alloc();
+        return kop::pcb().get()->alloc();
     }
 
     void PCB::operator delete(void *ptr) {
-        kop::pcb.free(static_cast<PCB *>(ptr));
+        kop::pcb().get()->free(static_cast<PCB *>(ptr));
     }
 
     void *TCB::operator new(size_t size) {
         assert(size == sizeof(TCB));
-        return kop::tcb.alloc();
+        return kop::tcb().get()->alloc();
     }
 
     void TCB::operator delete(void *ptr) {
-        kop::tcb.free(static_cast<TCB *>(ptr));
+        kop::tcb().get()->free(static_cast<TCB *>(ptr));
     }
 }  // namespace task
