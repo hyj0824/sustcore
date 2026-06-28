@@ -579,7 +579,7 @@ namespace exception {
             return false;
         }
 
-        env::inst().trap_context(env::key::trap_context()) = ctx;
+        env::inst().trap_context(env::key::set()) = ctx;
         auto *current_tcb = schd::Scheduler::inst().current_tcb();
         assert(current_tcb != nullptr);
 
@@ -611,14 +611,14 @@ namespace exception {
                 current_tcb->task->pid, args.syscall_number,
                 current_tcb->task->linux_subsystem_entry.addr(),
                 reinterpret_cast<void *>(ctx->linux_ra()));
-            env::inst().trap_context(env::key::trap_context()) = nullptr;
+            env::inst().trap_context(env::key::set()) = nullptr;
             return true;
         }
 
         ctx->pc() += 4;
         syscall::handle_user_ecall(util::nnullforce(current_tcb),
                                    util::nnullforce(ctx), args);
-        env::inst().trap_context(env::key::trap_context()) = nullptr;
+        env::inst().trap_context(env::key::set()) = nullptr;
         return true;
     }
 

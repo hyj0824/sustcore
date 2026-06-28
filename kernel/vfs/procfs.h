@@ -56,6 +56,7 @@ namespace procfs {
     enum class NodeKind : uint8_t {
         ROOT_DIR,
         SELF_LINK,
+        MEMINFO_FILE,
         PID_DIR,
         PROC_FILE,
         PROC_LINK,
@@ -154,6 +155,35 @@ namespace procfs {
         Result<size_t> entry_count() override;
         [[nodiscard]]
         Result<DirectoryEntryInfo> entry_at(size_t index) override;
+        [[nodiscard]]
+        Result<void> sync() override;
+        [[nodiscard]]
+        IMetadata &metadata() override;
+        [[nodiscard]]
+        inode_t inode_id() const override;
+        [[nodiscard]]
+        INodeCachePolicy inode_cache() const override;
+    };
+
+    class MeminfoFile final : public IFile {
+    private:
+        ProcFSSuperblock *_sb;
+        ProcNode *_node;
+
+        [[nodiscard]]
+        std::string render() const;
+
+    public:
+        MeminfoFile(ProcFSSuperblock &sb, ProcNode &node) noexcept;
+        ~MeminfoFile() final = default;
+
+        [[nodiscard]]
+        Result<size_t> read(off_t offset, void *buf, size_t len) override;
+        [[nodiscard]]
+        Result<size_t> write(off_t offset, const void *buf,
+                             size_t len) override;
+        [[nodiscard]]
+        Result<size_t> size() override;
         [[nodiscard]]
         Result<void> sync() override;
         [[nodiscard]]

@@ -186,23 +186,7 @@ namespace blk {
          * @param len 期望写入字节数.
          * @return size_t 实际写入字节数.
          */
-        size_t write(size_t offset, const void *data, size_t len) {
-            if (_buf == nullptr || _buf->data == nullptr) {
-                return 0;
-            }
-            if (offset >= blksz()) {
-                return 0;
-            }
-            if (offset + len > blksz()) {
-                // 超出块大小限制, 只写入能容纳的数据
-                len = blksz() - offset;
-            }
-
-            // TODO: 加锁
-            memcpy(_buf->data + offset, data, len);
-            _buf->dirty = true;
-            return len;
-        }
+        size_t write(size_t offset, const void *data, size_t len);
 
         /**
          * @brief 从块内偏移处读取数据.
@@ -233,13 +217,7 @@ namespace blk {
          *
          * 调用者必须保证 `buflen == blksz()`.
          */
-        void writeblk(const void *buf, size_t buflen) {
-            assert(buf != nullptr);
-            assert(buflen == blksz());
-            // TODO: 加锁
-            memcpy(_buf->data, buf, blksz());
-            _buf->dirty = true;
-        }
+        void writeblk(const void *buf, size_t buflen);
 
         /**
          * @brief 读取整个缓存块到目标缓冲区.

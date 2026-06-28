@@ -27,28 +27,42 @@ namespace env {
 
     // passkey
     namespace key {
-        struct tags {
-        protected:
-            tags() = default;
+        struct set {
+        public:
+            constexpr set() noexcept = default;
         };
-
-        struct unmodifiable : public tags {
-        private:
-            unmodifiable() = default;
-        };
-
-        struct tmm : public tags {};
-        struct main_kernel_pgd : public tags {};
-        struct trap_context : public tags {};
-        struct pgd : public unmodifiable {};
-        struct bootinfo : public tags {};
     }  // namespace key
+
+    /**
+     * @brief `/proc/meminfo` 使用的全局内存统计缓存.
+     *
+     * 内部统一按页数维护，读取 `/proc/meminfo` 时再换算为 kB。
+     */
+    struct SystemMemoryInfo {
+        size_t mem_total_pages = 0;
+        size_t mem_free_pages = 0;
+        size_t buffer_pages = 0;
+        size_t page_cache_pages = 0;
+        size_t active_file_pages = 0;
+        size_t inactive_file_pages = 0;
+        size_t kernel_stack_pages = 0;
+        size_t page_table_pages = 0;
+        size_t anon_pages = 0;
+        size_t mapped_pages = 0;
+        size_t dirty_pages = 0;
+        size_t writeback_pages = 0;
+        size_t committed_pages = 0;
+        size_t directmap_4k_pages = 0;
+        size_t directmap_2m_pages = 0;
+        size_t directmap_1g_pages = 0;
+    };
 
     class Environment {
     private:
         alignas(PAGESIZE) byte _bootinfo_storage[::MAX_BOOTINFO_SIZE] = {};
         size_t _bootinfo_size                                = 0;
         PhyAddr _main_kernel_pgd = PhyAddr::null;
+        SystemMemoryInfo _system_memory_info{};
 
     public:
         constexpr static size_t MAX_BOOTINFO_SIZE = ::MAX_BOOTINFO_SIZE;
@@ -58,17 +72,17 @@ namespace env {
         [[nodiscard]]
         TaskMemoryManager *tmm() const noexcept;
         [[nodiscard]]
-        TaskMemoryManager *&tmm(key::tmm) noexcept;
+        TaskMemoryManager *&tmm(key::set) noexcept;
 
         [[nodiscard]]
         PhyAddr main_kernel_pgd() const noexcept;
         [[nodiscard]]
-        PhyAddr &main_kernel_pgd(key::main_kernel_pgd) noexcept;
+        PhyAddr &main_kernel_pgd(key::set) noexcept;
 
         [[nodiscard]]
         Context *trap_context() const noexcept;
         [[nodiscard]]
-        Context *&trap_context(key::trap_context) noexcept;
+        Context *&trap_context(key::set) noexcept;
 
         [[nodiscard]]
         PhyAddr pgd() const noexcept;
@@ -76,15 +90,19 @@ namespace env {
         [[nodiscard]]
         const BootInfoHeader *bootinfo() const noexcept;
         [[nodiscard]]
-        BootInfoHeader *bootinfo(key::bootinfo) noexcept;
+        BootInfoHeader *bootinfo(key::set) noexcept;
         [[nodiscard]]
         const byte *bootinfo_storage() const noexcept;
         [[nodiscard]]
-        byte *bootinfo_storage(key::bootinfo) noexcept;
+        byte *bootinfo_storage(key::set) noexcept;
         [[nodiscard]]
         size_t bootinfo_size() const noexcept;
         [[nodiscard]]
-        size_t &bootinfo_size(key::bootinfo) noexcept;
+        size_t &bootinfo_size(key::set) noexcept;
+        [[nodiscard]]
+        const SystemMemoryInfo &system_memory_info() const noexcept;
+        [[nodiscard]]
+        SystemMemoryInfo &system_memory_info(key::set) noexcept;
     };
 
     void construct();
@@ -194,7 +212,7 @@ namespace env {
          * @return TaskMemoryManager*& 当前任务地址空间引用槽
          */
         [[nodiscard]]
-        constexpr TaskMemoryManager *&tmm(key::tmm) noexcept {
+        constexpr TaskMemoryManager *&tmm(key::set) noexcept {
             return _tmm;
         }
 
@@ -224,7 +242,7 @@ namespace env {
          * @return Context*& 当前 trap 上下文引用槽
          */
         [[nodiscard]]
-        constexpr Context *&trap_context(key::trap_context) noexcept {
+        constexpr Context *&trap_context(key::set) noexcept {
             return _trap_context;
         }
 
@@ -358,7 +376,7 @@ namespace env {
         return hart_ctx->tmm();
     }
 
-    inline TaskMemoryManager *&Environment::tmm(key::tmm) noexcept {
+    inline TaskMemoryManager *&Environment::tmm(key::set) noexcept {
         return hart_ctx->tmm_ref();
     }
 
@@ -366,7 +384,7 @@ namespace env {
         return _main_kernel_pgd;
     }
 
-    inline PhyAddr &Environment::main_kernel_pgd(key::main_kernel_pgd) noexcept {
+    inline PhyAddr &Environment::main_kernel_pgd(key::set) noexcept {
         return _main_kernel_pgd;
     }
 
@@ -374,7 +392,7 @@ namespace env {
         return hart_ctx->trap_context();
     }
 
-    inline Context *&Environment::trap_context(key::trap_context) noexcept {
+    inline Context *&Environment::trap_context(key::set) noexcept {
         return hart_ctx->trap_context_ref();
     }
 
@@ -389,7 +407,7 @@ namespace env {
         return reinterpret_cast<const BootInfoHeader *>(_bootinfo_storage);
     }
 
-    inline BootInfoHeader *Environment::bootinfo(key::bootinfo) noexcept {
+    inline BootInfoHeader *Environment::bootinfo(key::set) noexcept {
         if (_bootinfo_size == 0) {
             return nullptr;
         }
@@ -400,7 +418,7 @@ namespace env {
         return _bootinfo_storage;
     }
 
-    inline byte *Environment::bootinfo_storage(key::bootinfo) noexcept {
+    inline byte *Environment::bootinfo_storage(key::set) noexcept {
         return _bootinfo_storage;
     }
 
@@ -408,8 +426,18 @@ namespace env {
         return _bootinfo_size;
     }
 
-    inline size_t &Environment::bootinfo_size(key::bootinfo) noexcept {
+    inline size_t &Environment::bootinfo_size(key::set) noexcept {
         return _bootinfo_size;
+    }
+
+    inline const SystemMemoryInfo &Environment::system_memory_info()
+        const noexcept {
+        return _system_memory_info;
+    }
+
+    inline SystemMemoryInfo &Environment::system_memory_info(
+        key::set) noexcept {
+        return _system_memory_info;
     }
 
     /**

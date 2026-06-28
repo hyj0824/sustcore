@@ -100,7 +100,7 @@ namespace task {
             unexpect_return(ErrCode::NULLPTR);
         }
 
-        auto gfp_res = GFP::get_free_page(1);
+        auto gfp_res = GFP::page_gfp();
         if (!gfp_res.has_value()) {
             loggers::TASK::ERROR("无法为程序页表分配物理页");
             unexpect_return(ErrCode::CREATION_FAILED);

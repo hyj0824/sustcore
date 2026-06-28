@@ -427,7 +427,7 @@ namespace task {
             if (spec.tmm.get() != nullptr) {
                 PhyAddr pgd = spec.tmm->pgd();
                 delete spec.tmm;
-                GFP::put_page(pgd, 1);
+                GFP::page_putpage(pgd);
                 spec.tmm = util::owner<TaskMemoryManager *>(nullptr);
             }
         }
@@ -1077,7 +1077,7 @@ namespace task {
             assert(rm_res.has_value());
         });
 
-        auto pgd_res = GFP::get_free_page(1);
+        auto pgd_res = GFP::page_gfp();
         propagate(pgd_res);
         auto child_tmm = util::owner(new TaskMemoryManager(pgd_res.value()));
         auto tmm_guard = util::Guard([&child_tmm]() {
@@ -1086,7 +1086,7 @@ namespace task {
             }
             PhyAddr pgd = child_tmm->pgd();
             delete child_tmm;
-            GFP::put_page(pgd, 1);
+            GFP::page_putpage(pgd);
         });
 
         auto clone_mem_res = parent_pcb->tmm->clone_to_cow(*child_tmm);

@@ -30,14 +30,6 @@ namespace {
     bool inst_scheduler_initialized = false;
 }  // namespace
 
-namespace key {
-    using namespace env::key;
-    struct schd : public tmm {
-    public:
-        schd() = default;
-    };
-}  // namespace key
-
 extern "C" void __switch_to(Context *prev_ctx, Context *next_ctx);
 
 namespace schd {
@@ -107,7 +99,7 @@ namespace schd {
             tmm->pman().flush_tlb();
         }
         // 更新 environment 中的 task memory
-        env::inst().tmm(key::schd()) = tmm;
+        env::inst().tmm(env::key::set()) = tmm;
     }
 
     void Scheduler::prepare_switch(TCB *tcb) {

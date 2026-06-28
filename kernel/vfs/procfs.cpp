@@ -15,10 +15,12 @@
 #include <task/task.h>
 #include <vfs/procfs.h>
 #include <vfs/vfs.h>
+#include <guard.h>
 
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+#include <env.h>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -289,6 +291,9 @@ namespace procfs {
     ProcFileNode::ProcFileNode(ProcFSSuperblock &sb, ProcNode &node) noexcept
         : _sb(&sb), _node(&node) {}
 
+    MeminfoFile::MeminfoFile(ProcFSSuperblock &sb, ProcNode &node) noexcept
+        : _sb(&sb), _node(&node) {}
+
     Result<void> ProcFileNode::sync() {
         void_return();
     }
@@ -365,6 +370,14 @@ namespace procfs {
                                        .entry    = nullptr,
                                        .metadata = {},
                                    });
+        _nodes.insert_or_assign(2, ProcNode{
+                                       .inode_id = 2,
+                                       .kind     = NodeKind::MEMINFO_FILE,
+                                       .pid      = 0,
+                                       .entry    = nullptr,
+                                       .metadata = {},
+                                   });
+        _next_inode = 3;
     }
 
     Result<ProcNode *> ProcFSSuperblock::lookup_node(
@@ -457,7 +470,7 @@ namespace procfs {
 
     Result<size_t> ProcDirectoryNode::entry_count() {
         if (_node->kind == NodeKind::ROOT_DIR) {
-            return task::TaskManager::inst().snapshot_pids().size() + 1;
+            return task::TaskManager::inst().snapshot_pids().size() + 2;
         }
         if (_node->kind == NodeKind::PID_DIR) {
             return PROC_STATE_ENTRIES_COUNT;
@@ -470,8 +483,11 @@ namespace procfs {
             if (index == 0) {
                 return DirectoryEntryInfo{.name = "self"};
             }
+            if (index == 1) {
+                return DirectoryEntryInfo{.name = "meminfo"};
+            }
             auto pids        = task::TaskManager::inst().snapshot_pids();
-            size_t pid_index = index - 1;
+            size_t pid_index = index - 2;
             if (pid_index >= pids.size()) {
                 unexpect_return(ErrCode::OUT_OF_BOUNDARY);
             }
@@ -491,7 +507,7 @@ namespace procfs {
         auto parent_res = lookup_node(parent_inode);
         propagate(parent_res);
         auto *parent = parent_res.value();
-        loggers::VFS::INFO(
+        loggers::VFS::DEBUG(
             "procfs lookup_child: parent_inode=%lu kind=%u pid=%lu name=%s",
             static_cast<unsigned long>(parent_inode),
             static_cast<unsigned>(parent->kind),
@@ -499,6 +515,9 @@ namespace procfs {
         if (parent->kind == NodeKind::ROOT_DIR) {
             if (name == "self") {
                 return inode_t(1);
+            }
+            if (name == "meminfo") {
+                return inode_t(2);
             }
             pid_t pid = 0;
             if (name.empty()) {
@@ -526,7 +545,7 @@ namespace procfs {
                 std::string(name).c_str());
             unexpect_return(ErrCode::ENTRY_NOT_FOUND);
         }
-        loggers::VFS::INFO(
+        loggers::VFS::DEBUG(
             "procfs lookup_child resolved entry: pid=%lu name=%s kind=%u",
             static_cast<unsigned long>(parent->pid), entry->name,
             static_cast<unsigned>(entry->kind));
@@ -554,6 +573,13 @@ namespace procfs {
                     unexpect_return(ErrCode::OUT_OF_MEMORY);
                 }
                 return util::owner<IINode *>(symlink);
+            }
+            case NodeKind::MEMINFO_FILE: {
+                auto *file = new MeminfoFile(*this, *node);
+                if (file == nullptr) {
+                    unexpect_return(ErrCode::OUT_OF_MEMORY);
+                }
+                return util::owner<IINode *>(file);
             }
             case NodeKind::PROC_FILE: {
                 auto *file = new ProcFileNode(*this, *node);
@@ -669,6 +695,138 @@ namespace procfs {
         return 0;
     }
 
+    std::string MeminfoFile::render() const {
+        const auto &info = env::inst().system_memory_info();
+        auto pages_to_kb = [](size_t pages) -> size_t {
+            return (pages * PAGESIZE) / 1024;
+        };
+        constexpr size_t MEMINFO_BUF_SIZE = 4096;
+        char *buf = new char[MEMINFO_BUF_SIZE];
+        auto buf_guard = delete_guard(util::owner(buf));
+        int len = snprintf(
+            buf, MEMINFO_BUF_SIZE,
+            "MemTotal: %12lu kB\n"
+            "MemFree: %13lu kB\n"
+            "MemAvailable: %8lu kB\n"
+            "Buffers: %13lu kB\n"
+            "Cached: %14lu kB\n"
+            "SwapCached: %9u kB\n"
+            "Active: %14lu kB\n"
+            "Inactive: %12lu kB\n"
+            "Active(anon): %8lu kB\n"
+            "Inactive(anon): %6u kB\n"
+            "Active(file): %8lu kB\n"
+            "Inactive(file): %6lu kB\n"
+            "Unevictable: %9u kB\n"
+            "Mlocked: %14u kB\n"
+            "SwapTotal: %13u kB\n"
+            "SwapFree: %14u kB\n"
+            "Dirty: %15lu kB\n"
+            "Writeback: %11lu kB\n"
+            "AnonPages: %11lu kB\n"
+            "Mapped: %14lu kB\n"
+            "KernelStack: %10lu kB\n"
+            "PageTables: %11lu kB\n"
+            "SecPageTables: %6u kB\n"
+            "NFS_Unstable: %8u kB\n"
+            "Bounce: %14u kB\n"
+            "WritebackTmp: %8u kB\n"
+            "CommitLimit: %11lu kB\n"
+            "Committed_AS: %10lu kB\n"
+            "HardwareCorrupted: %5u kB\n"
+            "AnonHugePages: %8u kB\n"
+            "ShmemHugePages: %7u kB\n"
+            "ShmemPmdMapped: %6u kB\n"
+            "FileHugePages: %8u kB\n"
+            "FilePmdMapped: %8u kB\n"
+            "Unaccepted: %10u kB\n"
+            "HugePages_Total: %7u\n"
+            "HugePages_Free: %8u\n"
+            "HugePages_Rsvd: %8u\n"
+            "HugePages_Surp: %8u\n"
+            "Hugepagesize: %10u kB\n"
+            "Hugetlb: %15u kB\n"
+            "DirectMap4k: %10lu kB\n"
+            "DirectMap2M: %10lu kB\n"
+            "DirectMap1G: %10lu kB\n",
+            static_cast<unsigned long>(pages_to_kb(info.mem_total_pages)),
+            static_cast<unsigned long>(pages_to_kb(info.mem_free_pages)),
+            static_cast<unsigned long>(
+                pages_to_kb(info.mem_free_pages + info.inactive_file_pages)),
+            static_cast<unsigned long>(pages_to_kb(info.buffer_pages)),
+            static_cast<unsigned long>(pages_to_kb(info.page_cache_pages)),
+            0U,
+            static_cast<unsigned long>(
+                pages_to_kb(info.anon_pages + info.active_file_pages)),
+            static_cast<unsigned long>(pages_to_kb(info.inactive_file_pages)),
+            static_cast<unsigned long>(pages_to_kb(info.anon_pages)),
+            0U,
+            static_cast<unsigned long>(pages_to_kb(info.active_file_pages)),
+            static_cast<unsigned long>(pages_to_kb(info.inactive_file_pages)),
+            0U, 0U, 0U, 0U,
+            static_cast<unsigned long>(pages_to_kb(info.dirty_pages)),
+            static_cast<unsigned long>(pages_to_kb(info.writeback_pages)),
+            static_cast<unsigned long>(pages_to_kb(info.anon_pages)),
+            static_cast<unsigned long>(pages_to_kb(info.mapped_pages)),
+            static_cast<unsigned long>(pages_to_kb(info.kernel_stack_pages)),
+            static_cast<unsigned long>(pages_to_kb(info.page_table_pages)),
+            0U, 0U, 0U, 0U,
+            static_cast<unsigned long>(pages_to_kb(info.mem_total_pages)),
+            static_cast<unsigned long>(pages_to_kb(info.committed_pages)),
+            0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U,
+            0U, 2048U, 0U,
+            static_cast<unsigned long>(pages_to_kb(info.directmap_4k_pages)),
+            static_cast<unsigned long>(pages_to_kb(info.directmap_2m_pages)),
+            static_cast<unsigned long>(pages_to_kb(info.directmap_1g_pages)));
+        if (len < 0) {
+            return {};
+        }
+        return std::string(buf, buf + len);
+    }
+
+    Result<size_t> MeminfoFile::read(off_t offset, void *buf, size_t len) {
+        if (offset < 0) {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+        auto content = render();
+        size_t off = static_cast<size_t>(offset);
+        if (off >= content.size()) {
+            return 0;
+        }
+        size_t actual = std::min(len, content.size() - off);
+        if (actual != 0 && buf == nullptr) {
+            unexpect_return(ErrCode::NULLPTR);
+        }
+        if (actual != 0) {
+            memcpy(buf, content.data() + off, actual);
+        }
+        return actual;
+    }
+
+    Result<size_t> MeminfoFile::write(off_t, const void *, size_t) {
+        unexpect_return(ErrCode::INSUFFICIENT_PERMISSIONS);
+    }
+
+    Result<size_t> MeminfoFile::size() {
+        return render().size();
+    }
+
+    Result<void> MeminfoFile::sync() {
+        void_return();
+    }
+
+    IMetadata &MeminfoFile::metadata() {
+        return _node->metadata;
+    }
+
+    inode_t MeminfoFile::inode_id() const {
+        return _node->inode_id;
+    }
+
+    INodeCachePolicy MeminfoFile::inode_cache() const {
+        return INodeCachePolicy::NONE;
+    }
+
     ProcFSDriver &ProcFSDriver::inst() {
         if (_INSTANCE == nullptr) {
             _INSTANCE = new (&_INSTANCE_STORAGE[0]) ProcFSDriver();
@@ -723,7 +881,7 @@ namespace procfs {
         auto pseudo_res = VFS::inst().get_pseudo("procfs");
         propagate(pseudo_res);
         auto *sb = static_cast<ProcFSSuperblock *>(pseudo_res.value());
-        loggers::VFS::INFO("procfs driver get: pid=%lu name=%s base=%s",
+        loggers::VFS::DEBUG("procfs driver get: pid=%lu name=%s base=%s",
                            static_cast<unsigned long>(pid),
                            std::string(name).c_str(), base_path.c_str());
         if (name == "/") {

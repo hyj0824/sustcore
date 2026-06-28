@@ -99,6 +99,11 @@ public:
     }
 
     /**
+     * @brief 分配一页页表页并维护全局页表统计.
+     */
+    static Result<PhyAddr> page_gfp();
+
+    /**
      * @brief 释放连续物理页的一次引用. 
      *
      * 对可跟踪页, 本函数逐页降低引用计数, 仅将引用计数归零的连续页段
@@ -137,6 +142,11 @@ public:
             RawGFPImpl::put_page(addr + run_start * PAGESIZE, run_len);
         }
     }
+
+    /**
+     * @brief 释放一页页表页并维护全局页表统计.
+     */
+    static void page_putpage(PhyAddr addr);
 
     /**
      * @brief 增加连续物理页的引用计数. 

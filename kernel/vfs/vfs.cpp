@@ -11,6 +11,7 @@
 
 #include <bio/blk.h>
 #include <cap/cholder.h>
+#include <env.h>
 #include <mem/gfp.h>
 #include <sus/path.h>
 #include <sustcore/errcode.h>
@@ -91,6 +92,29 @@ namespace {
         }
     }
 
+    void set_file_page_active(VINode::CachedFilePage &page,
+                              bool active) noexcept {
+        auto &info = env::inst().system_memory_info(env::key::set());
+        if (page.active == active) {
+            return;
+        }
+        if (page.active) {
+            if (info.active_file_pages > 0) {
+                info.active_file_pages--;
+            }
+        } else {
+            if (info.inactive_file_pages > 0) {
+                info.inactive_file_pages--;
+            }
+        }
+        if (active) {
+            info.active_file_pages++;
+        } else {
+            info.inactive_file_pages++;
+        }
+        page.active = active;
+    }
+
     void lru_remove(VINode::CachedFilePage &page) noexcept {
         VINode::CachedFilePage *head = nullptr;
         VINode::CachedFilePage *tail = nullptr;
@@ -112,7 +136,7 @@ namespace {
     }
 
     void lru_push_tail(VINode::CachedFilePage &page, bool active) noexcept {
-        page.active                  = active;
+        set_file_page_active(page, active);
         page.prev                    = nullptr;
         page.next                    = nullptr;
         VINode::CachedFilePage *head = nullptr;
@@ -353,11 +377,13 @@ Result<PhyAddr> VINode::cached_file_page(IFile &file, size_t page_index,
         cached.paddr      = paddr;
         cached.valid      = valid;
         cached.dirty      = false;
+        cached.active     = false;
         cached.evicting   = false;
         cached.owner      = this;
         cached.page_index = page_index;
         lru_push_tail(cached, false);
         page_cache_stats.cached_pages++;
+        env::inst().system_memory_info(env::key::set()).page_cache_pages++;
     }
     if (valid_len != nullptr) {
         *valid_len = valid;
@@ -439,7 +465,12 @@ Result<size_t> VINode::write_cached_file(IFile &file, size_t offset,
                    src + written, chunk);
             page_it->second.valid =
                 std::max(page_it->second.valid, in_page + chunk);
-            page_it->second.dirty = true;
+            if (!page_it->second.dirty) {
+                page_it->second.dirty = true;
+                env::inst()
+                    .system_memory_info(env::key::set())
+                    .dirty_pages++;
+            }
             lru_touch(page_it->second);
         }
         written += chunk;
@@ -463,6 +494,7 @@ Result<void> VINode::flush_file_pages() {
             if (!page.dirty) {
                 continue;
             }
+            env::inst().system_memory_info(env::key::set()).writeback_pages++;
             auto write_res =
                 file->write(static_cast<off_t>(page_index * PAGESIZE),
                             convert<KpaAddr>(page.paddr).addr(), page.valid);
@@ -471,6 +503,13 @@ Result<void> VINode::flush_file_pages() {
                 unexpect_return(ErrCode::IO_ERROR);
             }
             page.dirty = false;
+            auto &info = env::inst().system_memory_info(env::key::set());
+            if (info.dirty_pages > 0) {
+                info.dirty_pages--;
+            }
+            if (info.writeback_pages > 0) {
+                info.writeback_pages--;
+            }
             wrote_back = true;
             loggers::VFS::DEBUG(
                 "page cache writeback: inode=%u page=%lu len=%lu",
@@ -505,6 +544,7 @@ Result<bool> VINode::evict_file_page() {
         {
             GuardedLock page_guard(page->lock);
             if (page->dirty) {
+                env::inst().system_memory_info(env::key::set()).writeback_pages++;
                 auto file_res = _inode->as_file();
                 propagate(file_res);
                 auto write_res = file_res.value()->write(
@@ -513,6 +553,13 @@ Result<bool> VINode::evict_file_page() {
                 propagate(write_res);
                 if (write_res.value() != page->valid) {
                     unexpect_return(ErrCode::IO_ERROR);
+                }
+                auto &info = env::inst().system_memory_info(env::key::set());
+                if (info.dirty_pages > 0) {
+                    info.dirty_pages--;
+                }
+                if (info.writeback_pages > 0) {
+                    info.writeback_pages--;
                 }
                 wrote_back = true;
             }
@@ -530,6 +577,19 @@ Result<bool> VINode::evict_file_page() {
         GuardedLock cache_guard(page_cache_lock);
         auto it = _file_pages.find(page_index);
         if (it != _file_pages.end() && &it->second == page) {
+            auto &info = env::inst().system_memory_info(env::key::set());
+            if (it->second.active) {
+                if (info.active_file_pages > 0) {
+                    info.active_file_pages--;
+                }
+            } else {
+                if (info.inactive_file_pages > 0) {
+                    info.inactive_file_pages--;
+                }
+            }
+            if (info.page_cache_pages > 0) {
+                info.page_cache_pages--;
+            }
             _file_pages.erase(it);
             page_cache_stats.cached_pages--;
             page_cache_stats.evictions++;
@@ -577,6 +637,22 @@ void VINode::invalidate_file_pages() noexcept {
             }
             GuardedLock page_guard(it->second.lock);
             paddr = it->second.paddr;
+            auto &info = env::inst().system_memory_info(env::key::set());
+            if (it->second.active) {
+                if (info.active_file_pages > 0) {
+                    info.active_file_pages--;
+                }
+            } else {
+                if (info.inactive_file_pages > 0) {
+                    info.inactive_file_pages--;
+                }
+            }
+            if (it->second.dirty && info.dirty_pages > 0) {
+                info.dirty_pages--;
+            }
+            if (info.page_cache_pages > 0) {
+                info.page_cache_pages--;
+            }
             _file_pages.erase(it);
             if (page_cache_stats.cached_pages > 0) {
                 page_cache_stats.cached_pages--;

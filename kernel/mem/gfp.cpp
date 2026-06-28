@@ -19,6 +19,24 @@ PhyAddr LinearGrowGFP::baseaddr = PhyAddr::null;
 PhyAddr LinearGrowGFP::curaddr = PhyAddr::null;
 PhyAddr LinearGrowGFP::boundary = PhyAddr::null;
 
+Result<PhyAddr> GFP::page_gfp() {
+    auto res = get_free_page(1);
+    propagate(res);
+    env::inst().system_memory_info(env::key::set()).page_table_pages++;
+    return res.value();
+}
+
+void GFP::page_putpage(PhyAddr addr) {
+    if (!addr.nonnull()) {
+        return;
+    }
+    put_page(addr, 1);
+    auto &info = env::inst().system_memory_info(env::key::set());
+    if (info.page_table_pages > 0) {
+        info.page_table_pages--;
+    }
+}
+
 void LinearGrowGFP::pre_init() {
     PhyAddr _baseaddr = PhyAddr::null;
     // 从regions中找到大小最大的可用内存区域, 作为线性增长GFP的内存池

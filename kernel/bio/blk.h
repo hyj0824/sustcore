@@ -14,6 +14,7 @@
 #include <bio/block.h>
 #include <bio/buffer.h>
 #include <bio/request.h>
+#include <env.h>
 #include <task/scheduler.h>
 #include <task/task.h>
 
@@ -202,6 +203,20 @@ namespace blk {
             delete cache;
             delete queue;
             void_return();
+        }
+
+        void add_buffer_pages(size_t pages) noexcept {
+            env::inst().system_memory_info(env::key::set()).buffer_pages +=
+                pages;
+        }
+
+        void remove_buffer_pages(size_t pages) noexcept {
+            auto &info = env::inst().system_memory_info(env::key::set());
+            if (info.buffer_pages >= pages) {
+                info.buffer_pages -= pages;
+            } else {
+                info.buffer_pages = 0;
+            }
         }
     };
 }  // namespace blk

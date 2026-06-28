@@ -294,14 +294,6 @@ namespace {
 #endif
 }  // namespace
 
-namespace key {
-    using namespace env::key;
-    struct main : public tmm, main_kernel_pgd, bootinfo {
-    public:
-        main() = default;
-    };
-}  // namespace key
-
 Result<void> init_scheduler() {
     loggers::SUSTCORE::INFO("创建 KERNEL 进程");
     auto kernel_res = task::TaskManager::inst().create_kernel_task();
@@ -356,10 +348,38 @@ void map_kpa_region(PageMan &man, PhyArea parea) {
         return;
     }
 
+    auto &meminfo = env::inst().system_memory_info(env::key::set());
     VirAddr vaddr = VirAddr(convert<KpaAddr>(parea.begin).arith());
+    size_t remaining = page_align_up(parea.size());
+    VirAddr current_vaddr = vaddr.page_align_down();
+    PhyAddr current_paddr = parea.begin.page_align_down();
 
     man.map_range<true>(vaddr, parea.begin, parea.size(),
                         PageMan::page_flags(PageMan::RWX::RW, false, true));
+
+    while (remaining > 0) {
+        if (remaining >= (1ull << 30) && current_vaddr.aligned<1ull << 30>() &&
+            current_paddr.aligned<1ull << 30>())
+        {
+            meminfo.directmap_1g_pages += (1ull << 30) / PAGESIZE;
+            current_vaddr += (1ull << 30);
+            current_paddr += (1ull << 30);
+            remaining -= (1ull << 30);
+        } else if (remaining >= (1ull << 21) &&
+                   current_vaddr.aligned<1ull << 21>() &&
+                   current_paddr.aligned<1ull << 21>())
+        {
+            meminfo.directmap_2m_pages += (1ull << 21) / PAGESIZE;
+            current_vaddr += (1ull << 21);
+            current_paddr += (1ull << 21);
+            remaining -= (1ull << 21);
+        } else {
+            meminfo.directmap_4k_pages++;
+            current_vaddr += PAGESIZE;
+            current_paddr += PAGESIZE;
+            remaining -= PAGESIZE;
+        }
+    }
 }
 
 extern "C" void post_init(void);
@@ -382,11 +402,11 @@ void env_setup() {
     }
 
     loggers::SUSTCORE::INFO("复制 BootInfo 到 Environment 静态缓冲区");
-    memmove(e.bootinfo_storage(env::key::bootinfo()),
+    memmove(e.bootinfo_storage(env::key::set()),
             reinterpret_cast<const void *>(bootinfo_ptr),
             bootinfo_ptr->info_sz);
-    e.bootinfo_size(env::key::bootinfo()) = bootinfo_ptr->info_sz;
-    bootinfo_ptr                          = e.bootinfo(env::key::bootinfo());
+    e.bootinfo_size(env::key::set()) = bootinfo_ptr->info_sz;
+    bootinfo_ptr                     = e.bootinfo(env::key::set());
     if (bootinfo_ptr == nullptr) {
         panic("Environment 中 BootInfo 不可用");
     }
@@ -409,6 +429,7 @@ void env_setup() {
 
     loggers::SUSTCORE::INFO("从 BootInfo 装载内存区域");
     PhyAddr upper_bound = PhyAddr::null;
+    size_t total_free_pages = 0;
     for (size_t i = 0; i < bootinfo_ptr->region_cnt; ++i) {
         const auto &reg = bootinfo_regions(bootinfo_ptr)[i];
         PhyAddr start   = reg.area.begin;
@@ -419,7 +440,11 @@ void env_setup() {
         if (upper_bound < end) {
             upper_bound = end;
         }
+        if (reg.status == MemRegion::MemoryStatus::FREE) {
+            total_free_pages += reg.area.size() / PAGESIZE;
+        }
     }
+    e.system_memory_info(env::key::set()).mem_total_pages = total_free_pages;
 
     loggers::SUSTCORE::INFO("初始化GFP");
     GFP::pre_init();
@@ -452,8 +477,8 @@ void env_setup() {
         panic("无法分配新的内核页表根");
     }
 
-    PhyAddr new_pgd                                     = gfp_res.value();
-    env::inst().main_kernel_pgd(key::main_kernel_pgd()) = new_pgd;
+    PhyAddr new_pgd                            = gfp_res.value();
+    env::inst().main_kernel_pgd(env::key::set()) = new_pgd;
     PageMan::make_root(new_pgd);
     PageMan kernelman(new_pgd);
 

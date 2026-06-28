@@ -10,12 +10,44 @@
  */
 
 #include <bio/buffer.h>
+#include <env.h>
 #include <bio/request.h>
 #include <logger.h>
 
 #include <cstring>
 
 namespace blk {
+    size_t BufferHandler::write(size_t offset, const void *data, size_t len) {
+        if (_buf == nullptr || _buf->data == nullptr) {
+            return 0;
+        }
+        if (offset >= blksz()) {
+            return 0;
+        }
+        if (offset + len > blksz()) {
+            len = blksz() - offset;
+        }
+
+        memcpy(_buf->data + offset, data, len);
+        if (!_buf->dirty) {
+            env::inst().system_memory_info(env::key::set()).dirty_pages +=
+                page_align_up(blksz()) / PAGESIZE;
+        }
+        _buf->dirty = true;
+        return len;
+    }
+
+    void BufferHandler::writeblk(const void *buf, size_t buflen) {
+        assert(buf != nullptr);
+        assert(buflen == blksz());
+        memcpy(_buf->data, buf, blksz());
+        if (!_buf->dirty) {
+            env::inst().system_memory_info(env::key::set()).dirty_pages +=
+                page_align_up(blksz()) / PAGESIZE;
+        }
+        _buf->dirty = true;
+    }
+
     BufferCache::BufferCache(size_t devno, size_t blksz,
                              util::owner<BlockRequestLayer *> request_layer)
         : _devno(devno), _blksz(blksz), _request_layer(request_layer) {
@@ -68,6 +100,18 @@ namespace blk {
         auto erase_it = _mapping.find(buffer->blkno);
         if (erase_it != _mapping.end() && erase_it->second == idx) {
             _mapping.erase(erase_it);
+        }
+        auto &info = env::inst().system_memory_info(env::key::set());
+        size_t pages = page_align_up(_blksz) / PAGESIZE;
+        if (info.buffer_pages >= pages) {
+            info.buffer_pages -= pages;
+        } else {
+            info.buffer_pages = 0;
+        }
+        if (buffer->dirty && info.dirty_pages >= pages) {
+            info.dirty_pages -= pages;
+        } else if (buffer->dirty) {
+            info.dirty_pages = 0;
         }
         delete[] buffer->data;
         delete buffer;
@@ -152,6 +196,8 @@ namespace blk {
         size_t idx    = free_res.value();
         _buffers[idx] = util::owner<Buffer *>(buffer);
         _mapping.insert_or_assign(blkno, idx);
+        env::inst().system_memory_info(env::key::set()).buffer_pages +=
+            page_align_up(_blksz) / PAGESIZE;
         return idx;
     }
 
@@ -186,9 +232,22 @@ namespace blk {
         }
 
         buffer.dirty = false;
+        auto &info = env::inst().system_memory_info(env::key::set());
+        size_t pages = page_align_up(_blksz) / PAGESIZE;
+        info.writeback_pages += pages;
+        if (info.dirty_pages >= pages) {
+            info.dirty_pages -= pages;
+        } else {
+            info.dirty_pages = 0;
+        }
 
         auto flush_future = _request_layer->submit_flush_async();
         auto flush_res    = wait::blocking_wait_for(flush_future);
+        if (info.writeback_pages >= pages) {
+            info.writeback_pages -= pages;
+        } else {
+            info.writeback_pages = 0;
+        }
         if (!flush_res.has_value()) {
             return make_void_future(std::unexpected(flush_res.error()));
         }

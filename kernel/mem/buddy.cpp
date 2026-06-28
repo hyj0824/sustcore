@@ -285,6 +285,7 @@ void BuddyAllocator::pre_init() {
     for (int order = 0; order <= MAX_BUDDY_ORDER; ++order) {
         free_area[order] = nullptr;
     }
+    _free_pages = 0;
     init_pool0();
 }
 
@@ -334,6 +335,11 @@ Result<PhyAddr> BuddyAllocator::get_free_page(size_t frame_count) {
         add_memory_range(paddr + frame_count * PAGESIZE, pages - frame_count);
     }
 
+    assert(_free_pages >= frame_count);
+    _free_pages -= frame_count;
+    env::inst().system_memory_info(env::key::set()).mem_free_pages =
+        _free_pages;
+
     loggers::BUDDY::DEBUG("分配了 %u 页物理内存: [%p, %p)",
                           static_cast<unsigned>(frame_count), paddr.addr(),
                           (paddr + frame_count * PAGESIZE).addr());
@@ -360,6 +366,9 @@ void BuddyAllocator::put_page(PhyAddr paddr, size_t frame_count) {
     }
 
     assert(paddr.aligned<PAGESIZE>());
+    _free_pages += frame_count;
+    env::inst().system_memory_info(env::key::set()).mem_free_pages =
+        _free_pages;
     add_memory_range(paddr, frame_count);
 }
 

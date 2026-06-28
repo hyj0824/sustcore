@@ -93,7 +93,7 @@ namespace la64 {
         static_assert(sizeof(PTE) == 8);
 
         static Result<PhyAddr> new_page(void) {
-            return GFP::get_free_page(1);
+            return GFP::page_gfp();
         }
 
         static void init(void);

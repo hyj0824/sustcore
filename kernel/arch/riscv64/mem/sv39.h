@@ -53,7 +53,7 @@ namespace rv64 {
         using PageFlags = ::PageFlags;
 
         static Result<PhyAddr> new_page(void) {
-            return GFP::get_free_page(1);
+            return GFP::page_gfp();
         }
 
         // 前初始化与后初始化

@@ -326,6 +326,8 @@ namespace task {
         tcb->kstack_phy    = gfp_res.value() + TCB::KSTACK_PAGES * PAGESIZE;
         tcb->kstack_bottom = convert<KpaAddr>(tcb->kstack_phy).addr();
         tcb->ksp           = (char *)tcb->kstack_bottom;
+        env::inst().system_memory_info(env::key::set()).kernel_stack_pages +=
+            TCB::KSTACK_PAGES;
 
         auto *ext_ctx = new ExtContext();
         if (ext_ctx == nullptr) {
@@ -411,6 +413,12 @@ namespace task {
         if (tcb->kstack_phy.nonnull()) {
             GFP::put_page(tcb->kstack_phy - TCB::KSTACK_SIZE,
                           TCB::KSTACK_PAGES);
+            auto &info = env::inst().system_memory_info(env::key::set());
+            if (info.kernel_stack_pages >= TCB::KSTACK_PAGES) {
+                info.kernel_stack_pages -= TCB::KSTACK_PAGES;
+            } else {
+                info.kernel_stack_pages = 0;
+            }
         }
         destroy_nanosleep_context(tcb.get());
         delete tcb->ext_ctx;
@@ -440,7 +448,7 @@ namespace task {
         if (pcb->tmm.get() != nullptr) {
             PhyAddr pgd = pcb->tmm->pgd();
             delete pcb->tmm;
-            GFP::put_page(pgd, 1);
+            GFP::page_putpage(pgd);
         }
         if (pcb->cholder != nullptr) {
             auto &chman = cap::CHolderManager::inst();

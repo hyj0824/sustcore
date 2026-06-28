@@ -524,5 +524,6 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
            static_cast<unsigned long>(total.passed),
            static_cast<unsigned long>(total.failed));
     (void)sys_shutdown();
+    exit(0);
     return total.failed == 0 ? 0 : 1;
 }

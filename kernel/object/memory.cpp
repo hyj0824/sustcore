@@ -10,6 +10,7 @@
  */
 
 #include <mem/gfp.h>
+#include <env.h>
 #include <mem/vma.h>
 #include <object/memory.h>
 #include <object/perm.h>
@@ -20,6 +21,28 @@
 #include <cstring>
 
 namespace {
+    void adjust_committed_pages(ssize_t delta_pages) noexcept {
+        auto &info = env::inst().system_memory_info(env::key::set());
+        if (delta_pages >= 0) {
+            info.committed_pages += static_cast<size_t>(delta_pages);
+        } else {
+            size_t dec = static_cast<size_t>(-delta_pages);
+            info.committed_pages =
+                info.committed_pages >= dec ? info.committed_pages - dec : 0;
+        }
+    }
+
+    void adjust_backed_pages(bool file_backed, ssize_t delta_pages) noexcept {
+        auto &info = env::inst().system_memory_info(env::key::set());
+        size_t &target = file_backed ? info.mapped_pages : info.anon_pages;
+        if (delta_pages >= 0) {
+            target += static_cast<size_t>(delta_pages);
+        } else {
+            size_t dec = static_cast<size_t>(-delta_pages);
+            target = target >= dec ? target - dec : 0;
+        }
+    }
+
     /**
      * @brief 将 Memory 内偏移向下对齐到页边界. 
      */
@@ -145,7 +168,10 @@ namespace cap {
           file(file),
           file_offset(file_offset),
           file_data_size(file_data_size),
-          phy_pages() {}
+          phy_pages() {
+        adjust_committed_pages(
+            static_cast<ssize_t>(page_align_up(memsz) / PAGESIZE));
+    }
 
     MemoryPayload::~MemoryPayload() {
         delete file.get();
@@ -153,6 +179,10 @@ namespace cap {
     }
 
     void MemoryPayload::destruct() {
+        adjust_backed_pages(file_backed(),
+                            -static_cast<ssize_t>(phy_pages.size()));
+        adjust_committed_pages(
+            -static_cast<ssize_t>(page_align_up(memsz) / PAGESIZE));
         for (auto &page : phy_pages) {
             GFP::put_page(page.second.addr, 1);
         }
@@ -228,6 +258,7 @@ namespace cap {
             }
         }
         phy_pages.insert_or_assign(offvpn, PhyPage{paddr, 1});
+        adjust_backed_pages(file_backed(), 1);
         loggers::PAGING::DEBUG(
             "MemoryPayload::ensure_page: mem=%p offvpn=%lu paddr=%p", this,
             offvpn, paddr.addr());
@@ -375,6 +406,7 @@ namespace cap {
         for (auto it = phy_pages.begin(); it != phy_pages.end();) {
             if (it->first >= first_offvpn) {
                 GFP::put_page(it->second.addr, 1);
+                adjust_backed_pages(file_backed(), -1);
                 it = phy_pages.erase(it);
             } else {
                 ++it;
@@ -403,6 +435,7 @@ namespace cap {
             size_t new_pages = page_align_up(newsz) / PAGESIZE;
             if (new_pages == 0) {
                 release_pages_from(0);
+                adjust_committed_pages(-static_cast<ssize_t>(old_pages));
                 memsz = newsz;
                 void_return();
             }
@@ -425,14 +458,21 @@ namespace cap {
             for (auto &page : phy_pages) {
                 GFP::put_page(page.second.addr, 1);
             }
+            adjust_backed_pages(file_backed(),
+                                -static_cast<ssize_t>(phy_pages.size()));
             phy_pages.clear();
             for (size_t i = 0; i < new_pages; ++i) {
                 phy_pages.insert_or_assign(i,
                                            PhyPage{new_base + i * PAGESIZE, 1});
             }
+            adjust_backed_pages(file_backed(),
+                                static_cast<ssize_t>(phy_pages.size()));
         } else if (newsz < memsz) {
             release_pages_from(newsz);
         }
+        adjust_committed_pages(
+            static_cast<ssize_t>(page_align_up(newsz) / PAGESIZE) -
+            static_cast<ssize_t>(page_align_up(memsz) / PAGESIZE));
         memsz = newsz;
         void_return();
     }

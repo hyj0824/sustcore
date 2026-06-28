@@ -536,9 +536,9 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
         //     .is_linuxproc = false,
         // },
         // SpawnRequest{
-            // .path         = "/initrd/test-procfs.mod",
-            // .dispname     = "test-procfs",
-            // .is_linuxproc = false,
+        //     .path         = "/initrd/test-procfs.mod",
+        //     .dispname     = "test-procfs",
+        //     .is_linuxproc = false,
         // },
         // SpawnRequest{
         //     .path       = "/initrd/tmp/write",
@@ -550,6 +550,11 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
             .dispname     = "contest-runner",
             .is_linuxproc = false,
         },
+        // SpawnRequest{
+        //     .path         = "/initrd/test-meminfo.mod",
+        //     .dispname     = "test-meminfo",
+        //     .is_linuxproc = false,
+        // },
     };
 
     // try write file /dev/stdout

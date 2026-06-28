@@ -92,6 +92,7 @@ TaskMemoryManager::~TaskMemoryManager() {
     }
     _pman.flush_tlb();
     // TODO: 释放页表
+    // 后续统一通过 GFP::page_putpage() 回收整棵页表中的页表页。
 }
 
 Result<util::nonnull<VMA *>> TaskMemoryManager::add_vma(

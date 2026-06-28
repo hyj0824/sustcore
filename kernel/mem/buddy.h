@@ -74,6 +74,7 @@ private:
     inline static FreeBlockPool *_pool_head = nullptr;
     inline static FreeBlockPool *_pool_tail = nullptr;
     inline static FreeBlock *free_area[MAX_BUDDY_ORDER + 1] = {};
+    inline static size_t _free_pages = 0;
 
     static constexpr size_t FREEBLOCK_HEADER_BLOCKS = 4;
     static constexpr size_t FREEBLOCK_HEADER_BYTES  =
@@ -138,6 +139,12 @@ private:
     static FreeBlock *find_buddy_node(FreeBlock *node) noexcept;
 
     static Result<PhyAddr> fetch_frame_order(size_t order);
+
+public:
+    [[nodiscard]]
+    static size_t free_pages() noexcept {
+        return _free_pages;
+    }
 };
 
 static_assert(RawGFP<BuddyAllocator>, "Buddy 不满足 RawGFP");
