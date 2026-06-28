@@ -657,7 +657,7 @@ size_t linux_sys_munmap(void *addr, size_t length) {
 extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
                                  size_t a4, size_t a5, size_t a6, size_t a7,
                                  addr_t dispatch_frame_sp) {
-    printf("linux syscall %s (%lu)\n", syscall_to_string(a7), a7);
+    // printf("linux syscall %s (%lu)\n", syscall_to_string(a7), a7);
     switch (a7) {
         case __NR_write:
             return linux_sys_write(a0, reinterpret_cast<const void *>(a1), a2);
