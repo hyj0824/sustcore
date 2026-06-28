@@ -95,7 +95,7 @@ namespace contest_runner {
     TestRunStats run_basic(const RunnerContext &ctx);
 
     [[nodiscard]]
-    TestRunStats run_busybox(const RunnerContext &ctx);
+    TestRunStats run_busybox(const RunnerContext &ctx, bool dryrun = false);
 
     [[nodiscard]]
     TestRunStats run_libctest(const RunnerContext &ctx);
