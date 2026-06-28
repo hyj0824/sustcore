@@ -490,8 +490,8 @@ namespace contest_runner {
         }
 
         contest_runner::accumulate_stats(total, contest_runner::run_basic(ctx));
-        // contest_runner::accumulate_stats(total,
-        //                                  contest_runner::run_busybox(ctx));
+        contest_runner::accumulate_stats(total,
+                                         contest_runner::run_busybox(ctx));
         // contest_runner::accumulate_stats(total,
         //  contest_runner::run_libctest(ctx));
         // contest_runner::accumulate_stats(total,
