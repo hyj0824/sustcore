@@ -374,6 +374,10 @@ namespace task {
          * @return Result<size_t> 成功返回 holder id, 失败返回错误码.
          */
         Result<size_t> lookup_holder_id(pid_t pid);
+        [[nodiscard]]
+        Result<PCB *> lookup_pcb_by_pid(pid_t pid) noexcept;
+        [[nodiscard]]
+        std::vector<pid_t> snapshot_pids() const;
         /**
          * @brief 将当前进程进行 fork, 创建子进程并返回子进程相关信息.
          *

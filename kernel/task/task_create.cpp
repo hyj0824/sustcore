@@ -21,6 +21,7 @@
 #include <sus/raii.h>
 #include <task/scheduler.h>
 #include <task/task.h>
+#include <vfs/procfs.h>
 #include <vfs/vfs.h>
 
 #include <algorithm>
@@ -719,6 +720,18 @@ namespace task {
         pcb->linuxproc_entrypoint  = spec.linuxproc_entrypoint;
         pcb->linux_subsystem_entry = spec.entrypoint;
         pcb->is_linux_process      = spec.linuxproc_entrypoint.nonnull();
+        if (pcb->proc_state == nullptr) {
+            auto *proc_state = new ProcState();
+            if (proc_state == nullptr) {
+                unexpect_return(ErrCode::OUT_OF_MEMORY);
+            }
+            pcb->proc_state = proc_state;
+        }
+        auto proc_state_res = procfs::initialize_proc_state(
+            *pcb->proc_state,
+            spec.linux_execfn.empty() ? std::string{"<task>"} : spec.linux_execfn,
+            spec.argv, spec.envp, spec.auxv, spec.bsargv);
+        propagate(proc_state_res);
 
         if (pcb->pcb_cap == cap::null) {
             auto pcb_cap_res = insert_pcb_cap(pcb);
@@ -784,6 +797,8 @@ namespace task {
         }
 
         _pid_map[pcb->pid] = pcb.get();
+        auto procfs_res = procfs::register_process(*pcb);
+        propagate(procfs_res);
         pcb_guard.release();
         return pcb;
     }
@@ -817,6 +832,7 @@ namespace task {
         propagate(create_res);
         pcb->cholder      = create_res.value();
         pcb->entrypoint   = VirAddr(nullptr);
+        pcb->proc_state   = nullptr;
         pcb->pcb_cap      = cap::null;
         pcb->main_tcb_cap = cap::null;
 
@@ -1109,6 +1125,16 @@ namespace task {
         child_pcb->linuxproc_entrypoint  = parent_pcb->linuxproc_entrypoint;
         child_pcb->linux_subsystem_entry = parent_pcb->linux_subsystem_entry;
         child_pcb->is_linux_process      = parent_pcb->is_linux_process;
+        if (parent_pcb->proc_state != nullptr) {
+            auto *proc_state = new ProcState();
+            if (proc_state == nullptr) {
+                unexpect_return(ErrCode::OUT_OF_MEMORY);
+            }
+            child_pcb->proc_state = proc_state;
+            auto clone_res =
+                procfs::clone_proc_state(*parent_pcb->proc_state, *proc_state);
+            propagate(clone_res);
+        }
         child_pcb->pcb_cap      = ret_slot;
         child_pcb->main_tcb_cap = parent_pcb->main_tcb_cap;
 
@@ -1176,6 +1202,8 @@ namespace task {
         TCB *child_tcb = fill_res.value();
 
         _pid_map[child_pcb->pid] = child_pcb.get();
+        auto procfs_res = procfs::register_process(*child_pcb);
+        propagate(procfs_res);
         if (!schd::Scheduler::inst().wakeup_new(child_tcb)) {
             _pid_map.erase(child_pcb->pid);
             unexpect_return(ErrCode::CREATION_FAILED);

@@ -297,6 +297,8 @@ namespace syscall {
             case SYS_PCB_UNMAP:           return "SYS_PCB_UNMAP";
             case SYS_PCB_QUERY_VADDR:     return "SYS_PCB_QUERY_VADDR";
             case SYS_PCB_QUERY_VSPACE:    return "SYS_PCB_QUERY_VSPACE";
+            case SYS_PCB_PROCFS_GET:      return "SYS_PCB_PROCFS_GET";
+            case SYS_PCB_PROCFS_REDIRECT: return "SYS_PCB_PROCFS_REDIRECT";
             case SYS_NOTIF_CREATE:        return "SYS_NOTIF_CREATE";
             case SYS_NOTIF_SIGNAL:        return "SYS_NOTIF_SIGNAL";
             case SYS_NOTIF_UNSIGNAL:      return "SYS_NOTIF_UNSIGNAL";
@@ -879,6 +881,19 @@ namespace syscall {
             }
             case SYS_PCB_GETPID: {
                 ret = result_value_ret("get_pid", get_pid(capidx));
+                break;
+            }
+            case SYS_PCB_PROCFS_GET: {
+                UString name((VirAddr)arg0, MAX_SYSCALL_PATH);
+                ret = result_value_ret("procfs_get",
+                                       pcb_procfs_get(capidx, name));
+                break;
+            }
+            case SYS_PCB_PROCFS_REDIRECT: {
+                UString name((VirAddr)arg0, MAX_SYSCALL_PATH);
+                UString target((VirAddr)arg1, MAX_SYSCALL_PATH);
+                ret = result_bool_ret("procfs_redirect",
+                                      pcb_procfs_redirect(capidx, name, target));
                 break;
             }
             case SYS_NOTIF_SIGNAL: {

@@ -97,6 +97,20 @@ sys_pcb_execve_linux:
     ecall
     ret
 
+    .global sys_pcb_procfs_get
+    .type sys_pcb_procfs_get, @function
+sys_pcb_procfs_get:
+    li a7, SYS_PCB_PROCFS_GET
+    ecall
+    ret
+
+    .global sys_pcb_procfs_redirect
+    .type sys_pcb_procfs_redirect, @function
+sys_pcb_procfs_redirect:
+    li a7, SYS_PCB_PROCFS_REDIRECT
+    ecall
+    ret
+
     .global sys_notif_wait
     .type sys_notif_wait, @function
 sys_notif_wait:

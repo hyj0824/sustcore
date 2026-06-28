@@ -38,6 +38,7 @@ namespace wait {
 
 namespace task {
     struct NanosleepContext;
+    struct ProcState;
 
     enum class BootThreadRole {
         NONE,
@@ -220,6 +221,7 @@ namespace task {
         VirAddr linuxproc_entrypoint;
         VirAddr linux_subsystem_entry;
         bool is_linux_process;
+        ProcState *proc_state;
         CapIdx pcb_cap;
         CapIdx main_tcb_cap;
 

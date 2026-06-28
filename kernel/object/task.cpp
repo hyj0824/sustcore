@@ -11,6 +11,7 @@
 #include <task/task.h>
 #include <task/task_struct.h>
 #include <task/wait.h>
+#include <vfs/procfs.h>
 
 namespace cap {
     namespace {
@@ -206,6 +207,32 @@ namespace cap {
             unexpect_return(ErrCode::NULLPTR);
         }
         return _obj->pcb;
+    }
+
+    Result<task::PCB *> PCBObject::require_procfs() const {
+        if (!imply(perm::pcb::PROCFS)) {
+            unexpect_return(ErrCode::INSUFFICIENT_PERMISSIONS);
+        }
+        if (_obj->pcb == nullptr) {
+            unexpect_return(ErrCode::NULLPTR);
+        }
+        return _obj->pcb;
+    }
+
+    Result<CapIdx> PCBObject::get_procfs_cap(std::string_view name,
+                                             CHolder &holder) const {
+        auto pcb_res = require_procfs();
+        propagate(pcb_res);
+        return procfs::ProcFSDriver::inst().get(pcb_res.value()->pid, name,
+                                                holder);
+    }
+
+    Result<void> PCBObject::redirect_procfs(std::string_view name,
+                                            std::string_view target) const {
+        auto pcb_res = require_procfs();
+        propagate(pcb_res);
+        return procfs::ProcFSDriver::inst().redirect(pcb_res.value()->pid, name,
+                                                     target);
     }
 
     Result<task::TCB *> TCBObject::require_current() const {

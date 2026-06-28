@@ -35,6 +35,7 @@ extern std::string __prog_image_path;
 
 void init_prog_data(size_t argc, const char *argv[], size_t bsargc,
                     const bsheader *bsargv[]);
+void init_procfs();
 size_t linux_sys_brk(size_t newbrk);
 [[noreturn]]
 void linux_sys_exit(int exitcode);

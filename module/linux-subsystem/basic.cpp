@@ -99,6 +99,34 @@ namespace {
     }
 }  // namespace
 
+void init_procfs() {
+    if (__prog_pcb_cap == cap::null || __prog_pcb_cap == cap::error) {
+        return;
+    }
+
+    auto comm_cap_res = sys_pcb_procfs_get(__prog_pcb_cap, "comm").to_result();
+    if (comm_cap_res.has_value()) {
+        const char *comm = __prog_image_path.empty() ? "<linuxss>" : __prog_image_path.c_str();
+        size_t comm_len  = strlen(comm);
+        if (comm_len != 0) {
+            (void)sys_vfs_write(comm_cap_res.value(), 0, comm, comm_len).to_result();
+        }
+        (void)sys_cap_remove(comm_cap_res.value()).to_result();
+    }
+
+    if (!__prog_image_path.empty()) {
+        (void)sys_pcb_procfs_redirect(__prog_pcb_cap, "exe",
+                                      __prog_image_path.c_str())
+            .to_result();
+    }
+    if (!__prog_cwd.empty()) {
+        (void)sys_pcb_procfs_redirect(__prog_pcb_cap, "cwd",
+                                      __prog_cwd.c_str())
+            .to_result();
+    }
+    (void)sys_pcb_procfs_redirect(__prog_pcb_cap, "root", "/").to_result();
+}
+
 size_t __prog_heap_base    = 0;
 size_t __prog_brk          = 0;
 CapIdx __prog_pcb_cap      = cap::null;
@@ -211,6 +239,8 @@ void init_prog_data(size_t argc, const char *argv[], size_t bsargc,
         (void)linux_opendir_fd(__prog_cwd.c_str(), CWD_FD);
         __prog_cwd_dir_cap = fd_to_cap(CWD_FD);
     }
+
+    init_procfs();
 
     (void)linux_open_fd("/dev/stdout", 1, LINUX_O_WRONLY);
     (void)linux_open_fd("/dev/stdout", 2, LINUX_O_WRONLY);

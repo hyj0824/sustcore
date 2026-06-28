@@ -76,6 +76,8 @@
 #define SYS_MNT_UMOUNT         (SYSCALL_BASE + 0x39)
 #define SYS_MNT_ROOT           (SYSCALL_BASE + 0x3A)
 #define SYS_MNT_STATE          (SYSCALL_BASE + 0x3B)
+#define SYS_PCB_PROCFS_GET     (SYSCALL_BASE + 0x3C)
+#define SYS_PCB_PROCFS_REDIRECT (SYSCALL_BASE + 0x3D)
 
 // 以SYS_UNSTABLE_BASE开头的系统调用为不稳定接口, 可能会在后续版本中更改或移除
 #define SYS_UNSTABLE_BASE  (0xFFC00000)

@@ -390,24 +390,6 @@ namespace {
     }
 
     [[nodiscard]]
-    bool is_proc_self_exe_path(const std::string &absolute_path) noexcept {
-        return absolute_path == "/proc/self/exe";
-    }
-
-    [[nodiscard]]
-    bool resolve_proc_self_exe_path(ResolvedPath &resolved) {
-        if (!is_proc_self_exe_path(resolved.absolute_path)) {
-            return true;
-        }
-        if (__prog_image_path.empty()) {
-            resolved = {};
-            return false;
-        }
-        resolved = resolve_path_at(AT_FDCWD, __prog_image_path.c_str());
-        return resolved.parent_cap != cap::null && !resolved.relative_path.empty();
-    }
-
-    [[nodiscard]]
     ReadlinkTarget resolve_empty_path_readlink_target(int dirfd) {
         if (dirfd == AT_FDCWD) {
             dirfd = CWD_FD;
@@ -996,9 +978,6 @@ size_t linux_sys_openat(int dirfd, const char *pathname, int flags, int mode) {
     if (resolved.parent_cap == cap::null || resolved.relative_path.empty()) {
         return -ENOENT;
     }
-    if (!resolve_proc_self_exe_path(resolved)) {
-        return -ENOENT;
-    }
     return do_open_resolved(resolved, flags);
 }
 
@@ -1076,14 +1055,6 @@ size_t linux_sys_readlinkat(int dirfd, const char *pathname, char *buf,
         relative_path = std::move(target.relative_path);
     } else {
         auto resolved = resolve_path_at(dirfd, pathname);
-        if (is_proc_self_exe_path(resolved.absolute_path)) {
-            size_t len = __prog_image_path.size() + 1;
-            if (len > bufsiz) {
-                len = bufsiz;
-            }
-            memcpy(buf, __prog_image_path.data(), len);
-            return len;
-        }
         parent_cap = resolved.parent_cap;
         relative_path = std::move(resolved.relative_path);
     }

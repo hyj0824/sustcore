@@ -83,6 +83,18 @@ sys_pcb_execve_linux:
     li.d $a7, SYS_PCB_EXECVE_POSIX
     do_syscall
 
+    .global sys_pcb_procfs_get
+    .type sys_pcb_procfs_get, @function
+sys_pcb_procfs_get:
+    li.d $a7, SYS_PCB_PROCFS_GET
+    do_syscall
+
+    .global sys_pcb_procfs_redirect
+    .type sys_pcb_procfs_redirect, @function
+sys_pcb_procfs_redirect:
+    li.d $a7, SYS_PCB_PROCFS_REDIRECT
+    do_syscall
+
     .global sys_notif_wait
     .type sys_notif_wait, @function
 sys_notif_wait:

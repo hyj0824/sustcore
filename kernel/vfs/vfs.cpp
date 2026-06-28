@@ -1546,6 +1546,42 @@ Result<CapIdx> VFS::open(cap::Capability &parent_dir_cap, const char *relpath,
     return insert_res.value();
 }
 
+Result<CapIdx> VFS::__force_open(cap::Capability &parent_dir_cap,
+                                 const char *relpath, flags::oflg_t oflags,
+                                 b64 perm, cap::CHolder &holder) {
+    auto oflag_res = validate_file_oflags(oflags);
+    propagate(oflag_res);
+
+    auto *parent = parent_dir_cap.payload_as<VDirectory>();
+    if (parent == nullptr) {
+        unexpect_return(ErrCode::TYPE_NOT_MATCHED);
+    }
+
+    auto file_res = _open_file_at(*parent->vinode(), parent->mount_path(),
+                                  parent->global_path(), relpath, oflags);
+    propagate(file_res);
+
+    auto insert_res = holder.insert_to_free(file_res.value(), perm);
+    if (!insert_res.has_value()) {
+        file_res.value()->destruct();
+        propagate_return(insert_res);
+    }
+    return insert_res.value();
+}
+
+Result<CapIdx> VFS::__force_open(const char *filepath, b64 perm,
+                                 cap::CHolder &holder) {
+    auto file_res = _open_file(filepath);
+    propagate(file_res);
+
+    auto insert_res = holder.insert_to_free(file_res.value(), perm);
+    if (!insert_res.has_value()) {
+        file_res.value()->destruct();
+        propagate_return(insert_res);
+    }
+    return insert_res.value();
+}
+
 Result<CapIdx> VFS::opendir(cap::Capability &parent_dir_cap,
                             const char *relpath, flags::oflg_t oflags,
                             cap::CHolder &holder) {

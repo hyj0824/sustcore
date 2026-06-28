@@ -109,6 +109,11 @@ namespace syscall {
     [[nodiscard]]
     Result<bool> pcb_execve_linux(CapIdx pcb_cap, CapIdx image_cap,
                                   const StartupArguments &startup);
+    [[nodiscard]]
+    Result<CapIdx> pcb_procfs_get(CapIdx pcb_cap, const UString &name);
+    [[nodiscard]]
+    Result<bool> pcb_procfs_redirect(CapIdx pcb_cap, const UString &name,
+                                     const UString &target);
 
     /**
      * @brief 判断目标 PCB 是否为当前进程.

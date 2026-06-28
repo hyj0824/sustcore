@@ -18,8 +18,10 @@
 #include <sus/raii.h>
 #include <task/task.h>
 #include <task/wait.h>
+#include <vfs/procfs.h>
 
 #include <cassert>
+#include <algorithm>
 
 namespace task {
     namespace {
@@ -214,6 +216,24 @@ namespace task {
             });
     }
 
+    Result<PCB *> TaskManager::lookup_pcb_by_pid(pid_t pid) noexcept {
+        auto pcb_res = _pid_map.at_nt(pid);
+        if (!pcb_res.has_value()) {
+            unexpect_return(ErrCode::ENTRY_NOT_FOUND);
+        }
+        return pcb_res.value() == nullptr ? nullptr : *pcb_res.value();
+    }
+
+    std::vector<pid_t> TaskManager::snapshot_pids() const {
+        std::vector<pid_t> out{};
+        out.reserve(_pid_map.size());
+        for (const auto &[pid, _] : _pid_map) {
+            out.push_back(pid);
+        }
+        std::sort(out.begin(), out.end());
+        return out;
+    }
+
     Result<void> TaskManager::kill_pcb_impl(PCB *pcb, TCB *current_tcb,
                                             int exit_code) noexcept {
         if (pcb == nullptr) {
@@ -335,6 +355,7 @@ namespace task {
         pcb->linuxproc_entrypoint  = VirAddr(static_cast<addr_t>(0));
         pcb->linux_subsystem_entry = VirAddr(static_cast<addr_t>(0));
         pcb->is_linux_process      = false;
+        pcb->proc_state            = nullptr;
         pcb->pcb_cap               = cap::null;
         pcb->main_tcb_cap          = cap::null;
         void_return();
@@ -425,6 +446,11 @@ namespace task {
             auto &chman = cap::CHolderManager::inst();
             auto rm_res = chman.remove_holder(pcb->cholder->id());
             propagate(rm_res);
+        }
+        if (pcb->proc_state != nullptr) {
+            (void)procfs::unregister_process(*pcb);
+            delete pcb->proc_state;
+            pcb->proc_state = nullptr;
         }
 
         _pid_map.erase(pcb->pid);

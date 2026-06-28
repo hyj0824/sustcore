@@ -38,6 +38,7 @@
 #include <task/wait.h>
 #include <vfs/device.h>
 #include <vfs/ext4.h>
+#include <vfs/procfs.h>
 #include <vfs/ops.h>
 #include <vfs/tarfs.h>
 #include <vfs/tmpfs.h>
@@ -150,6 +151,9 @@ namespace {
         register_res = vfs.register_fs<devfs::DevFSDriver>();
         propagate(register_res);
 
+        register_res = vfs.register_fs<procfs::ProcFSDriver>();
+        propagate(register_res);
+
         loggers::SUSTCORE::INFO("创建 Initrd 块设备");
         g_initrd_device = make_initrd();
         auto devno_res =
@@ -170,30 +174,10 @@ namespace {
         propagate(mount_res);
         loggers::SUSTCORE::INFO("tarfs 挂载完毕");
 
-        // TODO: 挂载一个 sysfs, 此处先使用 mkdir 来处理
-        auto cur_pcb = schd::Scheduler::inst().current_pcb();
-        if (cur_pcb == nullptr)
-        {
-            unexpect_return(ErrCode::NULLPTR);
-        }
-        auto &cur_holder = *cur_pcb->cholder;
-
-        loggers::SUSTCORE::INFO("创建 /sys/ 目录");
-        auto open_res =
-            vfs.open_dir("/", cur_holder, perm::vdir::EXEC | perm::vdir::READ | perm::vdir::WRITE);
-        propagate(open_res);
-        auto root_cap_idx = open_res.value();
-        auto lookup_res = cur_holder.lookup(root_cap_idx);
-        propagate(lookup_res);
-        auto root_cap = *lookup_res.value();
-
-        auto mkdir_res = vfs.mkdir(root_cap, "sys/", flags::O_READ | flags::O_WRITE | flags::O_EXECUTE, cur_holder);
-        propagate(mkdir_res);
-
-        auto remove_res = cur_holder.remove(root_cap_idx);
-        propagate(remove_res);
-        remove_res = cur_holder.remove(mkdir_res.value());
-        propagate(remove_res);
+        loggers::SUSTCORE::INFO("挂载 procfs");
+        mount_res = vfs.mount("procfs", "/proc", nullptr);
+        propagate(mount_res);
+        loggers::SUSTCORE::INFO("procfs 挂载完毕");
 
         loggers::SUSTCORE::INFO("挂载 devfs");
         mount_res = vfs.mount("devfs", devfs::DEVFS_MOUNT_PATH, nullptr);

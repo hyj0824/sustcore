@@ -484,6 +484,7 @@ extern "C" void linux_main(const void *stack_sp, size_t argc,
                            const bsheader *bsargv[]) {
     g_linux_initialized = true;
     init_prog_data(argc, argv, bsargc, bsargv);
+    // init_procfs();
     // puts("linux-subsystem: initialized");
     // printf("stack dump:\n");
     // stack_dump(stack_sp, auxv);

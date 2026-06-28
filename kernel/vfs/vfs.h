@@ -495,6 +495,27 @@ public:
     [[nodiscard]]
     Result<CapIdx> open(cap::Capability &parent_dir_cap, const char *relpath,
                         flags::oflg_t oflags, cap::CHolder &holder);
+    /**
+     * @brief 强制以给定权限打开文件并插入 holder.
+     *
+     * 当前实现与普通 open 基本一致, 但调用方可显式指定发放给 holder 的
+     * capability 权限. 未来该接口将用于 pseudo fs / procfs 这类内核自控对象
+     * 的能力发放路径, 不对“目标应该拥有哪些权限”做额外判定, 而是始终按
+     * 调用者给定权限发放 capability.
+     */
+    [[nodiscard]]
+    Result<CapIdx> __force_open(cap::Capability &parent_dir_cap,
+                                const char *relpath, flags::oflg_t oflags,
+                                b64 perm, cap::CHolder &holder);
+    /**
+     * @brief 强制以给定权限打开绝对路径文件并插入 holder.
+     *
+     * 当前实现复用普通绝对路径文件解析逻辑, 但最终 capability 权限不由
+     * open flags 推导, 而是始终按调用方提供的 perm 发放.
+     */
+    [[nodiscard]]
+    Result<CapIdx> __force_open(const char *filepath, b64 perm,
+                                cap::CHolder &holder);
     [[nodiscard]]
     Result<CapIdx> opendir(cap::Capability &parent_dir_cap, const char *relpath,
                            flags::oflg_t oflags, cap::CHolder &holder);

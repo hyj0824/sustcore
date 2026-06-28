@@ -12,6 +12,7 @@
 #include <mem/vma.h>
 #include <object/memory.h>
 #include <sustcore/capability.h>
+#include <string_view>
 
 #include <vector>
 
@@ -115,6 +116,11 @@ namespace cap {
         Result<task::PCB *> require_new_process() const;
         Result<task::PCB *> require_execute() const;
         Result<task::PCB *> require_new_process_execute() const;
+        Result<task::PCB *> require_procfs() const;
+        Result<CapIdx> get_procfs_cap(std::string_view name,
+                                      CHolder &holder) const;
+        Result<void> redirect_procfs(std::string_view name,
+                                     std::string_view target) const;
     };
 
     /**

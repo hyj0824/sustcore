@@ -56,6 +56,10 @@ extern "C" SysRet<void> sys_pcb_execve(CapIdx pcb_cap,
                                        const ExecveRequest *request);
 extern "C" SysRet<void> sys_pcb_execve_linux(CapIdx pcb_cap,
                                              const ExecveRequest *request);
+extern "C" SysRet<CapIdx> sys_pcb_procfs_get(CapIdx pcb_cap, const char *name);
+extern "C" SysRet<void> sys_pcb_procfs_redirect(CapIdx pcb_cap,
+                                                const char *name,
+                                                const char *target);
 extern "C" SysRet<size_t> sys_yield();
 extern "C" SysRet<size_t> sys_getpid(CapIdx pcb_cap);
 extern "C" SysRet<CapIdx> sys_notif_create();

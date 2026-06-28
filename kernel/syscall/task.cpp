@@ -26,6 +26,7 @@
 #include <syscall/uaccess.h>
 #include <task/scheduler.h>
 #include <task/task.h>
+#include <vfs/procfs.h>
 #include <vfs/vfs.h>
 
 #include <cassert>
@@ -689,6 +690,28 @@ namespace syscall {
             startup.caps.data(), startup.caps.size(), startup.argv,
             startup.envp, startup.bsargv, startup.execfn);
         propagate(exec_res);
+        return true;
+    }
+
+    Result<CapIdx> pcb_procfs_get(CapIdx pcb_cap, const UString &name) {
+        cap::Capability *cap = nullptr;
+        auto pcb_res         = lookup_pcb(pcb_cap, &cap);
+        propagate(pcb_res);
+        cap::PCBObject obj(util::nnullforce(cap));
+
+        auto holder_res = current_holder();
+        propagate(holder_res);
+        return obj.get_procfs_cap(name.kbuf(), *holder_res.value());
+    }
+
+    Result<bool> pcb_procfs_redirect(CapIdx pcb_cap, const UString &name,
+                                     const UString &target) {
+        cap::Capability *cap = nullptr;
+        auto pcb_res         = lookup_pcb(pcb_cap, &cap);
+        propagate(pcb_res);
+        cap::PCBObject obj(util::nnullforce(cap));
+        auto redirect_res = obj.redirect_procfs(name.kbuf(), target.kbuf());
+        propagate(redirect_res);
         return true;
     }
 
