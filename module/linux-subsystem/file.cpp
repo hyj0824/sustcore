@@ -1023,6 +1023,9 @@ size_t linux_opendir_fd(const char *pathname, int fd) {
 }
 
 size_t linux_sys_write(size_t fd, const void *buf, size_t len) {
+    if (buf == nullptr && len == 0) {
+        return 0;
+    }
     if (buf == nullptr) {
         loggers::LXSC::ERROR("buf == nullptr");
         return -EFAULT;
@@ -1071,9 +1074,6 @@ size_t linux_sys_writev(int fd, const void *iov, int iovcnt) {
     size_t total       = 0;
     for (int i = 0; i < iovcnt; ++i) {
         const auto &entry = iovecs[i];
-        if (entry.iov_base == nullptr && entry.iov_len != 0) {
-            return total != 0 ? total : static_cast<size_t>(-EFAULT);
-        }
         size_t wrote = linux_sys_write(static_cast<size_t>(fd), entry.iov_base,
                                        entry.iov_len);
         if (static_cast<long>(wrote) < 0) {
