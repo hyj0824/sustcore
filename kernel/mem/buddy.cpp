@@ -318,8 +318,8 @@ Result<PhyAddr> BuddyAllocator::get_free_page(size_t frame_count) {
         unexpect_return(ErrCode::INVALID_PARAM);
     }
     if (frame_count > (1ul << MAX_BUDDY_ORDER)) {
-        loggers::BUDDY::ERROR("请求的页数 %u 超出最大支持的范围",
-                              static_cast<unsigned>(frame_count));
+        loggers::BUDDY::ERROR("请求的页数 %lld 超出最大支持的范围",
+                              frame_count);
         unexpect_return(ErrCode::INVALID_PARAM);
     }
 

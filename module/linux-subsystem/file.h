@@ -32,6 +32,8 @@ size_t linux_sys_getcwd(char *buf, size_t size);
 size_t linux_sys_chdir(const char *pathname);
 size_t linux_sys_readlinkat(int dirfd, const char *pathname, char *buf,
                             size_t bufsiz);
+size_t linux_sys_symlinkat(const char *target, int newdirfd,
+                           const char *linkpath);
 size_t linux_sys_mkdirat(int dirfd, const char *pathname, int mode);
 size_t linux_sys_unlinkat(int dirfd, const char *pathname, int flags);
 size_t linux_sys_renameat2(int olddirfd, const char *oldpath, int newdirfd,

@@ -1570,6 +1570,30 @@ size_t linux_sys_mkdirat(int dirfd, const char *pathname, int mode) {
     return 0;
 }
 
+size_t linux_sys_symlinkat(const char *target, int newdirfd,
+                           const char *linkpath) {
+    if (target == nullptr || linkpath == nullptr) {
+        return -EINVAL;
+    }
+    if (linkpath[0] == '\0') {
+        return -ENOENT;
+    }
+
+    auto resolved = resolve_path_at(newdirfd, linkpath);
+    if (resolved.parent_cap == cap::null || resolved.relative_path.empty()) {
+        return -ENOENT;
+    }
+
+    auto symlink_res = sys_vfs_symlink(resolved.parent_cap,
+                                       resolved.relative_path.c_str(), target)
+                           .to_result();
+    if (!symlink_res.has_value()) {
+        return symlink_res.error() == ErrCode::ENTRY_NOT_FOUND ? -ENOENT
+                                                               : -EIO;
+    }
+    return 0;
+}
+
 size_t linux_sys_unlinkat(int dirfd, const char *pathname, int flags) {
     if (pathname == nullptr) {
         return -EINVAL;

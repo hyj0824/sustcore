@@ -181,28 +181,28 @@ namespace ltp {
     };
 
     const char *testcase13_getdents_readlink[] = {
-        "getdents01",
-        "getdents02",
-        "readlink01",
-        "readlink03",
+        // "getdents01",
+        // "getdents02",
+        // "readlink01",
+        // "readlink03",
         "readlinkat01",
         "readlinkat02",
         nullptr,
     };
 
     const char *testcase14_mkdir_unlink[] = {
-        "mkdir02",
-        "mkdir03",
-        "mkdir04",
-        "mkdir05",
-        "mkdir09",
+        // "mkdir02",
+        // "mkdir03",
+        // "mkdir04",
+        // "mkdir05",
+        // "mkdir09",
         "mkdirat01",
-        "mkdirat02",
+        // "mkdirat02",
         "unlink05",
         "unlink07",
-        "unlink08",
-        "unlink09",
-        "unlinkat01",
+        // "unlink08",
+        // "unlink09",
+        // "unlinkat01",
         nullptr,
     };
 
@@ -692,8 +692,8 @@ namespace ltp {
         // testcase10_copy_sendfile_readahead,
         testcase11_lseek,
         // testcase12_cwd_chdir,
-        // testcase13_getdents_readlink,
-        // testcase14_mkdir_unlink,
+        testcase13_getdents_readlink,
+        testcase14_mkdir_unlink,
         // testcase15_rename,
         // testcase16_open_creat,
         // testcase17_openat,

@@ -728,6 +728,10 @@ extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
             return linux_sys_readlinkat(static_cast<int>(a0),
                                         reinterpret_cast<const char *>(a1),
                                         reinterpret_cast<char *>(a2), a3);
+        case __NR_symlinkat:
+            return linux_sys_symlinkat(reinterpret_cast<const char *>(a0),
+                                       static_cast<int>(a1),
+                                       reinterpret_cast<const char *>(a2));
         case __NR_getcwd:
             return linux_sys_getcwd(reinterpret_cast<char *>(a0), a1);
         case __NR_getrandom:
@@ -817,6 +821,7 @@ extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
         case __NR_getpgid:
         case __NR_setfsgid:
         case __NR_setfsuid:
+        case __NR_setreuid:
             // 占位符
             // 先假设所有的 uid/gid 都是 0
         case __NR_prlimit64:
