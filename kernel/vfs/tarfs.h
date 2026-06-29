@@ -132,15 +132,15 @@ namespace tarfs {
 
         // IFile
         Result<size_t> read(off_t offset, void *buf, size_t len) override;
-        Result<size_t> write(off_t, const void *, size_t) override {
-            unexpect_return(ErrCode::NOT_SUPPORTED);
-        }
+        Result<size_t> write(off_t, const void *, size_t) override;
         Result<size_t> size() override {
             return static_cast<size_t>(end_ - data_);
         }
-        Result<void> sync() override {
-            unexpect_return(ErrCode::NOT_SUPPORTED);
-        }
+        Result<void> sync() override;
+        Result<void> truncate(size_t new_size) override;
+        Result<void> ioctl(size_t cmd, syscall::UBuffer &&arg) override;
+        Result<void> getattr(AttrSet &out) const override;
+        Result<void> setattr(AttrMask mask, const AttrSet &attrs) override;
 
         void *operator new(size_t size);
         void operator delete(void *ptr);
@@ -179,17 +179,25 @@ namespace tarfs {
         Result<DirectoryEntryInfo> entry_at(size_t index) override;
         [[nodiscard]]
         Result<inode_t> mkfile(std::string_view name,
-                               const char *options) override {
-            unexpect_return(ErrCode::NOT_SUPPORTED);
-        }
+                               const char *options) override;
         [[nodiscard]]
         Result<inode_t> mkdir(std::string_view name,
-                              const char *options) override {
-            unexpect_return(ErrCode::NOT_SUPPORTED);
-        }
-        Result<void> sync() override {
-            unexpect_return(ErrCode::NOT_SUPPORTED);
-        }
+                              const char *options) override;
+        [[nodiscard]]
+        Result<void> unlink(std::string_view name) override;
+        [[nodiscard]]
+        Result<void> rmdir(std::string_view name) override;
+        [[nodiscard]]
+        Result<void> link(std::string_view name, inode_t target) override;
+        [[nodiscard]]
+        Result<void> rename(std::string_view old_name, IDirectory &new_parent,
+                            std::string_view new_name) override;
+        [[nodiscard]]
+        Result<inode_t> symlink(std::string_view name,
+                                std::string_view target) override;
+        Result<void> sync() override;
+        Result<void> getattr(AttrSet &out) const override;
+        Result<void> setattr(AttrMask mask, const AttrSet &attrs) override;
 
         void *operator new(size_t size);
         void operator delete(void *ptr);
@@ -248,22 +256,19 @@ namespace tarfs {
             return *fs_;
         }
 
-        Result<void> sync() override {
-            unexpect_return(ErrCode::NOT_SUPPORTED);
-        }
+        Result<void> sync() override;
 
         Result<inode_t> root() override {
             return inode_t(0);
         }
         [[nodiscard]]
-        Result<inode_t> alloc_inode(INodeType type) override {
-            unexpect_return(ErrCode::NOT_SUPPORTED);
-        }
+        Result<inode_t> alloc_inode(INodeType type) override;
         [[nodiscard]]
-        Result<void> free_inode(inode_t id) override {
-            unexpect_return(ErrCode::NOT_SUPPORTED);
-        }
+        Result<void> free_inode(inode_t id) override;
         Result<util::owner<IINode *>> get_inode(inode_t inode_id) override;
+        Result<uint16_t> inode_mode(inode_t inode_id) override;
+        Result<bool> is_symlink(inode_t inode_id) override;
+        Result<std::string> readlink(inode_t inode_id) override;
 
         IMetadata &metadata() override {
             return meta_;

@@ -16,6 +16,7 @@
 #include <arch/loongarch64/callconv.h>
 #endif
 #include <object/task.h>
+#include <device/model.h>
 #include <env.h>
 #include <sustcore/addr.h>
 #include <sustcore/execve.h>
@@ -235,6 +236,15 @@ namespace syscall {
                     .to_nanoseconds());
         }
 
+        [[nodiscard]]
+        b64 rtc_time_now_ns() noexcept {
+            auto *platform = device::DeviceModel::inst().platform();
+            if (platform != nullptr && platform->rpc() != nullptr) {
+                return static_cast<b64>(platform->rpc()->now().to_nanoseconds());
+            }
+            return time_now_ns();
+        }
+
     }  // namespace
 
     constexpr size_t MAX_SYSCALL_PATH = 256;
@@ -411,6 +421,10 @@ namespace syscall {
             }
             case SYS_TIME_NOW_NS: {
                 ret.ret0 = time_now_ns();
+                break;
+            }
+            case SYS_GETRTCTIME_NS: {
+                ret.ret0 = rtc_time_now_ns();
                 break;
             }
             case SYS_TCB_NANOSLEEP: {
@@ -855,11 +869,17 @@ namespace syscall {
                                       vfs_getattr(capidx, std::move(buf)));
                 break;
             }
+            case SYS_VFS_IOCTL: {
+                UBuffer buf((VirAddr)arg1, arg2);
+                ret = result_void_ret("ioctl",
+                                      vfs_ioctl(capidx, arg0, std::move(buf)));
+                break;
+            }
             case SYS_VFS_GETATTR_AT: {
                 UString path((VirAddr)arg0, MAX_SYSCALL_PATH);
                 UBuffer buf((VirAddr)arg1, sizeof(AttrSet));
                 ret = result_void_ret("getattr_at",
-                                      vfs_getattr_at(capidx, path,
+                                     vfs_getattr_at(capidx, path,
                                                      std::move(buf),
                                                      static_cast<uint32_t>(arg2)));
                 break;

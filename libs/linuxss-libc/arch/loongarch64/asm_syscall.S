@@ -17,6 +17,13 @@ sys_time_now_ns:
     syscall 0
     ret
 
+    .global sys_getrtctime
+    .type sys_getrtctime, @function
+sys_getrtctime:
+    li.d $a7, SYS_GETRTCTIME_NS
+    syscall 0
+    ret
+
     .global sys_tcb_nanosleep
     .type sys_tcb_nanosleep, @function
 sys_tcb_nanosleep:
@@ -403,6 +410,13 @@ sys_vfs_lstat:
     .type sys_vfs_fstat, @function
 sys_vfs_fstat:
     li.d $a7, SYS_VFS_FSTAT
+    syscall 0
+    ret
+
+    .global sys_vfs_ioctl
+    .type sys_vfs_ioctl, @function
+sys_vfs_ioctl:
+    li.d $a7, SYS_VFS_IOCTL
     syscall 0
     ret
 

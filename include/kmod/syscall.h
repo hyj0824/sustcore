@@ -55,6 +55,7 @@ extern "C" {
 SysRet<void> sys_write_serial(size_t __always_zero, const char *str, size_t len);
 SysRet<void> sys_shutdown();
 SysRet<size_t> sys_time_now_ns();
+SysRet<size_t> sys_getrtctime();
 SysRet<void> sys_tcb_nanosleep(size_t ns);
 SysRet<size_t> sys_tcb_get_tid(CapIdx tcb_cap);
 SysRet<void> sys_tcb_kill(CapIdx tcb_cap, int exit_code);
@@ -111,6 +112,7 @@ SysRet<void> sys_vfs_link(CapIdx parent_dir_cap, const char *name, CapIdx target
 SysRet<void> sys_vfs_stat(CapIdx parent_dir_cap, const char *name, NodeMeta *out);
 SysRet<void> sys_vfs_lstat(CapIdx parent_dir_cap, const char *name, NodeMeta *out);
 SysRet<void> sys_vfs_fstat(CapIdx file_cap, NodeMeta *out);
+SysRet<void> sys_vfs_ioctl(CapIdx file_cap, size_t cmd, void *arg, size_t arg_len);
 SysRet<void> sys_vfs_getattr(CapIdx capidx, AttrSet *out);
 SysRet<void> sys_vfs_getattr_at(CapIdx parent_dir_cap, const char *name,
                                 AttrSet *out, uint32_t flags);

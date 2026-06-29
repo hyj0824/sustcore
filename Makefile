@@ -148,13 +148,11 @@ build-mods: make-initrd build-libs
 
 make-initrd:
 	$(call if_mkdir, $(path-initrd))
-	$(q)$(rm) -rf $(path-initrd)/tmp
-	$(call if_mkdir, $(path-initrd)/tmp)
-	cp -r ./tmp/$(architecture)/* $(path-initrd)/tmp/
 	$(q)echo "initrd path created"
 
 build-kernel: build-mods
 	$(q)$(copy) ./LICENSE $(path-initrd)/license
+	$(q)$(copy) ./initrd/localtime $(path-initrd)/localtime
 	$(q)$(MAKE) -f $(path-e)/kernel/Makefile $(arg-basic) build
 
 build: build-kernel

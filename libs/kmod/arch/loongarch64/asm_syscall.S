@@ -21,6 +21,12 @@ sys_shutdown:
     li.d $a7, SYS_SHUTDOWN
     do_syscall
 
+    .global sys_getrtctime
+    .type sys_getrtctime, @function
+sys_getrtctime:
+    li.d $a7, SYS_GETRTCTIME_NS
+    do_syscall
+
     .global sys_tcb_kill
     .type sys_tcb_kill, @function
 sys_tcb_kill:
@@ -350,6 +356,12 @@ sys_vfs_lstat:
     .type sys_vfs_fstat, @function
 sys_vfs_fstat:
     li.d $a7, SYS_VFS_FSTAT
+    do_syscall
+
+    .global sys_vfs_ioctl
+    .type sys_vfs_ioctl, @function
+sys_vfs_ioctl:
+    li.d $a7, SYS_VFS_IOCTL
     do_syscall
 
     .global sys_vfs_readlink

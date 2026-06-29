@@ -13,6 +13,7 @@
 
 #include <driver/clock.h>
 #include <driver/base.h>
+#include <driver/rtc/rtc.h>
 #include <sus/rtti.h>
 
 #include <string>
@@ -29,6 +30,16 @@ namespace device {
 
         [[nodiscard]]
         virtual driver::ClockSource *clock_source() noexcept = 0;
+
+        [[nodiscard]]
+        virtual rtc::IRPC *rpc() noexcept {
+            return _rpc;
+        }
+
+        [[nodiscard]]
+        virtual const rtc::IRPC *rpc() const noexcept {
+            return _rpc;
+        }
 
         [[nodiscard]]
         driver::IShutdownDriver *shutdown_driver() noexcept {
@@ -51,6 +62,16 @@ namespace device {
             }
         }
 
+        void set_rpc(rtc::IRPC *rpc) noexcept {
+            _rpc = rpc;
+        }
+
+        void clear_rpc(const rtc::IRPC *rpc) noexcept {
+            if (_rpc == rpc) {
+                _rpc = nullptr;
+            }
+        }
+
         [[nodiscard]]
         const std::string &stdout_device_dir() const noexcept {
             return _stdout_device_dir;
@@ -62,6 +83,7 @@ namespace device {
 
     private:
         driver::IShutdownDriver *_shutdown_driver = nullptr;
+        rtc::IRPC *_rpc = nullptr;
         std::string _stdout_device_dir{};
     };
 }  // namespace device

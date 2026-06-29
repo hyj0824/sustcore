@@ -54,4 +54,13 @@ namespace cap {
         // 调用VFS的sync接口
         return VFS::inst().sync(*_obj);
     }
+
+    Result<void> VFileObject::ioctl(size_t cmd, syscall::UBuffer &&arg) {
+        using namespace perm::vfile;
+        if (!imply(READ)) {
+            loggers::CAPABILITY::ERROR("权限不足");
+            return {unexpect, ErrCode::INSUFFICIENT_PERMISSIONS};
+        }
+        return VFS::inst().ioctl(*_obj, cmd, std::move(arg));
+    }
 }  // namespace cap

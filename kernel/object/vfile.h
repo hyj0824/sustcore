@@ -27,6 +27,7 @@ namespace cap {
         Result<size_t> write(off_t offset, const void *buf, size_t len);
         Result<size_t> size();
         Result<void> sync();
+        Result<void> ioctl(size_t cmd, syscall::UBuffer &&arg);
 
         /**
          * @brief 读取一定长度的数据到缓冲区

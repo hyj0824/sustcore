@@ -33,6 +33,17 @@ namespace {
     constexpr long LINUX_TIMES_STAMP    = 114514;
     constexpr byte GETRANDOM_PATTERN[]  = {0x11, 0x41, 0x51, 0x41,
                                            0x19, 0x19, 0x81, 0x00};
+    constexpr int SYSLOG_ACTION_CLOSE         = 0;
+    constexpr int SYSLOG_ACTION_OPEN          = 1;
+    constexpr int SYSLOG_ACTION_READ          = 2;
+    constexpr int SYSLOG_ACTION_READ_ALL      = 3;
+    constexpr int SYSLOG_ACTION_READ_CLEAR    = 4;
+    constexpr int SYSLOG_ACTION_CLEAR         = 5;
+    constexpr int SYSLOG_ACTION_CONSOLE_OFF   = 6;
+    constexpr int SYSLOG_ACTION_CONSOLE_ON    = 7;
+    constexpr int SYSLOG_ACTION_CONSOLE_LEVEL = 8;
+    constexpr int SYSLOG_ACTION_SIZE_UNREAD   = 9;
+    constexpr int SYSLOG_ACTION_SIZE_BUFFER   = 10;
 
     struct linux_utsname {
         char sysname[UTSNAME_FIELD_SIZE];
@@ -131,9 +142,8 @@ namespace {
             case LINUX_SIGABRT:
             case LINUX_SIGKILL:
             case LINUX_SIGSEGV:
-            case LINUX_SIGTERM:
-                return 128 + sig;
-            default: return -1;
+            case LINUX_SIGTERM: return 128 + sig;
+            default:            return -1;
         }
     }
 }  // namespace
@@ -157,12 +167,16 @@ void init_procfs() {
 
     if (!__prog_image_path.empty()) {
         if (!sys_pcb_procfs_redirect(__prog_pcb_cap, "exe",
-                                      __prog_image_path.c_str()).to_result()) {
+                                     __prog_image_path.c_str())
+                 .to_result())
+        {
             loggers::LXSC::ERROR("Failed to redirect /proc/<pid>/exe");
         }
     }
     if (!__prog_cwd.empty()) {
-        if (!sys_pcb_procfs_redirect(__prog_pcb_cap, "cwd", __prog_cwd.c_str()).to_result()) {
+        if (!sys_pcb_procfs_redirect(__prog_pcb_cap, "cwd", __prog_cwd.c_str())
+                 .to_result())
+        {
             loggers::LXSC::ERROR("Failed to redirect /proc/<pid>/cwd");
         }
     }
@@ -410,7 +424,7 @@ size_t linux_sys_uname(void *buf) {
     }
 
     linux_utsname uts{};
-    copy_uts_field(uts.sysname, "linux");
+    copy_uts_field(uts.sysname, "Linux");
     copy_uts_field(uts.nodename, "qemu");
     copy_uts_field(uts.release, "4.15.0");
     copy_uts_field(uts.version, "build 0");
@@ -425,7 +439,7 @@ size_t linux_sys_gettimeofday(void *tv, void *) {
         return 0;
     }
 
-    auto now_res = sys_time_now_ns().to_result();
+    auto now_res = sys_getrtctime().to_result();
     if (!now_res.has_value()) {
         return INVALID_VALUE;
     }
@@ -437,6 +451,59 @@ size_t linux_sys_gettimeofday(void *tv, void *) {
     };
     memcpy(tv, &value, sizeof(value));
     return 0;
+}
+
+size_t linux_sys_clock_gettime(int clk_id, void *tp) {
+    if (clk_id != 0) {
+        return static_cast<size_t>(-ENOSYS);
+    }
+    if (tp == nullptr) {
+        loggers::LXSC::ERROR("clock_gettime tp is nullptr");
+        return -EINVAL;
+    }
+
+    auto now_res = sys_getrtctime().to_result();
+    if (!now_res.has_value()) {
+        loggers::LXSC::ERROR("clock_gettime failed to get current time");
+        return -EINVAL;
+    }
+
+    struct linux_timespec {
+        uint64_t sec;
+        uint64_t nsec;
+    } value{
+        .sec  = static_cast<uint64_t>(now_res.value() / 1000000000ULL),
+        .nsec = static_cast<uint64_t>(now_res.value() % 1000000000ULL),
+    };
+    memcpy(tp, &value, sizeof(value));
+    return 0;
+}
+
+size_t linux_sys_syslog(int type, void *bufp, int len) {
+    switch (type) {
+        case SYSLOG_ACTION_CLOSE:
+        case SYSLOG_ACTION_OPEN:
+        case SYSLOG_ACTION_CLEAR:
+        case SYSLOG_ACTION_CONSOLE_OFF:
+        case SYSLOG_ACTION_CONSOLE_ON:
+        case SYSLOG_ACTION_CONSOLE_LEVEL:
+            return 0;
+        case SYSLOG_ACTION_SIZE_UNREAD:
+        case SYSLOG_ACTION_SIZE_BUFFER:
+            return 0;
+        case SYSLOG_ACTION_READ:
+        case SYSLOG_ACTION_READ_ALL:
+        case SYSLOG_ACTION_READ_CLEAR:
+            if (len < 0) {
+                return -EINVAL;
+            }
+            if (bufp == nullptr && len != 0) {
+                return -EFAULT;
+            }
+            return 0;
+        default:
+            return -EINVAL;
+    }
 }
 
 size_t linux_sys_times(void *buf) {
@@ -596,9 +663,9 @@ size_t linux_sys_tgkill(int tgid, int tid, int sig) {
     auto self_pid_res = sys_getpid(__prog_pcb_cap).to_result();
     auto self_tid_res = sys_tcb_get_tid(__prog_main_tcb_cap).to_result();
     if (!self_pid_res.has_value() || !self_tid_res.has_value()) {
-        loggers::LXSC::ERROR("tgkill 无法获取当前 PCB 或 TCB 的 pid/tid: err_pid=%s err_tid=%s",
-                             to_cstring(self_pid_res.error()),
-                             to_cstring(self_tid_res.error()));
+        loggers::LXSC::ERROR(
+            "tgkill 无法获取当前 PCB 或 TCB 的 pid/tid: err_pid=%s err_tid=%s",
+            to_cstring(self_pid_res.error()), to_cstring(self_tid_res.error()));
         return static_cast<size_t>(-EINVAL);
     }
 

@@ -353,6 +353,13 @@ enum class MountFlags { NONE = 0 };
 
 class VFS {
 public:
+    struct MountView {
+        std::string source;
+        std::string target;
+        std::string fsname;
+        std::string options;
+    };
+
     struct MountKey {
         VINode *parent;
         std::string entry;
@@ -534,6 +541,8 @@ public:
     [[nodiscard]]
     Result<void> truncate(cap::Capability &file_cap, size_t new_size);
     [[nodiscard]]
+    Result<void> ioctl(VFile &vfile, size_t cmd, syscall::UBuffer &&arg);
+    [[nodiscard]]
     Result<void> link(cap::Capability &parent_dir_cap,
                       const char *relpath,
                       cap::Capability &target_inode_cap);
@@ -578,6 +587,8 @@ public:
                             b64 perm);
     [[nodiscard]]
     Result<ISuperblock *> get_pseudo(const char *pseudo_fs_id);
+    [[nodiscard]]
+    std::vector<MountView> snapshot_mounts() const;
     [[nodiscard]]
     Result<devfs::DevFSSuperblock *> devfs();
     // 仅供测试代码使用的调试接口

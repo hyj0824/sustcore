@@ -259,6 +259,16 @@ namespace syscall {
         return VFS::inst().truncate(*cap_res.value(), new_size);
     }
 
+    Result<void> vfs_ioctl(CapIdx file_cap, size_t cmd, UBuffer &&arg) {
+        auto cap_res = lookup_current_cap(file_cap);
+        propagate(cap_res);
+        if (cap_res.value()->payload()->type_id() != PayloadType::VFILE) {
+            unexpect_return(ErrCode::TYPE_NOT_MATCHED);
+        }
+        cap::VFileObject obj(util::nnullforce(cap_res.value()));
+        return obj.ioctl(cmd, std::move(arg));
+    }
+
     Result<void> vfs_rename(CapIdx old_parent_cap, const UString &old_name,
                             CapIdx new_parent_cap, const UString &new_name) {
         auto holder_res = current_holder_for_vfs();

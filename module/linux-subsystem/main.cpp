@@ -756,6 +756,8 @@ extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
         case __NR_dup3:
             return linux_sys_dup3(static_cast<int>(a0), static_cast<int>(a1),
                                   static_cast<int>(a2));
+        case __NR_ioctl:
+            return linux_sys_ioctl(static_cast<int>(a0), a1, a2);
         case __NR_lseek:
             return linux_sys_lseek(static_cast<int>(a0), a1,
                                    static_cast<int>(a2));
@@ -779,12 +781,16 @@ extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
             return linux_sys_unlinkat(static_cast<int>(a0),
                                       reinterpret_cast<const char *>(a1),
                                       static_cast<int>(a2));
-            return -ENOSYS;
         case __NR_mkdirat:
             return linux_sys_mkdirat(static_cast<int>(a0),
                                      reinterpret_cast<const char *>(a1),
                                      static_cast<int>(a2));
-            return -ENOSYS;
+        case __NR_renameat2:
+            return linux_sys_renameat2(static_cast<int>(a0),
+                                       reinterpret_cast<const char *>(a1),
+                                       static_cast<int>(a2),
+                                       reinterpret_cast<const char *>(a3),
+                                       static_cast<unsigned int>(a4));
         case __NR_mount:
         case __NR_umount2:
             // 占位符
@@ -803,6 +809,10 @@ extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
         case __NR_setresuid:
         case __NR_getresgid:
         case __NR_setresgid:
+        case __NR_setpgid:
+        case __NR_getpgid:
+        case __NR_setfsgid:
+        case __NR_setfsuid:
             // 占位符
             // 先假设所有的 uid/gid 都是 0
         case __NR_prlimit64:
@@ -815,6 +825,10 @@ extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
             loggers::LXSC::ERROR("unsupported syscall %s (%lu), but returning 0 for compatibility",
                                  syscall_to_string(a7), a7);
             return 0;
+        case __NR_syslog:
+            return linux_sys_syslog(static_cast<int>(a0),
+                                    reinterpret_cast<void *>(a1),
+                                    static_cast<int>(a2));
         case __NR_set_tid_address: {
             loggers::LXSC::ERROR(
                 "unsupported syscall %s (%lu), ignoring ptr=%p and forwarding to main tcb tid",
@@ -837,6 +851,9 @@ extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
                 "unsupported syscall %s (%lu), ignoring and returning 0 for compatibility",
                 syscall_to_string(a7), a7);
             return 0;
+        case __NR_clock_gettime:
+            return linux_sys_clock_gettime(static_cast<int>(a0),
+                                           reinterpret_cast<void *>(a1));
         default:
             loggers::LXSC::ERROR("unsupported syscall %s (%lu)",
                                  syscall_to_string(a7), a7);

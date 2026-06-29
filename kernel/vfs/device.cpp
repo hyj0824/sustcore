@@ -19,6 +19,26 @@
 
 namespace devfs {
     namespace {
+        constexpr uint16_t DEVFS_S_IFREG = 0x8000;
+        constexpr uint16_t DEVFS_S_IFDIR = 0x4000;
+        constexpr uint16_t DEVFS_S_IFCHR = 0x2000;
+        constexpr uint16_t DEVFS_S_IFBLK = 0x6000;
+
+        void init_attr(DevFileMetadata &meta, inode_t inode_id,
+                       uint32_t mode) noexcept {
+            meta.attrs.mode    = mode;
+            meta.attrs.uid     = 0;
+            meta.attrs.gid     = 0;
+            meta.attrs.size    = 0;
+            meta.attrs.inode   = inode_id;
+            meta.attrs.nlink   = 1;
+            meta.attrs.atime   = 0;
+            meta.attrs.mtime   = 0;
+            meta.attrs.ctime   = 0;
+            meta.attrs.blksize = 512;
+            meta.attrs.blocks  = 0;
+        }
+
         [[nodiscard]]
         Result<size_t> read_block_range(blk::BufferCache &cache, size_t blkno,
                                         size_t offset, void *buf,
@@ -33,6 +53,7 @@ namespace devfs {
     Result<size_t> CharDevFile::read(void *buf, size_t len) {
         (void)buf;
         (void)len;
+        loggers::VFS::ERROR("devfs don't support read");
         unexpect_return(ErrCode::NOT_SUPPORTED);
     }
 
@@ -96,6 +117,7 @@ namespace devfs {
         (void)offset;
         (void)buf;
         (void)len;
+        loggers::VFS::ERROR("devfs don't support write");
         unexpect_return(ErrCode::NOT_SUPPORTED);
     }
 
@@ -109,9 +131,96 @@ namespace devfs {
         void_return();
     }
 
+    Result<void> CharDevFile::truncate(size_t new_size) {
+        (void)new_size;
+        loggers::VFS::ERROR("devfs don't support truncate");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> CharDevFile::ioctl(size_t cmd, syscall::UBuffer &&arg) {
+        (void)cmd;
+        (void)arg;
+        loggers::VFS::ERROR("devfs not suppoty ioctl");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> CharDevFile::getattr(AttrSet &out) const {
+        out = _metadata.attrs;
+        void_return();
+    }
+
+    Result<void> CharDevFile::setattr(AttrMask mask, const AttrSet &attrs) {
+        if (mask & AttrMask::MODE) {
+            _metadata.attrs.mode =
+                (_metadata.attrs.mode & 0xF000U) | (attrs.mode & 0x0FFFU);
+        }
+        if (mask & AttrMask::UID) {
+            _metadata.attrs.uid = attrs.uid;
+        }
+        if (mask & AttrMask::GID) {
+            _metadata.attrs.gid = attrs.gid;
+        }
+        if (mask & AttrMask::ATIME) {
+            _metadata.attrs.atime = attrs.atime;
+        }
+        if (mask & AttrMask::MTIME) {
+            _metadata.attrs.mtime = attrs.mtime;
+        }
+        if (mask & AttrMask::CTIME) {
+            _metadata.attrs.ctime = attrs.ctime;
+        }
+        void_return();
+    }
+
+    Result<void> BlockDevFile::truncate(size_t new_size) {
+        (void)new_size;
+        loggers::VFS::ERROR("devfs don't support truncate");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> BlockDevFile::ioctl(size_t cmd, syscall::UBuffer &&arg) {
+        (void)cmd;
+        (void)arg;
+        loggers::VFS::ERROR("devfs not suppoty ioctl");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> BlockDevFile::getattr(AttrSet &out) const {
+        out       = _metadata.attrs;
+        out.size  = const_cast<BlockDevFile *>(this)->size().value_or(0);
+        out.blocks = (out.size + 511) / 512;
+        void_return();
+    }
+
+    Result<void> BlockDevFile::setattr(AttrMask mask, const AttrSet &attrs) {
+        if (mask & AttrMask::MODE) {
+            _metadata.attrs.mode =
+                (_metadata.attrs.mode & 0xF000U) | (attrs.mode & 0x0FFFU);
+        }
+        if (mask & AttrMask::UID) {
+            _metadata.attrs.uid = attrs.uid;
+        }
+        if (mask & AttrMask::GID) {
+            _metadata.attrs.gid = attrs.gid;
+        }
+        if (mask & AttrMask::ATIME) {
+            _metadata.attrs.atime = attrs.atime;
+        }
+        if (mask & AttrMask::MTIME) {
+            _metadata.attrs.mtime = attrs.mtime;
+        }
+        if (mask & AttrMask::CTIME) {
+            _metadata.attrs.ctime = attrs.ctime;
+        }
+        void_return();
+    }
+
     DevFSDirectory::DevFSDirectory(DevFSSuperblock &sb,
                                    inode_t inode_id) noexcept
-        : _sb(&sb), _inode_id(inode_id) {}
+        : _sb(&sb), _inode_id(inode_id) {
+        init_attr(_metadata, inode_id, DEVFS_S_IFDIR | 0755U);
+        _metadata.attrs.nlink = 2;
+    }
 
     Result<inode_t> DevFSDirectory::lookup(std::string_view name) {
         return _sb->lookup(_inode_id, name);
@@ -171,13 +280,81 @@ namespace devfs {
         return INodeCachePolicy::NONE;
     }
 
+    Result<void> DevFSDirectory::unlink(std::string_view name) {
+        (void)name;
+        loggers::VFS::ERROR("devfs don't support unlink");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> DevFSDirectory::rmdir(std::string_view name) {
+        (void)name;
+        loggers::VFS::ERROR("devfs don't support rmdir");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> DevFSDirectory::link(std::string_view name, inode_t target) {
+        (void)name;
+        (void)target;
+        loggers::VFS::ERROR("devfs don't support link");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> DevFSDirectory::rename(std::string_view old_name,
+                                        IDirectory &new_parent,
+                                        std::string_view new_name) {
+        (void)old_name;
+        (void)new_parent;
+        (void)new_name;
+        loggers::VFS::ERROR("devfs don't support rename");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<inode_t> DevFSDirectory::symlink(std::string_view name,
+                                            std::string_view target) {
+        (void)name;
+        (void)target;
+        loggers::VFS::ERROR("devfs don't support symlink");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> DevFSDirectory::getattr(AttrSet &out) const {
+        out = _metadata.attrs;
+        void_return();
+    }
+
+    Result<void> DevFSDirectory::setattr(AttrMask mask, const AttrSet &attrs) {
+        if (mask & AttrMask::MODE) {
+            _metadata.attrs.mode =
+                (_metadata.attrs.mode & 0xF000U) | (attrs.mode & 0x0FFFU);
+        }
+        if (mask & AttrMask::UID) {
+            _metadata.attrs.uid = attrs.uid;
+        }
+        if (mask & AttrMask::GID) {
+            _metadata.attrs.gid = attrs.gid;
+        }
+        if (mask & AttrMask::ATIME) {
+            _metadata.attrs.atime = attrs.atime;
+        }
+        if (mask & AttrMask::MTIME) {
+            _metadata.attrs.mtime = attrs.mtime;
+        }
+        if (mask & AttrMask::CTIME) {
+            _metadata.attrs.ctime = attrs.ctime;
+        }
+        void_return();
+    }
+
     DevFSUnboundFile::DevFSUnboundFile(inode_t inode_id) noexcept
-        : _inode_id(inode_id) {}
+        : _inode_id(inode_id) {
+        init_attr(_metadata, inode_id, DEVFS_S_IFREG | 0644U);
+    }
 
     Result<size_t> DevFSUnboundFile::read(off_t offset, void *buf, size_t len) {
         (void)offset;
         (void)buf;
         (void)len;
+        loggers::VFS::ERROR("devfs don't support read");
         unexpect_return(ErrCode::NOT_SUPPORTED);
     }
 
@@ -186,6 +363,7 @@ namespace devfs {
         (void)offset;
         (void)buf;
         (void)len;
+        loggers::VFS::ERROR("devfs don't support write");
         unexpect_return(ErrCode::NOT_SUPPORTED);
     }
 
@@ -194,6 +372,47 @@ namespace devfs {
     }
 
     Result<void> DevFSUnboundFile::sync() {
+        void_return();
+    }
+
+    Result<void> DevFSUnboundFile::truncate(size_t new_size) {
+        (void)new_size;
+        loggers::VFS::ERROR("devfs don't support truncate");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> DevFSUnboundFile::ioctl(size_t cmd, syscall::UBuffer &&arg) {
+        (void)cmd;
+        (void)arg;
+        loggers::VFS::ERROR("devfs not suppoty ioctl");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> DevFSUnboundFile::getattr(AttrSet &out) const {
+        out = _metadata.attrs;
+        void_return();
+    }
+
+    Result<void> DevFSUnboundFile::setattr(AttrMask mask, const AttrSet &attrs) {
+        if (mask & AttrMask::MODE) {
+            _metadata.attrs.mode =
+                (_metadata.attrs.mode & 0xF000U) | (attrs.mode & 0x0FFFU);
+        }
+        if (mask & AttrMask::UID) {
+            _metadata.attrs.uid = attrs.uid;
+        }
+        if (mask & AttrMask::GID) {
+            _metadata.attrs.gid = attrs.gid;
+        }
+        if (mask & AttrMask::ATIME) {
+            _metadata.attrs.atime = attrs.atime;
+        }
+        if (mask & AttrMask::MTIME) {
+            _metadata.attrs.mtime = attrs.mtime;
+        }
+        if (mask & AttrMask::CTIME) {
+            _metadata.attrs.ctime = attrs.ctime;
+        }
         void_return();
     }
 
@@ -215,13 +434,18 @@ namespace devfs {
 
     DevFSSuperblock::DevFSSuperblock(DevFSDriver *fs, size_t sb_id)
         : _fs(fs), _sb_id(sb_id) {
+        init_attr(_metadata, 0, DEVFS_S_IFDIR | 0755U);
+        _metadata.attrs.nlink = 2;
         _nodes.insert_or_assign(0, NodeRecord{
                                        .inode_id     = 0,
                                        .state        = NodeState::DIRECTORY,
                                        .name         = "/",
                                        .parent_inode = 0,
                                        .entries      = {},
+                                       .metadata     = DevFileMetadata(false),
                                    });
+        init_attr(_nodes.at(0).metadata, 0, DEVFS_S_IFDIR | 0755U);
+        _nodes.at(0).metadata.attrs.nlink = 2;
     }
 
     Result<DevFSSuperblock::NodeRecord *> DevFSSuperblock::lookup_record(
@@ -272,7 +496,26 @@ namespace devfs {
                                               .name         = std::string(name),
                                               .parent_inode = parent_inode,
                                               .entries      = {},
+                                              .metadata     = DevFileMetadata(
+                                                  state == NodeState::BLOCK_DEVICE),
                                           });
+        auto &record = _nodes.at(inode_id);
+        switch (state) {
+            case NodeState::DIRECTORY:
+                init_attr(record.metadata, inode_id, DEVFS_S_IFDIR | 0755U);
+                record.metadata.attrs.nlink = 2;
+                break;
+            case NodeState::BLOCK_DEVICE:
+                init_attr(record.metadata, inode_id, DEVFS_S_IFBLK | 0644U);
+                break;
+            case NodeState::CHAR_DEVICE:
+                init_attr(record.metadata, inode_id, DEVFS_S_IFCHR | 0644U);
+                break;
+            case NodeState::UNBOUND_FILE:
+            default:
+                init_attr(record.metadata, inode_id, DEVFS_S_IFREG | 0644U);
+                break;
+        }
         return inode_id;
     }
 
@@ -373,6 +616,7 @@ namespace devfs {
         record->state        = NodeState::CHAR_DEVICE;
         record->char_factory = factory;
         record->has_factory  = true;
+        init_attr(record->metadata, inode_id, DEVFS_S_IFCHR | 0644U);
         void_return();
     }
 
@@ -401,16 +645,36 @@ namespace devfs {
         record->state           = NodeState::BLOCK_DEVICE;
         record->block_devno     = devno;
         record->has_block_devno = true;
+        init_attr(record->metadata, inode_id, DEVFS_S_IFBLK | 0644U);
         void_return();
     }
 
     Result<inode_t> DevFSSuperblock::alloc_inode(INodeType type) {
         (void)type;
+        loggers::VFS::ERROR("devfs don't support alloc_inode");
         unexpect_return(ErrCode::NOT_SUPPORTED);
     }
 
     Result<void> DevFSSuperblock::free_inode(inode_t id) {
         (void)id;
+        loggers::VFS::ERROR("devfs don't support free_inode");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<uint16_t> DevFSSuperblock::inode_mode(inode_t inode_id) {
+        auto record_res = lookup_record(inode_id);
+        propagate(record_res);
+        return static_cast<uint16_t>(record_res.value()->metadata.attrs.mode);
+    }
+
+    Result<bool> DevFSSuperblock::is_symlink(inode_t inode_id) {
+        (void)inode_id;
+        return false;
+    }
+
+    Result<std::string> DevFSSuperblock::readlink(inode_t inode_id) {
+        (void)inode_id;
+        loggers::VFS::ERROR("devfs don't support readlink");
         unexpect_return(ErrCode::NOT_SUPPORTED);
     }
 
@@ -467,6 +731,7 @@ namespace devfs {
         _mounted = sb;
         return util::owner<ISuperblock *>(sb);
     }
+
 
     Result<void> DevFSDriver::unmount(ISuperblock *sb) {
         if (_mounted == sb) {

@@ -51,6 +51,40 @@ namespace tarfs {
         return id * BLOCK_SIZE;
     }
 
+    namespace {
+        constexpr uint16_t TAR_S_IFREG = 0x8000;
+        constexpr uint16_t TAR_S_IFDIR = 0x4000;
+        constexpr uint16_t TAR_S_IFLNK = 0xA000;
+
+        [[nodiscard]]
+        uint32_t tar_mode_bits(const TarBlock *header) noexcept {
+            return static_cast<uint32_t>(parse_octal(header->header.mode) & 0777U);
+        }
+
+        void fill_tar_attr(const TarBlock *header, inode_t inode_id, uint64_t size,
+                           AttrSet &out) noexcept {
+            const char typeflag = header->header.typeflag[0];
+            uint16_t mode_type  = TAR_S_IFREG;
+            if (typeflag == '5') {
+                mode_type = TAR_S_IFDIR;
+            } else if (typeflag == '2') {
+                mode_type = TAR_S_IFLNK;
+            }
+
+            out.mode    = mode_type | tar_mode_bits(header);
+            out.uid     = static_cast<uint32_t>(parse_octal(header->header.uid));
+            out.gid     = static_cast<uint32_t>(parse_octal(header->header.gid));
+            out.size    = size;
+            out.inode   = inode_id;
+            out.nlink   = typeflag == '5' ? 2U : 1U;
+            out.atime   = 0;
+            out.mtime   = parse_octal(header->header.mtime);
+            out.ctime   = out.mtime;
+            out.blksize = 512;
+            out.blocks  = (size + 511) / 512;
+        }
+    }  // namespace
+
 	// TarFile
 
     void *TarFile::operator new(size_t size) {
@@ -83,6 +117,40 @@ namespace tarfs {
 		memcpy(buf, ptr, to_read);
 		return to_read;
 	}
+
+    Result<size_t> TarFile::write(off_t, const void *, size_t) {
+        loggers::VFS::ERROR("tarfs don't support write");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> TarFile::sync() {
+        loggers::VFS::ERROR("tarfs don't support sync");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> TarFile::truncate(size_t new_size) {
+        (void)new_size;
+        loggers::VFS::ERROR("tarfs don't support truncate");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> TarFile::ioctl(size_t cmd, syscall::UBuffer &&arg) {
+        (void)cmd;
+        (void)arg;
+        loggers::VFS::ERROR("tarfs not suppoty ioctl");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> TarFile::getattr(AttrSet &out) const {
+        fill_tar_attr(header_, inode_id_, static_cast<uint64_t>(end_ - data_), out);
+        void_return();
+    }
+
+    Result<void> TarFile::setattr(AttrMask mask, const AttrSet &attrs) {
+        (void)mask;
+        (void)attrs;
+        void_return();
+    }
 
 	// TarDirectory
 
@@ -174,6 +242,75 @@ namespace tarfs {
             unexpect_return(ErrCode::OUT_OF_BOUNDARY);
         }
         return entries[index];
+    }
+
+    Result<inode_t> TarDirectory::mkfile(std::string_view name,
+                                         const char *options) {
+        (void)name;
+        (void)options;
+        loggers::VFS::ERROR("tarfs don't support mkfile");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<inode_t> TarDirectory::mkdir(std::string_view name,
+                                        const char *options) {
+        (void)name;
+        (void)options;
+        loggers::VFS::ERROR("tarfs don't support mkdir");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> TarDirectory::unlink(std::string_view name) {
+        (void)name;
+        loggers::VFS::ERROR("tarfs don't support unlink");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> TarDirectory::rmdir(std::string_view name) {
+        (void)name;
+        loggers::VFS::ERROR("tarfs don't support rmdir");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> TarDirectory::link(std::string_view name, inode_t target) {
+        (void)name;
+        (void)target;
+        loggers::VFS::ERROR("tarfs don't support link");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> TarDirectory::rename(std::string_view old_name,
+                                      IDirectory &new_parent,
+                                      std::string_view new_name) {
+        (void)old_name;
+        (void)new_parent;
+        (void)new_name;
+        loggers::VFS::ERROR("tarfs don't support rename");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<inode_t> TarDirectory::symlink(std::string_view name,
+                                          std::string_view target) {
+        (void)name;
+        (void)target;
+        loggers::VFS::ERROR("tarfs don't support symlink");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> TarDirectory::sync() {
+        loggers::VFS::ERROR("tarfs don't support sync");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> TarDirectory::getattr(AttrSet &out) const {
+        fill_tar_attr(header_, inode_id_, 0, out);
+        void_return();
+    }
+
+    Result<void> TarDirectory::setattr(AttrMask mask, const AttrSet &attrs) {
+        (void)mask;
+        (void)attrs;
+        void_return();
     }
 
 	// TarFSDriver
@@ -301,6 +438,7 @@ namespace tarfs {
 	}
 
 	Result<void> TarFSDriver::unmount(ISuperblock *sb) {
+        (void)sb;
 		void_return();
 	}
 
@@ -345,6 +483,49 @@ namespace tarfs {
 			return util::owner<IINode *>(static_cast<IINode *>(file));
 		}
 	}
+
+    Result<void> TarSuperblock::sync() {
+        loggers::VFS::ERROR("tarfs don't support sync");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<inode_t> TarSuperblock::alloc_inode(INodeType type) {
+        (void)type;
+        loggers::VFS::ERROR("tarfs don't support alloc_inode");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> TarSuperblock::free_inode(inode_t id) {
+        (void)id;
+        loggers::VFS::ERROR("tarfs don't support free_inode");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<uint16_t> TarSuperblock::inode_mode(inode_t inode_id) {
+        (void)inode_id;
+        loggers::VFS::ERROR("tarfs don't support inode_mode");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<bool> TarSuperblock::is_symlink(inode_t inode_id) {
+        auto *blk = get_block(inode_id);
+        if (blk == nullptr) {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+        return blk->header.typeflag[0] == '2';
+    }
+
+    Result<std::string> TarSuperblock::readlink(inode_t inode_id) {
+        auto *blk = get_block(inode_id);
+        if (blk == nullptr) {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+        if (blk->header.typeflag[0] != '2') {
+            loggers::VFS::ERROR("tarfs don't support readlink");
+            unexpect_return(ErrCode::NOT_SUPPORTED);
+        }
+        return std::string(blk->header.linkname);
+    }
 
 	void init_kop() {
 		kop::TarFileRaw.construct();

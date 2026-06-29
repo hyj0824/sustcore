@@ -59,6 +59,8 @@ namespace ext4 {
         [[nodiscard]]
         Result<void> truncate(size_t new_size) final;
         [[nodiscard]]
+        Result<void> ioctl(size_t cmd, syscall::UBuffer &&arg) final;
+        [[nodiscard]]
         IMetadata &metadata() final;
         [[nodiscard]]
         inode_t inode_id() const final;

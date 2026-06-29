@@ -16,6 +16,13 @@ sys_time_now_ns:
     ecall
     ret
 
+    .global sys_getrtctime
+    .type   sys_getrtctime, @function
+sys_getrtctime:
+    li a7, SYS_GETRTCTIME_NS
+    ecall
+    ret
+
     .global sys_tcb_nanosleep
     .type   sys_tcb_nanosleep, @function
 sys_tcb_nanosleep:
@@ -402,6 +409,13 @@ sys_vfs_lstat:
     .type   sys_vfs_fstat, @function
 sys_vfs_fstat:
     li a7, SYS_VFS_FSTAT
+    ecall
+    ret
+
+    .global sys_vfs_ioctl
+    .type   sys_vfs_ioctl, @function
+sys_vfs_ioctl:
+    li a7, SYS_VFS_IOCTL
     ecall
     ret
 

@@ -67,6 +67,18 @@ namespace {
         int32_t __reserved;
     };
 
+    struct linux_rtc_time {
+        int tm_sec;
+        int tm_min;
+        int tm_hour;
+        int tm_mday;
+        int tm_mon;
+        int tm_year;
+        int tm_wday;
+        int tm_yday;
+        int tm_isdst;
+    };
+
     struct linux_statx {
         uint32_t stx_mask;
         uint32_t stx_blksize;
@@ -1076,6 +1088,28 @@ size_t linux_sys_read(int fd, void *buf, size_t count) {
     return nread;
 }
 
+size_t linux_sys_ioctl(int fd, size_t request, size_t arg) {
+    CapIdx file_cap = fd_to_cap(fd);
+    if (file_cap == cap::error || file_cap == cap::null) {
+        return -EBADF;
+    }
+
+    auto ioctl_res =
+        sys_vfs_ioctl(file_cap, request, reinterpret_cast<void *>(arg),
+                      sizeof(linux_rtc_time))
+            .to_result();
+    if (!ioctl_res.has_value()) {
+        switch (ioctl_res.error()) {
+            case ErrCode::TYPE_NOT_MATCHED: return -ENOTTY;
+            case ErrCode::NOT_SUPPORTED:    return -ENOTTY;
+            case ErrCode::INVALID_PARAM:    return -EINVAL;
+            case ErrCode::NULLPTR:          return -EFAULT;
+            default:                        return -EIO;
+        }
+    }
+    return 0;
+}
+
 size_t linux_sys_readv(int fd, const void *iov, int iovcnt) {
     if (iovcnt < 0 || iovcnt > LINUX_IOV_MAX) {
         return -EINVAL;
@@ -1690,6 +1724,58 @@ size_t linux_sys_fchownat(int dirfd, const char *pathname, uint32_t uid,
             .to_result();
     if (!chown_res.has_value()) {
         return chown_res.error() == ErrCode::ENTRY_NOT_FOUND ? -ENOENT : -EIO;
+    }
+    return 0;
+}
+
+size_t linux_sys_renameat2(int olddirfd, const char *oldpath, int newdirfd,
+                           const char *newpath, unsigned int flags) {
+    constexpr unsigned int RENAME_NOREPLACE = 1U;
+
+    if (oldpath == nullptr || newpath == nullptr) {
+        return -EINVAL;
+    }
+    if (oldpath[0] == '\0' || newpath[0] == '\0') {
+        return -ENOENT;
+    }
+    if ((flags & RENAME_NOREPLACE) != 0) {
+        loggers::LXSC::WARN(
+            "renameat2 TODO: RENAME_NOREPLACE is not implemented yet");
+        return -EINVAL;
+    }
+    if (flags != 0) {
+        return -EINVAL;
+    }
+
+    auto old_resolved = resolve_path_at(olddirfd, oldpath);
+    if (old_resolved.parent_cap == cap::null ||
+        old_resolved.parent_cap == cap::error ||
+        old_resolved.relative_path.empty()) {
+        return -ENOENT;
+    }
+
+    auto new_resolved = resolve_path_at(newdirfd, newpath);
+    if (new_resolved.parent_cap == cap::null ||
+        new_resolved.parent_cap == cap::error ||
+        new_resolved.relative_path.empty()) {
+        return -ENOENT;
+    }
+
+    auto rename_res =
+        sys_vfs_rename(old_resolved.parent_cap,
+                       old_resolved.relative_path.c_str(),
+                       new_resolved.parent_cap,
+                       new_resolved.relative_path.c_str())
+            .to_result();
+    if (!rename_res.has_value()) {
+        switch (rename_res.error()) {
+            case ErrCode::ENTRY_NOT_FOUND: return -ENOENT;
+            case ErrCode::KEY_DUPLICATED:  return -EEXIST;
+            case ErrCode::BUSY:            return -EBUSY;
+            case ErrCode::INVALID_PARAM:   return -EINVAL;
+            case ErrCode::TYPE_NOT_MATCHED:return -ENOTDIR;
+            default:                       return -EIO;
+        }
     }
     return 0;
 }

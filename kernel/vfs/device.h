@@ -39,13 +39,15 @@ namespace devfs {
     class DevFileMetadata : public IMetadata {
     public:
         bool is_blk;
-        constexpr DevFileMetadata(bool is_blk) : is_blk(is_blk) {}
+        AttrSet attrs{};
+
+        explicit DevFileMetadata(bool is_blk) : is_blk(is_blk) {}
     };
 
     class CharDevFile : public IFile {
     protected:
         inode_t _inode_id;
-        DevFileMetadata _metadata = {false};
+        DevFileMetadata _metadata = DevFileMetadata(false);
 
         explicit CharDevFile(inode_t inode_id) : _inode_id(inode_id) {}
 
@@ -74,6 +76,14 @@ namespace devfs {
         Result<void> sync() override {
             void_return();
         }
+        [[nodiscard]]
+        Result<void> truncate(size_t new_size) override;
+        [[nodiscard]]
+        Result<void> ioctl(size_t cmd, syscall::UBuffer &&arg) override;
+        [[nodiscard]]
+        Result<void> getattr(AttrSet &out) const override;
+        [[nodiscard]]
+        Result<void> setattr(AttrMask mask, const AttrSet &attrs) override;
 
         [[nodiscard]]
         inode_t inode_id() const override {
@@ -101,7 +111,7 @@ namespace devfs {
         inode_t _inode_id;
         size_t _devno;
 
-        DevFileMetadata _metadata = {true};
+        DevFileMetadata _metadata = DevFileMetadata(true);
 
     public:
         explicit BlockDevFile(inode_t inode_id, size_t devno)
@@ -121,6 +131,14 @@ namespace devfs {
 
         [[nodiscard]]
         Result<void> sync() override;
+        [[nodiscard]]
+        Result<void> truncate(size_t new_size) override;
+        [[nodiscard]]
+        Result<void> ioctl(size_t cmd, syscall::UBuffer &&arg) override;
+        [[nodiscard]]
+        Result<void> getattr(AttrSet &out) const override;
+        [[nodiscard]]
+        Result<void> setattr(AttrMask mask, const AttrSet &attrs) override;
 
         [[nodiscard]]
         inode_t inode_id() const override {
@@ -152,8 +170,7 @@ namespace devfs {
     private:
         DevFSSuperblock *_sb;
         inode_t _inode_id;
-        struct EmptyMetadata : public IMetadata {
-        } _metadata;
+        DevFileMetadata _metadata = DevFileMetadata(false);
 
     public:
         DevFSDirectory(DevFSSuperblock &sb, inode_t inode_id) noexcept;
@@ -171,7 +188,23 @@ namespace devfs {
         [[nodiscard]]
         Result<DirectoryEntryInfo> entry_at(size_t index) final;
         [[nodiscard]]
+        Result<void> unlink(std::string_view name) final;
+        [[nodiscard]]
+        Result<void> rmdir(std::string_view name) final;
+        [[nodiscard]]
+        Result<void> link(std::string_view name, inode_t target) final;
+        [[nodiscard]]
+        Result<void> rename(std::string_view old_name, IDirectory &new_parent,
+                            std::string_view new_name) final;
+        [[nodiscard]]
+        Result<inode_t> symlink(std::string_view name,
+                                std::string_view target) final;
+        [[nodiscard]]
         Result<void> sync() final;
+        [[nodiscard]]
+        Result<void> getattr(AttrSet &out) const final;
+        [[nodiscard]]
+        Result<void> setattr(AttrMask mask, const AttrSet &attrs) final;
         [[nodiscard]]
         IMetadata &metadata() final;
         [[nodiscard]]
@@ -183,8 +216,7 @@ namespace devfs {
     class DevFSUnboundFile final : public IFile {
     private:
         inode_t _inode_id;
-        struct EmptyMetadata : public IMetadata {
-        } _metadata;
+        DevFileMetadata _metadata = DevFileMetadata(false);
 
     public:
         explicit DevFSUnboundFile(inode_t inode_id) noexcept;
@@ -199,6 +231,14 @@ namespace devfs {
         Result<size_t> size() override;
         [[nodiscard]]
         Result<void> sync() override;
+        [[nodiscard]]
+        Result<void> truncate(size_t new_size) override;
+        [[nodiscard]]
+        Result<void> ioctl(size_t cmd, syscall::UBuffer &&arg) override;
+        [[nodiscard]]
+        Result<void> getattr(AttrSet &out) const override;
+        [[nodiscard]]
+        Result<void> setattr(AttrMask mask, const AttrSet &attrs) override;
         [[nodiscard]]
         IMetadata &metadata() override;
         [[nodiscard]]
@@ -228,8 +268,7 @@ namespace devfs {
             bool has_factory = false;
             size_t block_devno = 0;
             bool has_block_devno = false;
-            struct EmptyMetadata : public IMetadata {
-            } metadata;
+            DevFileMetadata metadata = DevFileMetadata(false);
         };
 
     private:
@@ -237,8 +276,7 @@ namespace devfs {
         size_t _sb_id;
         inode_t _next_inode = 1;
         std::unordered_map<inode_t, NodeRecord> _nodes;
-        struct EmptyMetadata : public IMetadata {
-        } _metadata;
+        DevFileMetadata _metadata = DevFileMetadata(false);
 
         [[nodiscard]]
         Result<NodeRecord *> lookup_record(inode_t inode_id);
@@ -260,6 +298,12 @@ namespace devfs {
         Result<inode_t> root() final;
         [[nodiscard]]
         Result<util::owner<IINode *>> get_inode(inode_t inode_id) final;
+        [[nodiscard]]
+        Result<uint16_t> inode_mode(inode_t inode_id) final;
+        [[nodiscard]]
+        Result<bool> is_symlink(inode_t inode_id) final;
+        [[nodiscard]]
+        Result<std::string> readlink(inode_t inode_id) final;
         [[nodiscard]]
         IMetadata &metadata() final;
         [[nodiscard]]

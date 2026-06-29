@@ -57,6 +57,7 @@ namespace procfs {
         ROOT_DIR,
         SELF_LINK,
         MEMINFO_FILE,
+        MOUNTS_FILE,
         PID_DIR,
         PROC_FILE,
         PROC_LINK,
@@ -107,6 +108,10 @@ namespace procfs {
         Result<size_t> size() override;
         [[nodiscard]]
         Result<void> sync() override;
+        [[nodiscard]]
+        Result<void> truncate(size_t new_size) override;
+        [[nodiscard]]
+        Result<void> ioctl(size_t cmd, syscall::UBuffer &&arg) override;
         [[nodiscard]]
         IMetadata &metadata() override;
         [[nodiscard]]
@@ -160,6 +165,18 @@ namespace procfs {
         Result<inode_t> mkdir(std::string_view name,
                               const char *options) override;
         [[nodiscard]]
+        Result<void> unlink(std::string_view name) override;
+        [[nodiscard]]
+        Result<void> rmdir(std::string_view name) override;
+        [[nodiscard]]
+        Result<void> link(std::string_view name, inode_t target) override;
+        [[nodiscard]]
+        Result<void> rename(std::string_view old_name, IDirectory &new_parent,
+                            std::string_view new_name) override;
+        [[nodiscard]]
+        Result<inode_t> symlink(std::string_view name,
+                                std::string_view target) override;
+        [[nodiscard]]
         Result<size_t> entry_count() override;
         [[nodiscard]]
         Result<DirectoryEntryInfo> entry_at(size_t index) override;
@@ -198,6 +215,47 @@ namespace procfs {
         Result<size_t> size() override;
         [[nodiscard]]
         Result<void> sync() override;
+        [[nodiscard]]
+        Result<void> truncate(size_t new_size) override;
+        [[nodiscard]]
+        Result<void> ioctl(size_t cmd, syscall::UBuffer &&arg) override;
+        [[nodiscard]]
+        IMetadata &metadata() override;
+        [[nodiscard]]
+        inode_t inode_id() const override;
+        [[nodiscard]]
+        INodeCachePolicy inode_cache() const override;
+        [[nodiscard]]
+        Result<void> getattr(AttrSet &out) const override;
+        [[nodiscard]]
+        Result<void> setattr(AttrMask mask, const AttrSet &attrs) override;
+    };
+
+    class MountsFile final : public IFile {
+    private:
+        ProcFSSuperblock *_sb;
+        ProcNode *_node;
+
+        [[nodiscard]]
+        std::string render() const;
+
+    public:
+        MountsFile(ProcFSSuperblock &sb, ProcNode &node) noexcept;
+        ~MountsFile() final = default;
+
+        [[nodiscard]]
+        Result<size_t> read(off_t offset, void *buf, size_t len) override;
+        [[nodiscard]]
+        Result<size_t> write(off_t offset, const void *buf,
+                             size_t len) override;
+        [[nodiscard]]
+        Result<size_t> size() override;
+        [[nodiscard]]
+        Result<void> sync() override;
+        [[nodiscard]]
+        Result<void> truncate(size_t new_size) override;
+        [[nodiscard]]
+        Result<void> ioctl(size_t cmd, syscall::UBuffer &&arg) override;
         [[nodiscard]]
         IMetadata &metadata() override;
         [[nodiscard]]
@@ -241,6 +299,8 @@ namespace procfs {
         Result<inode_t> root() override;
         [[nodiscard]]
         Result<util::owner<IINode *>> get_inode(inode_t inode_id) override;
+        [[nodiscard]]
+        Result<uint16_t> inode_mode(inode_t inode_id) override;
         [[nodiscard]]
         Result<bool> is_symlink(inode_t inode_id) override;
         [[nodiscard]]

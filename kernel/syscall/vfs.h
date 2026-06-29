@@ -56,6 +56,8 @@ namespace syscall {
     [[nodiscard]]
     Result<void> vfs_truncate(CapIdx file_cap, size_t new_size);
     [[nodiscard]]
+    Result<void> vfs_ioctl(CapIdx file_cap, size_t cmd, UBuffer &&arg);
+    [[nodiscard]]
     Result<void> vfs_rename(CapIdx old_parent_cap, const UString &old_name,
                             CapIdx new_parent_cap, const UString &new_name);
     [[nodiscard]]

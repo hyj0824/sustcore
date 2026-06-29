@@ -89,6 +89,7 @@
 #define SYS_VFS_CHOWN           (SYSCALL_BASE + 0x46)
 #define SYS_VFS_CHOWN_AT        (SYSCALL_BASE + 0x47)
 #define SYS_TCB_TIMEOUT_WAIT    (SYSCALL_BASE + 0x48)
+#define SYS_VFS_IOCTL           (SYSCALL_BASE + 0x49)
 
 // 以SYS_UNSTABLE_BASE开头的系统调用为不稳定接口, 可能会在后续版本中更改或移除
 #define SYS_UNSTABLE_BASE        (0xFFC00000)
@@ -100,3 +101,4 @@
 #define SYS_TIME_NOW_NS          (SYS_UNSTABLE_BASE + 0x06)
 #define SYS_TCB_NANOSLEEP        (SYS_UNSTABLE_BASE + 0x07)
 #define SYS_PCB_EXECVE_POSIX     (SYS_UNSTABLE_BASE + 0x08)
+#define SYS_GETRTCTIME_NS        (SYS_UNSTABLE_BASE + 0x09)

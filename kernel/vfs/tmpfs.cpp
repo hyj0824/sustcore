@@ -153,6 +153,13 @@ namespace tmpfs {
         return resize_file_content(*_node, new_size);
     }
 
+    Result<void> TmpFSFile::ioctl(size_t cmd, syscall::UBuffer &&arg) {
+        (void)cmd;
+        (void)arg;
+        loggers::VFS::ERROR("tmpfs not suppoty ioctl");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
     Result<void> TmpFSFile::sync() {
         void_return();
     }
@@ -223,6 +230,23 @@ namespace tmpfs {
         propagate(node_res);
         node_res.value()->symlink_target.assign(target.data(), target.size());
         return inode_res.value();
+    }
+
+    Result<void> TmpFSDirectory::link(std::string_view name, inode_t target) {
+        (void)name;
+        (void)target;
+        loggers::VFS::ERROR("tmpfs don't support link");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> TmpFSDirectory::rename(std::string_view old_name,
+                                        IDirectory &new_parent,
+                                        std::string_view new_name) {
+        (void)old_name;
+        (void)new_parent;
+        (void)new_name;
+        loggers::VFS::ERROR("tmpfs don't support rename");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
     }
 
     Result<void> TmpFSDirectory::unlink(std::string_view name) {
@@ -439,6 +463,12 @@ namespace tmpfs {
         return util::owner<IINode *>(file);
     }
 
+    Result<uint16_t> TmpFSSuperblock::inode_mode(inode_t inode_id) {
+        auto node_res = lookup_node(inode_id);
+        propagate(node_res);
+        return default_mode(node_res.value()->type);
+    }
+
     Result<bool> TmpFSSuperblock::is_symlink(inode_t inode_id) {
         auto node_res = lookup_node(inode_id);
         propagate(node_res);
@@ -508,6 +538,7 @@ namespace tmpfs {
         _mount = sb;
         return util::owner<ISuperblock *>(sb);
     }
+
 
     Result<void> TmpFSDriver::unmount(ISuperblock *sb) {
         if (_mount == sb) {

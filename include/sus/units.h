@@ -138,7 +138,21 @@ namespace units {
         if (month <= 2)
             year += 1;
 
-        return time_ymd{.year=year, .month=month, .day=day};
+        return time_ymd{.year = year, .month = month, .day = day};
+    }
+
+    constexpr int64_t ymd_to_days(time_ymd ymd) {
+        int64_t year  = ymd.year;
+        int64_t month = ymd.month;
+        int64_t day   = ymd.day;
+
+        year -= month <= 2 ? 1 : 0;
+        const int64_t era = (year >= 0 ? year : year - 399) / 400;
+        const uint64_t yoe = static_cast<uint64_t>(year - era * 400);
+        const uint64_t moy = static_cast<uint64_t>(month + (month > 2 ? -3 : 9));
+        const uint64_t doy = (153 * moy + 2) / 5 + static_cast<uint64_t>(day - 1);
+        const uint64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+        return era * 146097 + static_cast<int64_t>(doe) - 719468;
     }
 
     struct time {
@@ -168,6 +182,36 @@ namespace units {
         constexpr int64_t to_seconds() const {
             return to_milliseconds() / 1'000;
         }
+        [[nodiscard]]
+        constexpr int64_t to_minutes() const {
+            return to_seconds() / 60;
+        }
+        [[nodiscard]]
+        constexpr int64_t to_hours() const {
+            return to_minutes() / 60;
+        }
+        [[nodiscard]]
+        constexpr int64_t to_days() const {
+            return to_hours() / 24;
+        }
+
+        [[nodiscard]]
+        constexpr time_ymd to_ymd() const {
+            return days_to_ymd(to_days());
+        }
+
+        [[nodiscard]]
+        constexpr formatted_time to_formatted_time() const {
+            time_ymd ymd = to_ymd();
+            return formatted_time{
+                .year   = ymd.year,
+                .month  = ymd.month,
+                .day    = ymd.day,
+                .hour   = to_hours() % 24,
+                .minute = to_minutes() % 60,
+                .second = to_seconds() % 60,
+            };
+        }
 
         static constexpr time from_nanoseconds(int64_t ns) {
             return time(ns);
@@ -180,6 +224,27 @@ namespace units {
         }
         static constexpr time from_seconds(int64_t s) {
             return from_milliseconds(s * 1'000);
+        }
+        static constexpr time from_minutes(int64_t m) {
+            return from_seconds(m * 60);
+        }
+        static constexpr time from_hours(int64_t h) {
+            return from_minutes(h * 60);
+        }
+        static constexpr time from_days(int64_t d) {
+            return from_hours(d * 24);
+        }
+        static constexpr time from_ymd(time_ymd ymd) {
+            return from_days(ymd_to_days(ymd));
+        }
+        static constexpr time from_formatted_time(formatted_time ft) {
+            return from_ymd(time_ymd{
+                       .year = ft.year,
+                       .month = ft.month,
+                       .day = ft.day,
+                   }) +
+                   from_hours(ft.hour) + from_minutes(ft.minute) +
+                   from_seconds(ft.second);
         }
 
         constexpr time operator+(const time &other) const {
@@ -208,91 +273,6 @@ namespace units {
             return (nanoseconds * f.to_milihz()) / NANOSECONDS_PER_MILLIHERTZ;
         }
     };  // namespace units
-
-    struct rt_time {
-    protected:
-        int64_t seconds;
-        explicit constexpr rt_time(int64_t s) : seconds(s) {}
-
-    public:
-        explicit constexpr rt_time() : seconds(0) {}
-        explicit constexpr operator int64_t() const {
-            return seconds;
-        }
-
-        [[nodiscard]]
-        constexpr int64_t to_seconds() const {
-            return seconds;
-        }
-
-        [[nodiscard]]
-        constexpr int64_t to_minutes() const {
-            return seconds / 60;
-        }
-
-        [[nodiscard]]
-        constexpr int64_t to_hours() const {
-            return to_minutes() / 60;
-        }
-
-        [[nodiscard]]
-        constexpr int64_t to_days() const {
-            return to_hours() / 24;
-        }
-
-        [[nodiscard]]
-        constexpr int64_t to_weeks() const {
-            return to_days() / 7;
-        }
-
-        [[nodiscard]]
-        constexpr formatted_time to_formatted_time() const {
-            int64_t tot_days = to_days();
-            time_ymd ymd = days_to_ymd(tot_days);
-            return formatted_time{
-                .year   = ymd.year,
-                .month  = ymd.month,
-                .day    = ymd.day,
-                .hour   = (to_hours() % 24),
-                .minute = (to_minutes() % 60),
-                .second = (seconds % 60),
-            };
-        }
-
-        [[nodiscard]]
-        constexpr time to_precison_time() const {
-            return time::from_seconds(seconds);
-        }
-
-        static constexpr rt_time from_seconds(int64_t s) {
-            return rt_time(s);
-        }
-
-        static constexpr rt_time from_minutes(int64_t m) {
-            return from_seconds(m * 60);
-        }
-
-        static constexpr rt_time from_hours(int64_t h) {
-            return from_minutes(h * 60);
-        }
-
-        static constexpr rt_time from_days(int64_t d) {
-            return from_hours(d * 24);
-        }
-
-        static constexpr rt_time from_time(const time &t) {
-            return from_seconds(t.to_seconds());
-        }
-
-        rt_time operator+(const rt_time &other) const {
-            return rt_time(seconds + other.seconds);
-        }
-
-        rt_time &operator+=(const rt_time &other) {
-            seconds += other.seconds;
-            return *this;
-        }
-    };
 
     // calculate the frequenct
     constexpr frequency operator/(uint64_t count, const time &t) {

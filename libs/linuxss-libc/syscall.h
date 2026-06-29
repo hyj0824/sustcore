@@ -41,6 +41,7 @@ struct PipeCreateRet {
 extern "C" SysRet<void> sys_write_serial(size_t __always_zero, const char *str,
                                          size_t len);
 extern "C" SysRet<size_t> sys_time_now_ns();
+extern "C" SysRet<size_t> sys_getrtctime();
 extern "C" SysRet<void> sys_tcb_nanosleep(size_t ns);
 extern "C" SysRet<size_t> sys_tcb_get_tid(CapIdx tcb_cap);
 extern "C" SysRet<void> sys_tcb_kill(CapIdx tcb_cap, int exit_code);
@@ -124,6 +125,8 @@ extern "C" SysRet<void> sys_vfs_stat(CapIdx parent_dir_cap, const char *name,
 extern "C" SysRet<void> sys_vfs_lstat(CapIdx parent_dir_cap, const char *name,
                                       NodeMeta *out);
 extern "C" SysRet<void> sys_vfs_fstat(CapIdx file_cap, NodeMeta *out);
+extern "C" SysRet<void> sys_vfs_ioctl(CapIdx file_cap, size_t cmd, void *arg,
+                                      size_t arg_len);
 extern "C" SysRet<void> sys_vfs_getattr(CapIdx capidx, AttrSet *out);
 extern "C" SysRet<void> sys_vfs_getattr_at(CapIdx parent_dir_cap,
                                            const char *name, AttrSet *out,

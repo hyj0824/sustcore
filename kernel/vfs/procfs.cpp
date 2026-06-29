@@ -297,6 +297,9 @@ namespace procfs {
     MeminfoFile::MeminfoFile(ProcFSSuperblock &sb, ProcNode &node) noexcept
         : _sb(&sb), _node(&node) {}
 
+    MountsFile::MountsFile(ProcFSSuperblock &sb, ProcNode &node) noexcept
+        : _sb(&sb), _node(&node) {}
+
     Result<void> MeminfoFile::getattr(AttrSet &out) const {
         out.mode    = S_IFREG | 0444;
         out.uid     = 0;
@@ -316,11 +319,25 @@ namespace procfs {
 
     Result<void> MeminfoFile::setattr(AttrMask mask, const AttrSet &attrs) {
         (void)mask; (void)attrs;
+        loggers::VFS::ERROR("procfs don't support setattr");
         unexpect_return(ErrCode::NOT_SUPPORTED);
     }
 
     Result<void> ProcFileNode::sync() {
         void_return();
+    }
+
+    Result<void> ProcFileNode::truncate(size_t new_size) {
+        (void)new_size;
+        loggers::VFS::ERROR("procfs don't support truncate");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> ProcFileNode::ioctl(size_t cmd, syscall::UBuffer &&arg) {
+        (void)cmd;
+        (void)arg;
+        loggers::VFS::ERROR("procfs not suppoty ioctl");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
     }
 
     IMetadata &ProcFileNode::metadata() {
@@ -354,6 +371,7 @@ namespace procfs {
 
     Result<void> ProcFileNode::setattr(AttrMask mask, const AttrSet &attrs) {
         (void)mask; (void)attrs;
+        loggers::VFS::ERROR("procfs don't support setattr");
         unexpect_return(ErrCode::NOT_SUPPORTED);
     }
 
@@ -392,6 +410,7 @@ namespace procfs {
 
     Result<void> ProcSymlinkNode::setattr(AttrMask mask, const AttrSet &attrs) {
         (void)mask; (void)attrs;
+        loggers::VFS::ERROR("procfs don't support setattr");
         unexpect_return(ErrCode::NOT_SUPPORTED);
     }
 
@@ -400,10 +419,39 @@ namespace procfs {
         : _sb(&sb), _node(&node) {}
 
     Result<inode_t> ProcDirectoryNode::mkfile(std::string_view, const char *) {
+        loggers::VFS::ERROR("procfs don't support mkfile");
         unexpect_return(ErrCode::NOT_SUPPORTED);
     }
 
     Result<inode_t> ProcDirectoryNode::mkdir(std::string_view, const char *) {
+        loggers::VFS::ERROR("procfs don't support mkdir");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> ProcDirectoryNode::unlink(std::string_view) {
+        loggers::VFS::ERROR("procfs don't support unlink");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> ProcDirectoryNode::rmdir(std::string_view) {
+        loggers::VFS::ERROR("procfs don't support rmdir");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> ProcDirectoryNode::link(std::string_view, inode_t) {
+        loggers::VFS::ERROR("procfs don't support link");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> ProcDirectoryNode::rename(std::string_view, IDirectory &,
+                                           std::string_view) {
+        loggers::VFS::ERROR("procfs don't support rename");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<inode_t> ProcDirectoryNode::symlink(std::string_view,
+                                               std::string_view) {
+        loggers::VFS::ERROR("procfs don't support symlink");
         unexpect_return(ErrCode::NOT_SUPPORTED);
     }
 
@@ -440,6 +488,7 @@ namespace procfs {
 
     Result<void> ProcDirectoryNode::setattr(AttrMask mask, const AttrSet &attrs) {
         (void)mask; (void)attrs;
+        loggers::VFS::ERROR("procfs don't support setattr");
         unexpect_return(ErrCode::NOT_SUPPORTED);
     }
 
@@ -466,7 +515,14 @@ namespace procfs {
                                        .entry    = nullptr,
                                        .metadata = {},
                                    });
-        _next_inode = 3;
+        _nodes.insert_or_assign(3, ProcNode{
+                                       .inode_id = 3,
+                                       .kind     = NodeKind::MOUNTS_FILE,
+                                       .pid      = 0,
+                                       .entry    = nullptr,
+                                       .metadata = {},
+                                   });
+        _next_inode = 4;
     }
 
     Result<ProcNode *> ProcFSSuperblock::lookup_node(
@@ -537,7 +593,30 @@ namespace procfs {
     }
 
     Result<inode_t> ProcFSSuperblock::alloc_inode(INodeType) {
+        loggers::VFS::ERROR("procfs don't support alloc_inode");
         unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<uint16_t> ProcFSSuperblock::inode_mode(inode_t inode_id) {
+        auto node_res = lookup_node(inode_id);
+        propagate(node_res);
+        AttrSet attrs{};
+        switch (node_res.value()->kind) {
+            case NodeKind::ROOT_DIR:
+            case NodeKind::PID_DIR:
+                attrs.mode = S_IFDIR | 0755;
+                break;
+            case NodeKind::SELF_LINK:
+            case NodeKind::PROC_LINK:
+                attrs.mode = S_IFLNK | 0777;
+                break;
+            case NodeKind::MEMINFO_FILE:
+            case NodeKind::MOUNTS_FILE:
+            case NodeKind::PROC_FILE:
+                attrs.mode = S_IFREG | 0444;
+                break;
+        }
+        return attrs.mode;
     }
 
     Result<void> ProcFSSuperblock::free_inode(inode_t id) {
@@ -559,7 +638,7 @@ namespace procfs {
 
     Result<size_t> ProcDirectoryNode::entry_count() {
         if (_node->kind == NodeKind::ROOT_DIR) {
-            return task::TaskManager::inst().snapshot_pids().size() + 2;
+            return task::TaskManager::inst().snapshot_pids().size() + 3;
         }
         if (_node->kind == NodeKind::PID_DIR) {
             return PROC_STATE_ENTRIES_COUNT;
@@ -575,8 +654,11 @@ namespace procfs {
             if (index == 1) {
                 return DirectoryEntryInfo{.name = "meminfo"};
             }
+            if (index == 2) {
+                return DirectoryEntryInfo{.name = "mounts"};
+            }
             auto pids        = task::TaskManager::inst().snapshot_pids();
-            size_t pid_index = index - 2;
+            size_t pid_index = index - 3;
             if (pid_index >= pids.size()) {
                 unexpect_return(ErrCode::OUT_OF_BOUNDARY);
             }
@@ -607,6 +689,9 @@ namespace procfs {
             }
             if (name == "meminfo") {
                 return inode_t(2);
+            }
+            if (name == "mounts") {
+                return inode_t(3);
             }
             pid_t pid = 0;
             if (name.empty()) {
@@ -665,6 +750,13 @@ namespace procfs {
             }
             case NodeKind::MEMINFO_FILE: {
                 auto *file = new MeminfoFile(*this, *node);
+                if (file == nullptr) {
+                    unexpect_return(ErrCode::OUT_OF_MEMORY);
+                }
+                return util::owner<IINode *>(file);
+            }
+            case NodeKind::MOUNTS_FILE: {
+                auto *file = new MountsFile(*this, *node);
                 if (file == nullptr) {
                     unexpect_return(ErrCode::OUT_OF_MEMORY);
                 }
@@ -904,6 +996,19 @@ namespace procfs {
         void_return();
     }
 
+    Result<void> MeminfoFile::truncate(size_t new_size) {
+        (void)new_size;
+        loggers::VFS::ERROR("procfs don't support truncate");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> MeminfoFile::ioctl(size_t cmd, syscall::UBuffer &&arg) {
+        (void)cmd;
+        (void)arg;
+        loggers::VFS::ERROR("procfs not suppoty ioctl");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
     IMetadata &MeminfoFile::metadata() {
         return _node->metadata;
     }
@@ -913,6 +1018,102 @@ namespace procfs {
     }
 
     INodeCachePolicy MeminfoFile::inode_cache() const {
+        return INodeCachePolicy::NONE;
+    }
+
+    Result<void> MountsFile::getattr(AttrSet &out) const {
+        out.mode    = S_IFREG | 0444;
+        out.uid     = 0;
+        out.gid     = 0;
+        auto size_res = const_cast<MountsFile *>(this)->size();
+        if (!size_res.has_value()) { propagate_return(size_res); }
+        out.size    = size_res.value();
+        out.inode   = _node->inode_id;
+        out.nlink   = 1;
+        out.atime   = 0;
+        out.mtime   = 0;
+        out.ctime   = 0;
+        out.blksize = 512;
+        out.blocks  = (out.size + 511) / 512;
+        void_return();
+    }
+
+    Result<void> MountsFile::setattr(AttrMask mask, const AttrSet &attrs) {
+        (void)mask;
+        (void)attrs;
+        loggers::VFS::ERROR("procfs don't support setattr");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    std::string MountsFile::render() const {
+        auto mounts = VFS::inst().snapshot_mounts();
+        std::string out{};
+        for (const auto &mount : mounts) {
+            out += mount.source;
+            out += " ";
+            out += mount.target;
+            out += " ";
+            out += mount.fsname;
+            out += " ";
+            out += mount.options;
+            out += " 0 0\n";
+        }
+        return out;
+    }
+
+    Result<size_t> MountsFile::read(off_t offset, void *buf, size_t len) {
+        if (offset < 0) {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+        auto content = render();
+        size_t off = static_cast<size_t>(offset);
+        if (off >= content.size()) {
+            return 0;
+        }
+        size_t actual = std::min(len, content.size() - off);
+        if (actual != 0 && buf == nullptr) {
+            unexpect_return(ErrCode::NULLPTR);
+        }
+        if (actual != 0) {
+            memcpy(buf, content.data() + off, actual);
+        }
+        return actual;
+    }
+
+    Result<size_t> MountsFile::write(off_t, const void *, size_t) {
+        unexpect_return(ErrCode::INSUFFICIENT_PERMISSIONS);
+    }
+
+    Result<size_t> MountsFile::size() {
+        return render().size();
+    }
+
+    Result<void> MountsFile::sync() {
+        void_return();
+    }
+
+    Result<void> MountsFile::truncate(size_t new_size) {
+        (void)new_size;
+        loggers::VFS::ERROR("procfs don't support truncate");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<void> MountsFile::ioctl(size_t cmd, syscall::UBuffer &&arg) {
+        (void)cmd;
+        (void)arg;
+        loggers::VFS::ERROR("procfs not suppoty ioctl");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    IMetadata &MountsFile::metadata() {
+        return _node->metadata;
+    }
+
+    inode_t MountsFile::inode_id() const {
+        return _node->inode_id;
+    }
+
+    INodeCachePolicy MountsFile::inode_cache() const {
         return INodeCachePolicy::NONE;
     }
 
@@ -951,6 +1152,7 @@ namespace procfs {
         }
         return util::owner<ISuperblock *>(sb);
     }
+
 
     Result<void> ProcFSDriver::unmount(ISuperblock *sb) {
         delete sb;

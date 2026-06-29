@@ -20,6 +20,7 @@ size_t linux_sys_readv(int fd, const void *iov, int iovcnt);
 size_t linux_sys_close(int fd);
 size_t linux_sys_dup(int oldfd);
 size_t linux_sys_dup3(int oldfd, int newfd, int flags);
+size_t linux_sys_ioctl(int fd, size_t request, size_t arg);
 size_t linux_open_fd(const char *pathname, int fd, int flags);
 size_t linux_opendir_fd(const char *pathname, int fd);
 size_t linux_bind_cap_fd(CapIdx cap, int fd, bool append);
@@ -32,6 +33,8 @@ size_t linux_sys_readlinkat(int dirfd, const char *pathname, char *buf,
                             size_t bufsiz);
 size_t linux_sys_mkdirat(int dirfd, const char *pathname, int mode);
 size_t linux_sys_unlinkat(int dirfd, const char *pathname, int flags);
+size_t linux_sys_renameat2(int olddirfd, const char *oldpath, int newdirfd,
+                           const char *newpath, unsigned int flags);
 size_t linux_sys_getdents64(int fd, void *dirp, size_t count);
 size_t linux_sys_fstat(int fd, void *statbuf);
 size_t linux_sys_fchmodat(int dirfd, const char *pathname, uint32_t mode);

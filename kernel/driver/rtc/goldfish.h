@@ -13,6 +13,9 @@
 
 #include <driver/base.h>
 #include <driver/factory.h>
+#include <driver/rtc/rtc.h>
+#include <syscall/uaccess.h>
+#include <vfs/device.h>
 #include <sus/types.h>
 #include <sus/units.h>
 
@@ -23,21 +26,38 @@ namespace driver {
     /**
      * @brief 串口驱动
      */
-    class GoldfishRTC final : public DriverBase {
+    class GoldfishRTC final : public DriverBase, public rtc::IRTC {
     private:
         static constexpr std::string_view GOLDFISH_RTC_COMPATIBLE =
             "google,goldfish-rtc";
 
     public:
         using AlarmHandler = std::function<void(units::time)>;
+        struct rtc_tm {
+            int tm_sec;
+            int tm_min;
+            int tm_hour;
+            int tm_mday;
+            int tm_mon;
+            int tm_year;
+            int tm_wday;
+            int tm_yday;
+            int tm_isdst;
+        };
+        static constexpr size_t RTC_RD_TIME = 0x80247009ULL;
 
         /**
          * @brief 销毁驱动.
          */
-        ~GoldfishRTC() override = default;
+        ~GoldfishRTC() override;
 
         [[nodiscard]]
-        units::time read_time() const noexcept;
+        std::string_view compatible() const noexcept override {
+            return GOLDFISH_RTC_COMPATIBLE;
+        }
+
+        [[nodiscard]]
+        units::time read_time() noexcept override;
 
         /**
          * @brief 设置 RTC 闹钟与到期处理函数.
@@ -46,6 +66,11 @@ namespace driver {
          * @param handler 到期时调用的处理函数.
          */
         void set_alarm(units::time when, AlarmHandler handler) noexcept;
+
+        [[nodiscard]]
+        Result<void> mount(CapIdx devdir) noexcept override;
+
+        Result<void> ioctl(size_t cmd, syscall::UBuffer &&arg) noexcept;
 
     private:
         /**

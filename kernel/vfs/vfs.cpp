@@ -1840,6 +1840,12 @@ Result<void> VFS::truncate(cap::Capability &file_cap, size_t new_size) {
     void_return();
 }
 
+Result<void> VFS::ioctl(VFile &vfile, size_t cmd, syscall::UBuffer &&arg) {
+    auto file_res = vfile.vinode()->inode()->as_file();
+    propagate(file_res);
+    return file_res.value()->ioctl(cmd, std::move(arg));
+}
+
 Result<void> VFS::link(cap::Capability &parent_dir_cap, const char *relpath,
                        cap::Capability &target_inode_cap) {
     auto *parent = parent_dir_cap.payload_as<VDirectory>();
@@ -1953,6 +1959,31 @@ Result<ISuperblock *> VFS::get_pseudo(const char *pseudo_fs_id) {
         unexpect_return(ErrCode::ENTRY_NOT_FOUND);
     }
     return (*lookup_res.value())->sb();
+}
+
+std::vector<VFS::MountView> VFS::snapshot_mounts() const {
+    std::vector<MountView> mounts{};
+    mounts.reserve(mount_table.size());
+    for (const auto &[_, record] : mount_table) {
+        MountView view{};
+        view.target  = static_cast<std::string>(record.mount_path);
+        view.fsname  = record.superblock->vfsd().fsd()->name();
+        view.options = "rw";
+        if (record.is_block_mount) {
+            char source[32]{};
+            snprintf(source, sizeof(source), "/dev/blk%lu",
+                     static_cast<unsigned long>(record.devno));
+            view.source = source;
+        } else {
+            view.source = view.fsname;
+        }
+        mounts.push_back(std::move(view));
+    }
+    std::sort(mounts.begin(), mounts.end(),
+              [](const MountView &lhs, const MountView &rhs) {
+        return lhs.target < rhs.target;
+    });
+    return mounts;
 }
 
 Result<devfs::DevFSSuperblock *> VFS::devfs() {

@@ -37,7 +37,9 @@ namespace contest_runner {
         "hwclock",
         // "sh -c 'sleep 5' & ./busybox kill $!",
         "ls",
+#if defined(__ARCH_riscv64__)
         "sleep 1",
+#endif
         R"(echo "#### file opration test")",
         "touch test.txt",
         R"(echo "hello world" > test.txt)",

@@ -13,6 +13,7 @@
 #include <driver/rtc/goldfish.h>
 #include <logger.h>
 #include <sustcore/errcode.h>
+#include <vfs/vfs.h>
 
 namespace driver {
     namespace {
@@ -24,6 +25,37 @@ namespace driver {
             .fdt_ids = GOLDFISH_RTC_FDT_IDS,
             .pci_ids = nullptr,
         };
+
+        class GoldfishRtcFile final : public devfs::CharDevFile {
+        private:
+            GoldfishRTC &_device;
+
+        public:
+            GoldfishRtcFile(inode_t inode_id, GoldfishRTC &device)
+                : CharDevFile(inode_id), _device(device) {}
+
+            [[nodiscard]]
+            Result<size_t> write(const void *buf, size_t len) override {
+                (void)buf;
+                (void)len;
+                unexpect_return(ErrCode::NOT_SUPPORTED);
+            }
+
+            [[nodiscard]]
+            Result<void> ioctl(size_t cmd, syscall::UBuffer &&arg) override {
+                return _device.ioctl(cmd, std::move(arg));
+            }
+        };
+
+        Result<util::owner<IINode *>> create_goldfish_rtc_file(void *ctx,
+                                                                inode_t inode_id) {
+            auto *device = static_cast<GoldfishRTC *>(ctx);
+            auto *file   = new GoldfishRtcFile(inode_id, *device);
+            if (file == nullptr) {
+                unexpect_return(ErrCode::OUT_OF_MEMORY);
+            }
+            return util::owner<IINode *>(file);
+        }
     }  // namespace
 
     GoldfishRTC::GoldfishRTC(DevRes res, char *base, virq_t virq) noexcept
@@ -43,10 +75,26 @@ namespace driver {
             _virqs[0]->register_handler(this_call(this,
                                                   &GoldfishRTC::handle_alarm_irq));
         assert (register_res.has_value());
+
+        auto *platform = device::DeviceModel::inst().platform();
+        if (platform != nullptr) {
+            if (platform->rpc() == nullptr) {
+                platform->set_rpc(this);
+            } else {
+                loggers::DEVICE::WARN(
+                    "Goldfish RTC 未绑定到 Platform::rpc: 已存在 realtime provider");
+            }
+        }
     }
 
-    [[nodiscard]]
-    units::time GoldfishRTC::read_time() const noexcept {
+    GoldfishRTC::~GoldfishRTC() {
+        auto *platform = device::DeviceModel::inst().platform();
+        if (platform != nullptr) {
+            platform->clear_rpc(this);
+        }
+    }
+
+    units::time GoldfishRTC::read_time() noexcept {
         sus_u64 time = (static_cast<sus_u64>(regs->time_high) << 32) | regs->time_low;
         return units::time::from_nanoseconds(time);
     }
@@ -60,8 +108,7 @@ namespace driver {
     void GoldfishRTC::set_alarm(units::time when, AlarmHandler handler) noexcept {
         _alarm_handler = std::move(handler);
 
-        const auto formatted_alarm =
-            units::rt_time::from_time(when).to_formatted_time();
+        const auto formatted_alarm = when.to_formatted_time();
         loggers::SUSTCORE::INFO("设置闹钟时间: %04u-%02u-%02u %02u:%02u:%02u",
                                 formatted_alarm.year, formatted_alarm.month,
                                 formatted_alarm.day, formatted_alarm.hour,
@@ -87,6 +134,54 @@ namespace driver {
         loggers::SUSTCORE::DEBUG("Goldfish RTC alarm 已设置: virq=%llu status=0x%08x",
                                  static_cast<unsigned long long>(_virq),
                                  regs->alarm_status);
+    }
+
+    Result<void> GoldfishRTC::mount(CapIdx devdir) noexcept {
+        auto &vfs = VFS::inst();
+        auto devfs_res = vfs.devfs();
+        propagate(devfs_res);
+        auto &devfs = *devfs_res.value();
+
+        auto lookup_res = holder().lookup(devdir);
+        propagate(lookup_res);
+        auto &dircap = *lookup_res.value();
+
+        auto mkres =
+            vfs.mkfile(dircap, "rtc", flags::O_READ, holder());
+        propagate(mkres);
+
+        lookup_res = holder().lookup(mkres.value());
+        propagate(lookup_res);
+        auto &filecap = *lookup_res.value();
+        auto link_res = devfs.link_char(
+            filecap,
+            devfs::CharFactory{.ctx = this, .create = create_goldfish_rtc_file});
+        propagate(link_res);
+        void_return();
+    }
+
+    Result<void> GoldfishRTC::ioctl(size_t cmd, syscall::UBuffer &&arg) noexcept {
+        if (cmd != RTC_RD_TIME) {
+            unexpect_return(ErrCode::NOT_SUPPORTED);
+        }
+        if (arg.kbuf() == nullptr || arg.len() < sizeof(rtc_tm)) {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+
+        rtc_tm tm{};
+        auto ft = read_time().to_formatted_time();
+        tm.tm_sec   = static_cast<int>(ft.second);
+        tm.tm_min   = static_cast<int>(ft.minute);
+        tm.tm_hour  = static_cast<int>(ft.hour);
+        tm.tm_mday  = static_cast<int>(ft.day);
+        tm.tm_mon   = static_cast<int>(ft.month - 1);
+        tm.tm_year  = static_cast<int>(ft.year - 1900);
+        tm.tm_wday  = 0;
+        tm.tm_yday  = 0;
+        tm.tm_isdst = 0;
+
+        memcpy(arg.kbuf(), &tm, sizeof(tm));
+        return arg.commit_to_user(sizeof(tm));
     }
 
     /**

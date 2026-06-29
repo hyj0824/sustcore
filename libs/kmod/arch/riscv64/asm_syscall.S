@@ -17,6 +17,13 @@ sys_shutdown:
     ecall
     ret
 
+    .global sys_getrtctime
+    .type   sys_getrtctime, @function
+sys_getrtctime:
+    li a7, SYS_GETRTCTIME_NS
+    ecall
+    ret
+
     .global sys_tcb_kill
     .type sys_tcb_kill, @function
 sys_tcb_kill:
@@ -407,6 +414,14 @@ sys_vfs_lstat:
 sys_vfs_fstat:
     /* a0 = file_cap, a1 = stat* */
     li a7, SYS_VFS_FSTAT
+    ecall
+    ret
+
+    .global sys_vfs_ioctl
+    .type sys_vfs_ioctl, @function
+sys_vfs_ioctl:
+    /* a0 = file_cap, a1 = cmd, a2 = arg, a3 = arg_len */
+    li a7, SYS_VFS_IOCTL
     ecall
     ret
 

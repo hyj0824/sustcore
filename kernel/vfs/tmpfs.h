@@ -88,6 +88,8 @@ namespace tmpfs {
         [[nodiscard]]
         Result<void> truncate(size_t new_size) override;
         [[nodiscard]]
+        Result<void> ioctl(size_t cmd, syscall::UBuffer &&arg) override;
+        [[nodiscard]]
         Result<void> sync() override;
         [[nodiscard]]
         Result<void> getattr(AttrSet &out) const override;
@@ -123,6 +125,11 @@ namespace tmpfs {
         [[nodiscard]]
         Result<inode_t> symlink(std::string_view name,
                                 std::string_view target) override;
+        [[nodiscard]]
+        Result<void> link(std::string_view name, inode_t target) override;
+        [[nodiscard]]
+        Result<void> rename(std::string_view old_name, IDirectory &new_parent,
+                            std::string_view new_name) override;
         [[nodiscard]]
         Result<void> unlink(std::string_view name) override;
         [[nodiscard]]
@@ -171,6 +178,8 @@ namespace tmpfs {
         Result<inode_t> root() final;
         [[nodiscard]]
         Result<util::owner<IINode *>> get_inode(inode_t inode_id) final;
+        [[nodiscard]]
+        Result<uint16_t> inode_mode(inode_t inode_id) final;
         [[nodiscard]]
         Result<bool> is_symlink(inode_t inode_id) final;
         [[nodiscard]]

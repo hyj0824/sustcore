@@ -18,6 +18,7 @@
 #include <driver/model.h>
 #include <driver/pci_host.h>
 #include <driver/rtc/goldfish.h>
+#include <driver/rtc/ls7a.h>
 #include <driver/serial.h>
 #include <driver/syscon-poweroff.h>
 #include <driver/virtio/virtio-blk.h>
@@ -202,6 +203,11 @@ namespace {
         register_res = driver::DriverModel::inst().register_factory(
             util::owner<driver::IDeviceFactory *>(
                 new driver::GoldfishRTCFactory()));
+        propagate(register_res);
+
+        register_res = driver::DriverModel::inst().register_factory(
+            util::owner<driver::IDeviceFactory *>(
+                new driver::LS7ARTCFactory()));
         propagate(register_res);
 
         register_res = driver::DriverModel::inst().register_factory(

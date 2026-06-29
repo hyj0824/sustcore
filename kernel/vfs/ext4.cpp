@@ -256,6 +256,13 @@ namespace ext4 {
         return _sb->truncate(_inode_id, static_cast<uint64_t>(new_size));
     }
 
+    Result<void> Ext4File::ioctl(size_t cmd, syscall::UBuffer &&arg) {
+        (void)cmd;
+        (void)arg;
+        loggers::VFS::ERROR("ext4 not suppoty ioctl");
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
     IMetadata &Ext4File::metadata() {
         return _metadata;
     }

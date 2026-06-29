@@ -443,6 +443,63 @@ void setup_stdout_link() {
     }
 }
 
+void setup_rtc_link(CapIdx root_dir_cap) {
+    auto sysdev_res =
+        sys_vfs_opendir(root_dir_cap, "sys/dev", flags::O_READ).to_result();
+    CapIdx sysdev_cap =
+        sysdev_res.has_value() ? sysdev_res.value() : cap::error;
+    if (sysdev_cap == cap::null || sysdev_cap == cap::error) {
+        return;
+    }
+
+    auto dev_names = get_alldents(sysdev_cap);
+    for (const auto &device_name : dev_names) {
+        auto device_dir_res =
+            sys_vfs_opendir(sysdev_cap, device_name.c_str(), flags::O_READ)
+                .to_result();
+        CapIdx device_dir =
+            device_dir_res.has_value() ? device_dir_res.value() : cap::error;
+        if (device_dir == cap::null || device_dir == cap::error) {
+            continue;
+        }
+
+        auto child_names = get_alldents(device_dir);
+        bool has_rtc     = false;
+        for (const auto &child_name : child_names) {
+            if (child_name == "rtc") {
+                has_rtc = true;
+                break;
+            }
+        }
+        (void)sys_cap_remove(device_dir).to_result();
+        if (!has_rtc) {
+            continue;
+        }
+
+        std::string source_path = "/sys/dev/" + device_name + "/rtc";
+        if (force_symlink("/dev/rtc", source_path.c_str())) {
+            printf("init: link /dev/rtc -> %s\n", source_path.c_str());
+        }
+        break;
+    }
+
+    (void)sys_cap_remove(sysdev_cap).to_result();
+}
+
+void setup_localtime_link(CapIdx root_dir_cap) {
+    auto etc_dir_res =
+        sys_vfs_mkdir(root_dir_cap, "etc/",
+                      flags::O_READ | flags::O_WRITE | flags::O_EXECUTE)
+            .to_result();
+    CapIdx etc_dir = etc_dir_res.has_value() ? etc_dir_res.value() : cap::error;
+    if (etc_dir != cap::null && etc_dir != cap::error) {
+        (void)sys_cap_remove(etc_dir).to_result();
+    }
+    if (force_symlink("/etc/localtime", "/initrd/localtime")) {
+        printf("init: link /etc/localtime -> /initrd/localtime\n");
+    }
+}
+
 void run_requests(const std::vector<SpawnRequest> &requests,
                   CapIdx root_dir_cap) {
     for (const auto &request : requests) {
@@ -500,6 +557,8 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
 
     create_blk_linkings(root_dir_cap);
     setup_stdout_link();
+    setup_rtc_link(root_dir_cap);
+    setup_localtime_link(root_dir_cap);
 
     // make a link /bin/ls -> /dev/stdout
     // 只是为了让 which ls 能够正常工作
@@ -544,11 +603,6 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
         //     .path         = "/initrd/test-procfs.mod",
         //     .dispname     = "test-procfs",
         //     .is_linuxproc = false,
-        // },
-        // SpawnRequest{
-        //     .path       = "/initrd/tmp/write",
-        //     .dispname   = "write",
-        //     .is_linuxproc = true,
         // },
         // SpawnRequest{
         //     .path         = "/initrd/contest-runner.mod",

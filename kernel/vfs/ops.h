@@ -18,6 +18,8 @@
 #include <sustcore/errcode.h>
 
 #include <sustcore/attr.h>
+#include <sus/logger.h>
+#include <syscall/uaccess.h>
 
 #include <concepts>
 #include <cstddef>
@@ -185,10 +187,9 @@ public:
     [[nodiscard]]
     virtual Result<void> sync() = 0;
     [[nodiscard]]
-    virtual Result<void> truncate(size_t new_size) {
-        (void)new_size;
-        unexpect_return(ErrCode::NOT_SUPPORTED);
-    }
+    virtual Result<void> truncate(size_t new_size) = 0;
+    [[nodiscard]]
+    virtual Result<void> ioctl(size_t cmd, syscall::UBuffer &&arg) = 0;
     /**
      * @brief 获取文件内容缓存策略
      *
@@ -200,16 +201,9 @@ public:
     }
 
     [[nodiscard]]
-    Result<void> getattr(AttrSet &out) const override {
-        (void)out;
-        unexpect_return(ErrCode::NOT_SUPPORTED);
-    }
+    Result<void> getattr(AttrSet &out) const override = 0;
     [[nodiscard]]
-    Result<void> setattr(AttrMask mask, const AttrSet &attrs) override {
-        (void)mask;
-        (void)attrs;
-        unexpect_return(ErrCode::NOT_SUPPORTED);
-    }
+    Result<void> setattr(AttrMask mask, const AttrSet &attrs) override = 0;
 };
 
 class ISymlink : public IINode {
@@ -226,16 +220,9 @@ public:
     virtual Result<std::string> target() = 0;
 
     [[nodiscard]]
-    Result<void> getattr(AttrSet &out) const override {
-        (void)out;
-        unexpect_return(ErrCode::NOT_SUPPORTED);
-    }
+    Result<void> getattr(AttrSet &out) const override = 0;
     [[nodiscard]]
-    Result<void> setattr(AttrMask mask, const AttrSet &attrs) override {
-        (void)mask;
-        (void)attrs;
-        unexpect_return(ErrCode::NOT_SUPPORTED);
-    }
+    Result<void> setattr(AttrMask mask, const AttrSet &attrs) override = 0;
 };
 
 /**
@@ -270,33 +257,18 @@ public:
     [[nodiscard]]
     virtual Result<DirectoryEntryInfo> entry_at(size_t index) = 0;
     [[nodiscard]]
-    virtual Result<void> unlink(std::string_view name) {
-        (void)name;
-        unexpect_return(ErrCode::NOT_SUPPORTED);
-    }
+    virtual Result<void> unlink(std::string_view name) = 0;
     [[nodiscard]]
-    virtual Result<void> rmdir(std::string_view name) {
-        (void)name;
-        unexpect_return(ErrCode::NOT_SUPPORTED);
-    }
+    virtual Result<void> rmdir(std::string_view name) = 0;
     [[nodiscard]]
-    virtual Result<void> link(std::string_view name, inode_t target) {
-        (void)name; (void)target;
-        unexpect_return(ErrCode::NOT_SUPPORTED);
-    }
+    virtual Result<void> link(std::string_view name, inode_t target) = 0;
     [[nodiscard]]
     virtual Result<void> rename(std::string_view old_name,
                                 IDirectory &new_parent,
-                                std::string_view new_name) {
-        (void)old_name; (void)new_parent; (void)new_name;
-        unexpect_return(ErrCode::NOT_SUPPORTED);
-    }
+                                std::string_view new_name) = 0;
     [[nodiscard]]
     virtual Result<inode_t> symlink(std::string_view name,
-                                    std::string_view target) {
-        (void)name; (void)target;
-        unexpect_return(ErrCode::NOT_SUPPORTED);
-    }
+                                    std::string_view target) = 0;
     /**
      * @brief 同步目录数据到存储设备
      *
@@ -306,16 +278,9 @@ public:
     virtual Result<void> sync() = 0;
 
     [[nodiscard]]
-    Result<void> getattr(AttrSet &out) const override {
-        (void)out;
-        unexpect_return(ErrCode::NOT_SUPPORTED);
-    }
+    Result<void> getattr(AttrSet &out) const override = 0;
     [[nodiscard]]
-    Result<void> setattr(AttrMask mask, const AttrSet &attrs) override {
-        (void)mask;
-        (void)attrs;
-        unexpect_return(ErrCode::NOT_SUPPORTED);
-    }
+    Result<void> setattr(AttrMask mask, const AttrSet &attrs) override = 0;
 };
 
 /**
@@ -351,20 +316,11 @@ public:
      */
     virtual Result<util::owner<IINode *>> get_inode(inode_t inode_id) = 0;
     [[nodiscard]]
-    virtual Result<uint16_t> inode_mode(inode_t inode_id) {
-        (void)inode_id;
-        unexpect_return(ErrCode::NOT_SUPPORTED);
-    }
+    virtual Result<uint16_t> inode_mode(inode_t inode_id) = 0;
     [[nodiscard]]
-    virtual Result<bool> is_symlink(inode_t inode_id) {
-        (void)inode_id;
-        return false;
-    }
+    virtual Result<bool> is_symlink(inode_t inode_id) = 0;
     [[nodiscard]]
-    virtual Result<std::string> readlink(inode_t inode_id) {
-        (void)inode_id;
-        unexpect_return(ErrCode::NOT_SUPPORTED);
-    }
+    virtual Result<std::string> readlink(inode_t inode_id) = 0;
     // 分配一个新的 inode（通常由目录的创建操作调用）
     [[nodiscard]]
     virtual Result<inode_t> alloc_inode(INodeType type) = 0;
@@ -429,11 +385,17 @@ public:
     ~IPesudoFsDriver() = default;
 
     Result<void> probe(size_t devno, const char *options) final {
+        (void)devno;
+        (void)options;
+        loggers::VFS::ERROR("%s don't support probe", name());
         unexpect_return(ErrCode::NOT_SUPPORTED);
     }
 
     Result<util::owner<ISuperblock *>> mount(size_t devno,
                                              const char *options) final {
+        (void)devno;
+        (void)options;
+        loggers::VFS::ERROR("%s don't support mount", name());
         unexpect_return(ErrCode::NOT_SUPPORTED);
     }
 
