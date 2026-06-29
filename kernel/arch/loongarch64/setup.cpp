@@ -129,6 +129,5 @@ Result<void> Initialization::init_clock() {
 }
 
 void Idle::idle() {
-    while (true) {
-    }
+    asm volatile("idle 0");
 }

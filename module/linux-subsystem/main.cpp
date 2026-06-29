@@ -221,7 +221,7 @@ namespace {
                 if (start > LINUX_MMAP_SCAN_LIMIT) {
                     continue;
                 }
-                size_t end   = start + infos[i].vma_size;
+                size_t end = start + infos[i].vma_size;
                 if (end > max_end) {
                     max_end = end;
                 }
@@ -247,7 +247,7 @@ namespace {
                 if (start > LINUX_MMAP_SCAN_LIMIT) {
                     continue;
                 }
-                size_t end   = start + infos[i].vma_size;
+                size_t end = start + infos[i].vma_size;
                 if (cursor + length <= start) {
                     return cursor;
                 }
@@ -448,8 +448,8 @@ void dump_bsargv(size_t bsargc, const bsheader *const *bsargv) {
                 printf(
                     "bsargv[%u] = { type=TYPE_SHELLIO, size=%u, "
                     "shellio_target=%d, shellio_flags=%d}\n",
-                    static_cast<unsigned>(i), record->size,
-                    shellio_view.target, shellio_view.flags);
+                    static_cast<unsigned>(i), record->size, shellio_view.target,
+                    shellio_view.flags);
                 continue;
             }
             default:
@@ -608,8 +608,9 @@ size_t linux_sys_mmap(void *addr, size_t length, size_t prot, size_t flags,
     size_t file_offset      = 0;
     if (is_anonymous) {
         if (fd != static_cast<size_t>(-1)) {
-            loggers::LXSC::WARN("anonymous mmap requires fd=-1, got fd=%ld, ignored",
-                                 static_cast<long>(fd));
+            loggers::LXSC::WARN(
+                "anonymous mmap requires fd=-1, got fd=%ld, ignored",
+                static_cast<long>(fd));
             fd = -1;
         }
     } else {
@@ -699,19 +700,19 @@ extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
                 static_cast<int>(a0), reinterpret_cast<int *>(a1),
                 static_cast<int>(a2), reinterpret_cast<void *>(a3));
         case __NR_rt_sigtimedwait:
-            return linux_sys_rt_sigtimedwait(
-                reinterpret_cast<const void *>(a0),
-                reinterpret_cast<void *>(a1),
-                reinterpret_cast<const void *>(a2), a3);
+            return linux_sys_rt_sigtimedwait(reinterpret_cast<const void *>(a0),
+                                             reinterpret_cast<void *>(a1),
+                                             reinterpret_cast<const void *>(a2),
+                                             a3);
         case __NR_gettimeofday:
             return linux_sys_gettimeofday(reinterpret_cast<void *>(a0),
                                           reinterpret_cast<void *>(a1));
         case __NR_nanosleep:
             return linux_sys_nanosleep(reinterpret_cast<const void *>(a0),
                                        reinterpret_cast<void *>(a1));
-        case __NR_getpid:      return linux_sys_getpid();
-        case __NR_getppid:     return linux_sys_getppid();
-        case __NR_gettid:      return linux_sys_gettid();
+        case __NR_getpid:  return linux_sys_getpid();
+        case __NR_getppid: return linux_sys_getppid();
+        case __NR_gettid:  return linux_sys_gettid();
         case __NR_kill:
             return linux_sys_kill(static_cast<int>(a0), static_cast<int>(a1));
         case __NR_tgkill:
@@ -743,10 +744,9 @@ extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
             return linux_sys_fstat(static_cast<int>(a0),
                                    reinterpret_cast<void *>(a1));
         case __NR_newfstatat:
-            return linux_sys_newfstatat(static_cast<int>(a0),
-                                        reinterpret_cast<const char *>(a1),
-                                        reinterpret_cast<void *>(a2),
-                                        static_cast<int>(a3));
+            return linux_sys_newfstatat(
+                static_cast<int>(a0), reinterpret_cast<const char *>(a1),
+                reinterpret_cast<void *>(a2), static_cast<int>(a3));
         case __NR_statx:
             return linux_sys_statx(
                 static_cast<int>(a0), reinterpret_cast<const char *>(a1),
@@ -756,16 +756,18 @@ extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
             // 先注释, 默认均为 exit_group
             // linux_sys_exit(a0);
             // return 0;
-        case __NR_exit_group: linux_sys_exit_group(a0); return 0;
-        case __NR_close:      return linux_sys_close(static_cast<int>(a0));
-        case __NR_dup:        return linux_sys_dup(static_cast<int>(a0));
+        case __NR_exit_group:
+            linux_sys_exit_group(a0);
+            return 0;
+        case __NR_close: return linux_sys_close(static_cast<int>(a0));
+        case __NR_dup:   return linux_sys_dup(static_cast<int>(a0));
         case __NR_dup3:
             return linux_sys_dup3(static_cast<int>(a0), static_cast<int>(a1),
                                   static_cast<int>(a2));
         case __NR_fcntl:
-            return linux_sys_fcntl(static_cast<int>(a0), static_cast<int>(a1), a2);
-        case __NR_ioctl:
-            return linux_sys_ioctl(static_cast<int>(a0), a1, a2);
+            return linux_sys_fcntl(static_cast<int>(a0), static_cast<int>(a1),
+                                   a2);
+        case __NR_ioctl: return linux_sys_ioctl(static_cast<int>(a0), a1, a2);
         case __NR_lseek:
             return linux_sys_lseek(static_cast<int>(a0), a1,
                                    static_cast<int>(a2));
@@ -780,11 +782,10 @@ extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
                                       reinterpret_cast<const char *>(a1),
                                       static_cast<uint32_t>(a2));
         case __NR_fchownat:
-            return linux_sys_fchownat(static_cast<int>(a0),
-                                      reinterpret_cast<const char *>(a1),
-                                      static_cast<uint32_t>(a2),
-                                      static_cast<uint32_t>(a3),
-                                      static_cast<int>(a4));
+            return linux_sys_fchownat(
+                static_cast<int>(a0), reinterpret_cast<const char *>(a1),
+                static_cast<uint32_t>(a2), static_cast<uint32_t>(a3),
+                static_cast<int>(a4));
         case __NR_unlinkat:
             return linux_sys_unlinkat(static_cast<int>(a0),
                                       reinterpret_cast<const char *>(a1),
@@ -794,11 +795,10 @@ extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
                                      reinterpret_cast<const char *>(a1),
                                      static_cast<int>(a2));
         case __NR_renameat2:
-            return linux_sys_renameat2(static_cast<int>(a0),
-                                       reinterpret_cast<const char *>(a1),
-                                       static_cast<int>(a2),
-                                       reinterpret_cast<const char *>(a3),
-                                       static_cast<unsigned int>(a4));
+            return linux_sys_renameat2(
+                static_cast<int>(a0), reinterpret_cast<const char *>(a1),
+                static_cast<int>(a2), reinterpret_cast<const char *>(a3),
+                static_cast<unsigned int>(a4));
         case __NR_mount:
         case __NR_umount2:
             // 占位符
@@ -831,8 +831,10 @@ extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
             // 占位符
         case __NR_utimensat:
             // 占位符
-            loggers::LXSC::WARN("unsupported syscall %s (%lu), but returning 0 for compatibility",
-                                 syscall_to_string(a7), a7);
+            loggers::LXSC::WARN(
+                "unsupported syscall %s (%lu), but returning 0 for "
+                "compatibility",
+                syscall_to_string(a7), a7);
             return 0;
         case __NR_syslog:
             return linux_sys_syslog(static_cast<int>(a0),
@@ -840,7 +842,8 @@ extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
                                     static_cast<int>(a2));
         case __NR_set_tid_address: {
             loggers::LXSC::WARN(
-                "unsupported syscall %s (%lu), ignoring ptr=%p and forwarding to main tcb tid",
+                "unsupported syscall %s (%lu), ignoring ptr=%p and forwarding "
+                "to main tcb tid",
                 syscall_to_string(a7), a7, reinterpret_cast<void *>(a0));
             auto tid_res = sys_tcb_get_tid(__prog_main_tcb_cap).to_result();
             if (!tid_res.has_value()) {
@@ -852,12 +855,14 @@ extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
         }
         case __NR_sched_getaffinity:
             loggers::LXSC::WARN(
-                "unsupported syscall %s (%lu), ignoring pid=%d and returning 1 for compatibility",
+                "unsupported syscall %s (%lu), ignoring pid=%d and returning 1 "
+                "for compatibility",
                 syscall_to_string(a7), a7, static_cast<int>(a0));
             return 1;
         case __NR_rt_sigaction:
             loggers::LXSC::WARN(
-                "unsupported syscall %s (%lu), ignoring and returning 0 for compatibility",
+                "unsupported syscall %s (%lu), ignoring and returning 0 for "
+                "compatibility",
                 syscall_to_string(a7), a7);
             return 0;
         case __NR_clock_gettime:

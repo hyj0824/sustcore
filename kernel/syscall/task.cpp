@@ -558,9 +558,6 @@ namespace syscall {
                                                __exited_res.value() != cap::null;
                                            }));
         propagate(wait_res);
-        if (wait_res.value()) {
-            return cap::null;
-        }
 
         auto final_res = find_exited_pcb_cap(pcbs);
         propagate(final_res);

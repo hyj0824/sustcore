@@ -11,171 +11,236 @@
 
 #include <driver/clock.h>
 #include <driver/int/base.h>
+#include <env.h>
 #include <logger.h>
+#include <task/scheduler.h>
+#include <task/task.h>
+#include <task/wait.h>
 
 namespace driver {
     namespace {
-        /**
-         * @brief 复制一个到期动作条目但不转移所有权.
-         *
-         * @param entry 源条目.
-         * @return ExpireActionEntry 仅用于只读查看的临时条目.
-         */
         [[nodiscard]]
-        ExpireActionEntry make_view_entry(
-            const ExpireActionEntry &entry) noexcept {
-            return ExpireActionEntry{
-                .deadline = entry.deadline,
-                .action   = util::owner<ExpireAction *>(entry.action.get()),
-            };
+        constexpr size_t to_ns_size(units::time value) noexcept {
+            return static_cast<size_t>(value.to_nanoseconds());
         }
     }  // namespace
 
+    ExpireActionQueue::ExpireActionQueue() noexcept {
+        for (uint16_t index = 0; index < MAX_HEAP_ACTIONS; index++) {
+            _slots[index].next_free = index + 1 < MAX_HEAP_ACTIONS
+                                          ? index + 1
+                                          : ExpireHandle::INVALID_SLOT;
+        }
+        _free_head = 0;
+    }
+
     bool ExpireActionQueue::empty() const noexcept {
-        InterruptGuard guard;
-        guard.enter();
         return _heap_size == 0;
     }
 
     size_t ExpireActionQueue::size() const noexcept {
-        InterruptGuard guard;
-        guard.enter();
         return _heap_size;
     }
 
-    bool ExpireActionQueue::push(util::owner<ExpireAction *> action) noexcept {
-        if (action == nullptr) {
-            loggers::DEVICE::ERROR("ExpireActionQueue::push 收到空动作");
-            return false;
+    Result<ExpireHandle> ExpireActionQueue::push(
+        const ExpireAction &action) noexcept {
+        if (_free_head == ExpireHandle::INVALID_SLOT ||
+            _heap_size >= MAX_HEAP_ACTIONS)
+        {
+            unexpect_return(ErrCode::OUT_OF_MEMORY);
         }
 
-        InterruptGuard guard;
-        guard.enter();
-        if (_heap_size >= MAX_HEAP_ACTIONS) {
-            loggers::DEVICE::ERROR("ExpireActionQueue 溢出: size=%lu max=%lu",
-                                   (unsigned long)_heap_size,
-                                   (unsigned long)MAX_HEAP_ACTIONS);
-            return false;
-        }
-        units::time old_root =
-            _heap_size == 0 ? units::time{} : _heap[0].deadline;
-        _heap[_heap_size++] = ExpireActionEntry{
-            .deadline = action->deadline(),
-            .action   = std::move(action),
+        uint16_t slot_id = _free_head;
+        auto &slot       = _slots[slot_id];
+        _free_head       = slot.next_free;
+
+        slot.action     = action;
+        slot.heap_index = static_cast<uint16_t>(_heap_size);
+        slot.active     = true;
+
+        _heap[_heap_size++] = slot_id;
+        shift_up(slot.heap_index);
+
+        return ExpireHandle{
+            .slot       = slot_id,
+            .generation = slot.generation,
         };
-        sift_up(_heap_size - 1);
-        if (_heap_size == 0) {
-            return false;
-        }
-        return old_root.to_nanoseconds() == 0 ||
-               _heap[0].deadline.to_nanoseconds() !=
-                   old_root.to_nanoseconds();
     }
 
-    std::optional<ExpireActionEntry> ExpireActionQueue::peek() const noexcept {
-        InterruptGuard guard;
-        guard.enter();
+    bool ExpireActionQueue::cancel(ExpireHandle handle) noexcept {
+        if (!handle.valid() || handle.slot >= MAX_HEAP_ACTIONS) {
+            return false;
+        }
+
+        auto &slot = _slots[handle.slot];
+        if (!slot.active || slot.generation != handle.generation) {
+            return false;
+        }
+
+        (void)remove_at(slot.heap_index);
+        return true;
+    }
+
+    std::optional<ExpireAction> ExpireActionQueue::peek() const noexcept {
         if (_heap_size == 0) {
             return std::nullopt;
         }
-        return make_view_entry(_heap[0]);
+        return _slots[_heap[0]].action;
     }
 
-    PopDueResult ExpireActionQueue::pop_due(units::time now) {
-        InterruptGuard guard;
-        guard.enter();
-
+    PopDueResult ExpireActionQueue::pop_due(size_t now_ns) noexcept {
         PopDueResult result{};
-        while (_heap_size > 0 &&
-               _heap[0].deadline.to_nanoseconds() <= now.to_nanoseconds() &&
-               result.count < MAX_DUE_ACTIONS)
-        {
-            result.entries[result.count++] = std::move(_heap[0]);
-            _heap[0] = std::move(_heap[_heap_size - 1]);
-            _heap_size--;
-            if (_heap_size > 0) {
-                sift_down(0);
+        while (_heap_size > 0 && result.count < MAX_DUE_ACTIONS) {
+            uint16_t slot_id = _heap[0];
+            if (_slots[slot_id].action.expireTime > now_ns) {
+                break;
             }
+            result.entries[result.count++] = remove_at(0);
         }
         return result;
     }
 
-    void ExpireActionQueue::sift_up(size_t index) noexcept {
+    ExpireAction ExpireActionQueue::remove_at(size_t heap_index) noexcept {
+        uint16_t slot_id = _heap[heap_index];
+        auto removed     = _slots[slot_id].action;
+
+        _heap_size--;
+        if (heap_index != _heap_size) {
+            _heap[heap_index] = _heap[_heap_size];
+            _slots[_heap[heap_index]].heap_index =
+                static_cast<uint16_t>(heap_index);
+
+            if (heap_index > 0 &&
+                later(_heap[(heap_index - 1) / 2], _heap[heap_index]))
+            {
+                shift_up(heap_index);
+            } else {
+                shift_down(heap_index);
+            }
+        }
+
+        auto &slot       = _slots[slot_id];
+        slot.active      = false;
+        slot.next_free   = _free_head;
+        slot.heap_index  = 0;
+        slot.generation += 1;
+        _free_head       = slot_id;
+
+        return removed;
+    }
+
+    void ExpireActionQueue::shift_up(size_t index) noexcept {
         while (index > 0) {
             size_t parent = (index - 1) / 2;
             if (!later(_heap[parent], _heap[index])) {
                 break;
             }
-            auto moved    = std::move(_heap[index]);
-            _heap[index]  = std::move(_heap[parent]);
-            _heap[parent] = std::move(moved);
-            index         = parent;
+            swap_heap_nodes(parent, index);
+            index = parent;
         }
     }
 
-    void ExpireActionQueue::sift_down(size_t index) noexcept {
-        size_t heap_size = _heap_size;
+    void ExpireActionQueue::shift_down(size_t index) noexcept {
         while (true) {
             size_t left     = index * 2 + 1;
             size_t right    = left + 1;
             size_t smallest = index;
 
-            if (left < heap_size && later(_heap[smallest], _heap[left])) {
+            if (left < _heap_size && later(_heap[smallest], _heap[left])) {
                 smallest = left;
             }
-            if (right < heap_size && later(_heap[smallest], _heap[right])) {
+            if (right < _heap_size && later(_heap[smallest], _heap[right])) {
                 smallest = right;
             }
             if (smallest == index) {
                 break;
             }
 
-            auto moved      = std::move(_heap[index]);
-            _heap[index]    = std::move(_heap[smallest]);
-            _heap[smallest] = std::move(moved);
-            index           = smallest;
+            swap_heap_nodes(index, smallest);
+            index = smallest;
         }
     }
 
-    bool ExpireActionQueue::later(const ExpireActionEntry &lhs,
-                                  const ExpireActionEntry &rhs) noexcept {
-        return lhs.deadline.to_nanoseconds() > rhs.deadline.to_nanoseconds();
+    void ExpireActionQueue::swap_heap_nodes(size_t lhs, size_t rhs) noexcept {
+        uint16_t lhs_slot           = _heap[lhs];
+        uint16_t rhs_slot           = _heap[rhs];
+        _heap[lhs]                  = rhs_slot;
+        _heap[rhs]                  = lhs_slot;
+        _slots[rhs_slot].heap_index = static_cast<uint16_t>(lhs);
+        _slots[lhs_slot].heap_index = static_cast<uint16_t>(rhs);
+    }
+
+    bool ExpireActionQueue::later(uint16_t lhs, uint16_t rhs) const noexcept {
+        return _slots[lhs].action.expireTime > _slots[rhs].action.expireTime;
     }
 
     TimeKeeper::TimeKeeper(ClockSource *source, Alarm *alarm) noexcept
         : _source(source), _alarm(alarm), _queue() {
-        alarm->set_handler(this_call(this, &TimeKeeper::on_timer_irq));
+        if (alarm != nullptr) {
+            alarm->set_handler(this_call(this, &TimeKeeper::on_timer_irq));
+        }
     }
 
-    void TimeKeeper::enqueue(util::owner<ExpireAction *> action) noexcept {
-        if (action == nullptr) {
-            loggers::TIMER::ERROR("TimeKeeper::enqueue 收到空动作");
-            return;
-        }
+    Result<ExpireHandle> TimeKeeper::enqueue(
+        const ExpireAction &action) noexcept {
         if (_source == nullptr || _alarm == nullptr) {
-            loggers::TIMER::ERROR("TimeKeeper 未绑定完整时钟设备");
-            return;
+            unexpect_return(ErrCode::INVALID_PARAM);
         }
 
-        units::time now = _source->to_ns(_source->now());
-        if (action->deadline().to_nanoseconds() <= now.to_nanoseconds()) {
+        InterruptGuard guard;
+        guard.enter();
+
+        size_t now_ns = to_ns_size(_source->to_ns(_source->now()));
+        if (action.expireTime <= now_ns) {
+            ClockEvent event{
+                .last =
+                    units::time::from_nanoseconds(static_cast<int64_t>(now_ns)),
+                .now =
+                    units::time::from_nanoseconds(static_cast<int64_t>(now_ns)),
+            };
+            run_action(action, event);
+            return ExpireHandle{};
+        }
+
+        auto old_root   = _queue.peek();
+        auto handle_res = _queue.push(action);
+        if (!handle_res.has_value()) {
+            propagate_return(handle_res);
+        }
+
+        auto new_root = _queue.peek();
+        if (!old_root.has_value() ||
+            (new_root.has_value() &&
+             new_root->expireTime != old_root->expireTime))
+        {
+            rearm_timer_locked();
+        }
+
+        loggers::TIMER::DEBUG(
+            "TimeKeeper 入队动作: type=%lu deadline=%lu size=%lu",
+            static_cast<unsigned long>(action.expireAction),
+            static_cast<unsigned long>(action.expireTime),
+            static_cast<unsigned long>(_queue.size()));
+        return handle_res.value();
+    }
+
+    bool TimeKeeper::cancel(ExpireHandle handle) noexcept {
+        if (_source == nullptr || _alarm == nullptr) {
+            return false;
+        }
+
+        InterruptGuard guard;
+        guard.enter();
+        bool removed = _queue.cancel(handle);
+        if (removed) {
             loggers::TIMER::DEBUG(
-                "TimeKeeper 直接执行已到期动作: deadline=%llu now=%llu",
-                static_cast<unsigned long long>(
-                    action->deadline().to_nanoseconds()),
-                static_cast<unsigned long long>(now.to_nanoseconds()));
-            ClockEvent event{.last = now, .now = now};
-            run_action(*action, event);
-            return;
+                "TimeKeeper 取消动作: slot=%u gen=%u size=%lu",
+                static_cast<unsigned>(handle.slot),
+                static_cast<unsigned>(handle.generation),
+                static_cast<unsigned long>(_queue.size()));
+            rearm_timer_locked();
         }
-
-        bool root_changed = _queue.push(std::move(action));
-        loggers::TIMER::DEBUG("TimeKeeper 入队动作: root_changed=%d size=%llu",
-                               root_changed,
-                               static_cast<unsigned long long>(_queue.size()));
-        if (root_changed) {
-            rearm_timer();
-        }
+        return removed;
     }
 
     void TimeKeeper::on_timer_irq(const ClockEvent &event) noexcept {
@@ -184,16 +249,18 @@ namespace driver {
             return;
         }
 
-        units::time now = _source->to_ns(_source->now());
-        auto result = _queue.pop_due(now);
-        for (size_t i = 0; i < result.count; i++) {
-            auto &entry = result.entries[i];
-            if (entry.action == nullptr) {
-                continue;
-            }
-            run_action(*entry.action, event);
+        PopDueResult due{};
+        {
+            InterruptGuard guard;
+            guard.enter();
+            size_t now_ns = to_ns_size(_source->to_ns(_source->now()));
+            due           = _queue.pop_due(now_ns);
+            rearm_timer_locked();
         }
-        rearm_timer();
+
+        for (size_t index = 0; index < due.count; index++) {
+            run_action(due.entries[index], event);
+        }
     }
 
     void TimeKeeper::rearm_timer() noexcept {
@@ -201,17 +268,24 @@ namespace driver {
             return;
         }
 
+        InterruptGuard guard;
+        guard.enter();
+        rearm_timer_locked();
+    }
+
+    void TimeKeeper::rearm_timer_locked() noexcept {
         auto next_opt = _queue.peek();
-        if (!next_opt.has_value() || next_opt->action == nullptr) {
+        if (!next_opt.has_value()) {
             loggers::TIMER::DEBUG("TimeKeeper 队列为空, 不重编程 timer");
             return;
         }
 
         units::time now      = _source->to_ns(_source->now());
-        units::time deadline = next_opt->deadline;
-        units::time delta    = deadline.to_nanoseconds() <= now.to_nanoseconds()
-                                   ? units::time::from_nanoseconds(1)
-                                   : deadline - now;
+        units::time deadline = units::time::from_nanoseconds(
+            static_cast<int64_t>(next_opt->expireTime));
+        units::time delta = next_opt->expireTime <= to_ns_size(now)
+                                ? units::time::from_nanoseconds(1)
+                                : deadline - now;
         loggers::TIMER::DEBUG(
             "TimeKeeper 重编程 timer: now=%llu deadline=%llu delta=%llu",
             static_cast<unsigned long long>(now.to_nanoseconds()),
@@ -220,14 +294,102 @@ namespace driver {
         _alarm->set_next_event(delta);
     }
 
-    void TimeKeeper::run_action(ExpireAction &action,
+    void TimeKeeper::run_action(const ExpireAction &action,
                                 const ClockEvent &event) noexcept {
-        if (action.canceled()) {
-            loggers::DEVICE::DEBUG("TimeKeeper 跳过已取消动作: deadline=%llu",
-                                   static_cast<unsigned long long>(
-                                       action.deadline().to_nanoseconds()));
-            return;
+        switch (action.expireAction) {
+            case expact::SCHD: {
+                if (action.expireArg1 == expact::schd::TIMEKEEPER_LOGTEST) {
+                    units::time interval = units::time::from_nanoseconds(
+                        static_cast<int64_t>(action.expireArg0));
+                    units::time lasttime =
+                        units::time::from_nanoseconds(static_cast<int64_t>(
+                            action.expireTime - action.expireArg0));
+                    units::time real_interval = event.now - lasttime;
+                    int64_t error_ppm =
+                        (real_interval - interval) * 10000 / interval;
+                    int64_t integral_part   = error_ppm / 100;
+                    int64_t fractional_part = error_ppm % 100;
+
+                    loggers::TIMER::INFO(
+                        "TimeKeeper 测试触发: 现在 = %llu ns, 计划间隔 = %llu "
+                        "ns, "
+                        "实际间隔 = %llu ns, 相对误差 = %d.%04d%%",
+                        static_cast<unsigned long long>(
+                            event.now.to_nanoseconds()),
+                        static_cast<unsigned long long>(
+                            interval.to_nanoseconds()),
+                        static_cast<unsigned long long>(
+                            real_interval.to_nanoseconds()),
+                        static_cast<int>(integral_part),
+                        static_cast<int>(fractional_part));
+
+                    units::time next_interval = interval * 2;
+                    auto enqueue_res          = enqueue(ExpireAction{
+                                 .expireTime = static_cast<size_t>(
+                            (event.now + next_interval).to_nanoseconds()),
+                                 .expireAction = expact::SCHD,
+                                 .expireArg0 =
+                            static_cast<size_t>(next_interval.to_nanoseconds()),
+                                 .expireArg1 = expact::schd::TIMEKEEPER_LOGTEST,
+                    });
+                    if (!enqueue_res.has_value()) {
+                        loggers::TIMER::ERROR(
+                            "TimeKeeper 测试动作重新入队失败: err=%s",
+                            to_cstring(enqueue_res.error()));
+                    }
+                    return;
+                }
+
+                TimerTickEvent tick_event{
+                    .last  = event.last,
+                    .now   = event.now,
+                    .delta = event.now - event.last,
+                };
+                schd::Scheduler::inst().do_tick(tick_event);
+
+                units::time period = units::time::from_nanoseconds(
+                    static_cast<int64_t>(action.expireArg0));
+                auto enqueue_res = enqueue(ExpireAction{
+                    .expireTime = static_cast<size_t>(
+                        (event.now + period).to_nanoseconds()),
+                    .expireAction = expact::SCHD,
+                    .expireArg0   = action.expireArg0,
+                    .expireArg1   = expact::schd::TICK,
+                });
+                if (!enqueue_res.has_value()) {
+                    loggers::SUSTCORE::ERROR("调度 tick 重新入队失败: err=%s",
+                                             to_cstring(enqueue_res.error()));
+                }
+                return;
+            }
+            case expact::WAKEUP: {
+                loggers::TIMER::INFO("TimeKeeper 普通唤醒: wd=%lu deadline=%llu now=%llu",
+                                     static_cast<unsigned long>(action.expireArg0),
+                                     static_cast<unsigned long long>(
+                                         action.expireTime),
+                                     static_cast<unsigned long long>(
+                                         event.now.to_nanoseconds()));
+                task::process_timeout_wakeup(
+                    static_cast<wait::wd_t>(action.expireArg0),
+                    action.expireArg1);
+                return;
+            }
+            case expact::TIMEOUT: {
+                loggers::TIMER::INFO("TimeKeeper 超时唤醒: tid=%lu deadline=%llu now=%llu",
+                                     static_cast<unsigned long>(action.expireArg0),
+                                     static_cast<unsigned long long>(
+                                         action.expireTime),
+                                     static_cast<unsigned long long>(
+                                         event.now.to_nanoseconds()));
+                task::process_timeout_tcb(
+                    static_cast<tid_t>(action.expireArg0));
+                return;
+            }
+            default:
+                loggers::TIMER::ERROR(
+                    "未知的到期动作类型: %lu",
+                    static_cast<unsigned long>(action.expireAction));
+                return;
         }
-        action.expire(event);
     }
-}  // namespace device
+}  // namespace driver

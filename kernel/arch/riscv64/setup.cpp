@@ -102,7 +102,7 @@ void Initialization::init_simd(void) {
 
 void Idle::idle()
 {
-    while(true);
+    asm volatile("wfi");
 }
 
 void Initialization::post_init(void) 

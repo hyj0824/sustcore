@@ -135,116 +135,6 @@ namespace {
     }
 
     /**
-     * @brief 固定周期触发调度器 tick 的到期动作.
-     */
-    class SchedulerTickAction final : public device::ExpireAction {
-    public:
-        /**
-         * @brief 使用当前 deadline 与周期构造 tick 动作.
-         *
-         * @param deadline 首次到期时间.
-         * @param period 周期长度.
-         */
-        SchedulerTickAction(units::time deadline, units::time period) noexcept
-            : device::ExpireAction(deadline), _period(period) {}
-
-        /**
-         * @brief 处理一次调度 tick 并重新安排下一次到期时间.
-         *
-         * @param event 本次时钟事件.
-         */
-        void expire(const device::ClockEvent &event) noexcept override {
-            TimerTickEvent tick_event{
-                .last  = event.last,
-                .now   = event.now,
-                .delta = event.now - event.last,
-            };
-            schd::Scheduler::inst().do_tick(tick_event);
-
-            auto *time_keeper = env::hart_ctx != nullptr
-                                    ? env::hart_ctx->time_keeper()
-                                    : nullptr;
-            if (time_keeper == nullptr) {
-                loggers::SUSTCORE::ERROR("SchedulerTickAction 缺少 TimeKeeper");
-                return;
-            }
-
-            set_deadline(event.now + _period);
-            revive();
-            time_keeper->enqueue(util::owner<device::ExpireAction *>(this));
-        }
-
-    private:
-        units::time _period{};
-    };
-
-#ifdef __CONF_KERNEL_TIMEKEEPER_TEST
-    /**
-     * @brief 指数级增长延迟的 TimeKeeper 调试动作.
-     */
-    class TimeKeeperLogAction final : public device::ExpireAction {
-    public:
-        /**
-         * @brief 构造一个时间记录动作.
-         *
-         * @param deadline 首次到期时间.
-         * @param interval 本次触发间隔.
-         */
-        TimeKeeperLogAction(units::time lasttime, units::time deadline,
-                            units::time interval) noexcept
-            : device::ExpireAction(deadline),
-              _interval(interval),
-              _lasttime(lasttime) {}
-
-        /**
-         * @brief 打印当前时间并安排下一次指数级触发.
-         *
-         * @param event 本次时钟事件.
-         */
-        void expire(const device::ClockEvent &event) noexcept override {
-            // 计算实际触发间隔, 以验证 timer 的准确性.
-            units::time real_interval = event.now - _lasttime;
-
-            // 计算相对误差万分比
-            // (real_interval - _interval) / _interval * 10000 => (real_interval
-            // - _interval) * 10000 / _interval
-            int64_t error_ppm = (real_interval - _interval) * 10000 / _interval;
-            int64_t integral_part   = error_ppm / 100;
-            int64_t fractional_part = error_ppm % 100;
-
-            loggers::TIMER::DEBUG(
-                "TimeKeeper 测试触发: 现在 = %llu ns, 计划间隔 = %llu ns, "
-                "实际间隔 = %llu ns, 相对误差 = %d.%04d%%",
-                static_cast<unsigned long long>(event.now.to_nanoseconds()),
-                static_cast<unsigned long long>(_interval.to_nanoseconds()),
-                static_cast<unsigned long long>(real_interval.to_nanoseconds()),
-                static_cast<int>(integral_part),
-                static_cast<int>(fractional_part));
-
-            auto *time_keeper = env::hart_ctx != nullptr
-                                    ? env::hart_ctx->time_keeper()
-                                    : nullptr;
-            if (time_keeper == nullptr) {
-                loggers::TIMER::ERROR("TimeKeeperLogAction 缺少 TimeKeeper");
-                return;
-            }
-
-            units::time next_interval = _interval * 2;
-            _lasttime = event.now;
-            _interval = next_interval;
-            set_deadline(event.now + next_interval);
-            revive();
-            time_keeper->enqueue(
-                util::owner<device::ExpireAction *>(this));
-        }
-
-    private:
-        units::time _interval{};
-        units::time _lasttime{};
-    };
-#endif
-
-    /**
      * @brief 注册当前 hart 的周期性调度 tick 动作.
      */
     void register_scheduler_tick_action() {
@@ -258,12 +148,19 @@ namespace {
         constexpr units::time kTickPeriod = units::time::from_milliseconds(10);
         units::time now =
             time_keeper->source()->to_ns(time_keeper->source()->now());
-        auto *action = new SchedulerTickAction(now + kTickPeriod, kTickPeriod);
-        if (action == nullptr) {
-            loggers::SUSTCORE::FATAL("无法分配 SchedulerTickAction");
-            panic("无法分配 SchedulerTickAction");
+        auto enqueue_res = time_keeper->enqueue(device::ExpireAction{
+            .expireTime =
+                static_cast<size_t>((now + kTickPeriod).to_nanoseconds()),
+            .expireAction = device::expact::SCHD,
+            .expireArg0 =
+                static_cast<size_t>(kTickPeriod.to_nanoseconds()),
+            .expireArg1 = device::expact::schd::TICK,
+        });
+        if (!enqueue_res.has_value()) {
+            loggers::SUSTCORE::FATAL("无法注册调度 tick 动作: err=%s",
+                                     to_cstring(enqueue_res.error()));
+            panic("无法注册调度 tick 动作");
         }
-        time_keeper->enqueue(util::owner<device::ExpireAction *>(action));
     }
 
 #ifdef __CONF_KERNEL_TIMEKEEPER_TEST
@@ -283,13 +180,19 @@ namespace {
             units::time::from_milliseconds(10);
         units::time now =
             time_keeper->source()->to_ns(time_keeper->source()->now());
-        auto *action =
-            new TimeKeeperLogAction(now, now + first_interval, first_interval);
-        if (action == nullptr) {
-            loggers::SUSTCORE::FATAL("无法分配 TimeKeeperLogAction");
-            panic("无法分配 TimeKeeperLogAction");
+        auto enqueue_res = time_keeper->enqueue(device::ExpireAction{
+            .expireTime =
+                static_cast<size_t>((now + first_interval).to_nanoseconds()),
+            .expireAction = device::expact::SCHD,
+            .expireArg0 =
+                static_cast<size_t>(first_interval.to_nanoseconds()),
+            .expireArg1 = device::expact::schd::TIMEKEEPER_LOGTEST,
+        });
+        if (!enqueue_res.has_value()) {
+            loggers::SUSTCORE::FATAL("无法注册 TimeKeeperLogAction: err=%s",
+                                     to_cstring(enqueue_res.error()));
+            panic("无法注册 TimeKeeperLogAction");
         }
-        time_keeper->enqueue(util::owner<device::ExpireAction *>(action));
     }
 #endif
 }  // namespace

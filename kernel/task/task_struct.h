@@ -193,6 +193,7 @@ namespace task {
         // 等待谓词, 由等待的线程在进入等待时设置,
         // 由被等待的事件在满足条件时检查, 决定是否可以唤醒线程
         wait::WaitPredicate wait_predicate;
+        bool timeout = false;
         NanosleepContext *nanosleep_ctx;
         TimedWaitContext *timed_wait_ctx;
         SyscallInfo syscall_info;

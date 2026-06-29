@@ -25,7 +25,7 @@ namespace device {
     using driver::ClockEvent;
     using driver::ClockEventInfo;
     using driver::ExpireAction;
-    using driver::ExpireActionEntry;
+    using driver::ExpireHandle;
     using driver::ExpireActionQueue;
     using driver::TimeKeeper;
     using driver::IrqTrigger;
@@ -33,6 +33,7 @@ namespace device {
     using driver::IrqEvent;
     using driver::IrqDomain;
     using driver::IrqChip;
+    namespace expact = driver::expact;
     template <size_t MAX_HW_IRQ>
     using LinearIrqDomain = driver::LinearIrqDomain<MAX_HW_IRQ>;
     using driver::IrqManager;

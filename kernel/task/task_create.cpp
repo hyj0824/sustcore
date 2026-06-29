@@ -165,6 +165,7 @@ namespace task {
         void kthread_idle() {
             while (true) {
                 Idle::idle();
+                schd::Scheduler::inst().yield();
             }
         }
 

@@ -41,7 +41,7 @@ namespace {
             .envp      = nullptr,
             .bsargv    = nullptr,
         };
-        auto create_res = sys_create_process(SCHED_CLASS_FCFS, &request)
+        auto create_res = sys_create_process(SCHED_CLASS_RR, &request)
                               .to_result();
         return create_res.has_value() ? create_res.value() : cap::error;
     }

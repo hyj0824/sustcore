@@ -36,6 +36,7 @@ enum class ErrCode : int {
     FUTURE_PENDING           = GENERIC_ERROR | 0x000A,
     FUTURE_CANCLED           = GENERIC_ERROR | 0x000B,
     FUTURE_CONSUMED          = GENERIC_ERROR | 0x000C,
+    TIMEOUT                  = GENERIC_ERROR | 0x000D,
     // capability errors
     CAP_ERROR                = 0x01'0000,
     INVALID_CAPABILITY       = CAP_ERROR | 0x0001,

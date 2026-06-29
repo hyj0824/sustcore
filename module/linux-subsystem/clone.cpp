@@ -378,6 +378,9 @@ size_t linux_sys_rt_sigtimedwait(const void *set, void *info,
                              timeout_ns, 0)
             .to_result();
     if (!wait_res.has_value()) {
+        if (wait_res.error() == ErrCode::TIMEOUT) {
+            return static_cast<size_t>(-EAGAIN);
+        }
         loggers::LXSC::ERROR("rt_sigtimedwait wait failed");
         return static_cast<size_t>(-EINVAL);
     }

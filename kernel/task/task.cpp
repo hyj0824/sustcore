@@ -27,28 +27,6 @@
 namespace task {
     namespace {
         wait::wd_t g_task_exit_wait_wd = 0;
-
-        class NanosleepWakeAction final : public device::ExpireAction {
-        public:
-            explicit NanosleepWakeAction(NanosleepContext *ctx,
-                                         units::time deadline) noexcept;
-
-            void expire(const device::ClockEvent &event) noexcept override;
-
-        private:
-            NanosleepContext *_ctx = nullptr;
-        };
-
-        class TimedWaitWakeAction final : public device::ExpireAction {
-        public:
-            explicit TimedWaitWakeAction(TimedWaitContext *ctx,
-                                         units::time deadline) noexcept;
-
-            void expire(const device::ClockEvent &event) noexcept override;
-
-        private:
-            TimedWaitContext *_ctx = nullptr;
-        };
     }  // namespace
 
     struct NanosleepContext {
@@ -58,68 +36,39 @@ namespace task {
         // 以更完整的同步与生命周期模型替代。
         bool fired = false;
         bool sleeping = false;
-        // 已知问题：当前暂不处理线程在 sleep 未到期前被回收时，
-        // TimeKeeper 队列中仍可能保留指向该 action 的悬空指针。
-        // 该生命周期问题等待后续统一处理。
-        NanosleepWakeAction action;
+        bool armed = false;
+        device::ExpireHandle timer_handle{};
 
-        NanosleepContext() noexcept
-            : wait_wd(wait::alloc_reason()), action(this, units::time{}) {}
+        NanosleepContext() noexcept : wait_wd(wait::alloc_reason()) {}
     };
 
     struct TimedWaitContext {
         wait::wd_t wait_wd = 0;
         bool timed_out = false;
         bool waiting = false;
-        TimedWaitWakeAction action;
-
-        TimedWaitContext() noexcept
-            : action(this, units::time{}) {}
+        bool armed = false;
+        device::ExpireHandle timer_handle{};
     };
 
     namespace {
-        NanosleepWakeAction::NanosleepWakeAction(
-            NanosleepContext *ctx, units::time deadline) noexcept
-            : device::ExpireAction(deadline), _ctx(ctx) {}
+        constexpr size_t TIMEOUT_CONTEXT_NANOSLEEP = 1;
+        constexpr size_t TIMEOUT_CONTEXT_TIMEDWAIT = 2;
 
-        void NanosleepWakeAction::expire(
-            const device::ClockEvent &event [[maybe_unused]]) noexcept {
-            if (_ctx == nullptr) {
-                loggers::TASK::ERROR("NanosleepWakeAction 缺少上下文");
-                return;
-            }
-            _ctx->fired    = true;
-            _ctx->sleeping = false;
-            auto wake_res  = wait::wake_one(_ctx->wait_wd);
-            if (!wake_res.has_value()) {
-                loggers::TASK::ERROR("nanosleep 唤醒失败: wd=%lu err=%s",
-                                     _ctx->wait_wd,
-                                     to_cstring(wake_res.error()));
-            }
+        [[nodiscard]]
+        constexpr size_t encode_timeout_context(void *ctx,
+                                                size_t type) noexcept {
+            return (reinterpret_cast<size_t>(ctx) & ~static_cast<size_t>(0x3)) |
+                   type;
         }
 
-        TimedWaitWakeAction::TimedWaitWakeAction(
-            TimedWaitContext *ctx, units::time deadline) noexcept
-            : device::ExpireAction(deadline), _ctx(ctx) {}
+        [[nodiscard]]
+        constexpr size_t decode_timeout_context_type(size_t value) noexcept {
+            return value & static_cast<size_t>(0x3);
+        }
 
-        void TimedWaitWakeAction::expire(
-            const device::ClockEvent &event [[maybe_unused]]) noexcept {
-            if (_ctx == nullptr) {
-                loggers::TASK::ERROR("TimedWaitWakeAction 缺少上下文");
-                return;
-            }
-            _ctx->timed_out = true;
-            _ctx->waiting   = false;
-            if (_ctx->wait_wd == 0) {
-                loggers::TASK::ERROR("timed wait 唤醒 wd 非法");
-                return;
-            }
-            auto wake_res = wait::wake_one(_ctx->wait_wd);
-            if (!wake_res.has_value()) {
-                loggers::TASK::ERROR("timed wait 唤醒失败: wd=%lu err=%s",
-                                     _ctx->wait_wd,
-                                     to_cstring(wake_res.error()));
-            }
+        [[nodiscard]]
+        constexpr void *decode_timeout_context_ptr(size_t value) noexcept {
+            return reinterpret_cast<void *>(value & ~static_cast<size_t>(0x3));
         }
     }  // namespace
 
@@ -148,6 +97,12 @@ namespace task {
         if (tcb == nullptr || tcb->nanosleep_ctx == nullptr) {
             return;
         }
+        auto *ctx = tcb->nanosleep_ctx;
+        auto *time_keeper =
+            env::hart_ctx != nullptr ? env::hart_ctx->time_keeper() : nullptr;
+        if (ctx->armed && time_keeper != nullptr) {
+            (void)time_keeper->cancel(ctx->timer_handle);
+        }
         delete tcb->nanosleep_ctx;
         tcb->nanosleep_ctx = nullptr;
     }
@@ -169,6 +124,12 @@ namespace task {
     void destroy_timed_wait_context(TCB *tcb) noexcept {
         if (tcb == nullptr || tcb->timed_wait_ctx == nullptr) {
             return;
+        }
+        auto *ctx = tcb->timed_wait_ctx;
+        auto *time_keeper =
+            env::hart_ctx != nullptr ? env::hart_ctx->time_keeper() : nullptr;
+        if (ctx->armed && time_keeper != nullptr) {
+            (void)time_keeper->cancel(ctx->timer_handle);
         }
         delete tcb->timed_wait_ctx;
         tcb->timed_wait_ctx = nullptr;
@@ -197,9 +158,19 @@ namespace task {
         ctx->wait_wd   = wait_wd;
         ctx->timed_out = false;
         ctx->waiting   = true;
-        ctx->action.revive();
-        ctx->action.set_deadline(deadline);
-        time_keeper->enqueue(util::owner<device::ExpireAction *>(&ctx->action));
+        ctx->armed     = false;
+        ctx->timer_handle.reset();
+        tcb->timeout   = false;
+
+        auto enqueue_res = time_keeper->enqueue(device::ExpireAction{
+            .expireTime = static_cast<size_t>(deadline.to_nanoseconds()),
+            .expireAction = device::expact::TIMEOUT,
+            .expireArg0   = tcb->tid,
+            .expireArg1   = 0,
+        });
+        propagate(enqueue_res);
+        ctx->timer_handle = enqueue_res.value();
+        ctx->armed        = ctx->timer_handle.valid();
         void_return();
     }
 
@@ -208,7 +179,13 @@ namespace task {
             return;
         }
         auto *ctx = tcb->timed_wait_ctx;
-        ctx->action.cancel();
+        auto *time_keeper =
+            env::hart_ctx != nullptr ? env::hart_ctx->time_keeper() : nullptr;
+        if (ctx->armed && time_keeper != nullptr) {
+            (void)time_keeper->cancel(ctx->timer_handle);
+        }
+        ctx->armed     = false;
+        ctx->timer_handle.reset();
         ctx->waiting   = false;
         ctx->timed_out = false;
         ctx->wait_wd   = 0;
@@ -219,6 +196,104 @@ namespace task {
             return false;
         }
         return tcb->timed_wait_ctx->timed_out;
+    }
+
+    TCB *lookup_tcb_by_tid(tid_t tid) noexcept {
+        if (!TaskManager::initialized()) {
+            return nullptr;
+        }
+
+        auto pids = TaskManager::inst().snapshot_pids();
+        for (auto pid : pids) {
+            auto pcb_res = TaskManager::inst().lookup_pcb_by_pid(pid);
+            if (!pcb_res.has_value()) {
+                continue;
+            }
+            auto *pcb = pcb_res.value();
+            if (pcb == nullptr) {
+                continue;
+            }
+            for (auto &tcb : pcb->threads) {
+                if (tcb.tid == tid) {
+                    return &tcb;
+                }
+            }
+        }
+        return nullptr;
+    }
+
+    void mark_tcb_timeout(TCB &tcb) noexcept {
+        tcb.timeout = true;
+        if (tcb.timed_wait_ctx != nullptr) {
+            tcb.timed_wait_ctx->timed_out = true;
+            tcb.timed_wait_ctx->waiting   = false;
+            tcb.timed_wait_ctx->armed     = false;
+            tcb.timed_wait_ctx->timer_handle.reset();
+        }
+    }
+
+    bool consume_tcb_timeout(TCB &tcb) noexcept {
+        if (!tcb.timeout) {
+            return false;
+        }
+        tcb.timeout = false;
+        if (tcb.timed_wait_ctx != nullptr) {
+            tcb.timed_wait_ctx->timed_out = false;
+        }
+        return true;
+    }
+
+    void process_timeout_tcb(tid_t tid) noexcept {
+        auto *tcb = lookup_tcb_by_tid(tid);
+        if (tcb == nullptr) {
+            loggers::TASK::ERROR("TIMEOUT 无法定位 TCB: tid=%lu",
+                                 static_cast<unsigned long>(tid));
+            return;
+        }
+
+        mark_tcb_timeout(*tcb);
+        if (!schd::Scheduler::inst().wakeup_waiting(tcb)) {
+            loggers::TASK::ERROR("TIMEOUT 唤醒线程失败: tid=%lu",
+                                 static_cast<unsigned long>(tid));
+        }
+    }
+
+    void process_timeout_wakeup(wait::wd_t wait_wd, size_t context) noexcept {
+        switch (decode_timeout_context_type(context)) {
+            case TIMEOUT_CONTEXT_NANOSLEEP: {
+                auto *ctx = reinterpret_cast<NanosleepContext *>(
+                    decode_timeout_context_ptr(context));
+                if (ctx != nullptr) {
+                    ctx->fired    = true;
+                    ctx->sleeping = false;
+                    ctx->armed    = false;
+                    ctx->timer_handle.reset();
+                }
+                break;
+            }
+            case TIMEOUT_CONTEXT_TIMEDWAIT: {
+                auto *ctx = reinterpret_cast<TimedWaitContext *>(
+                    decode_timeout_context_ptr(context));
+                if (ctx != nullptr) {
+                    ctx->timed_out = true;
+                    ctx->waiting   = false;
+                    ctx->armed     = false;
+                    ctx->timer_handle.reset();
+                }
+                break;
+            }
+            default:
+                loggers::TASK::ERROR("未知的超时上下文类型: %lu",
+                                     static_cast<unsigned long>(context));
+                break;
+        }
+
+        auto wake_res = wait::wake_one(wait_wd);
+        if (!wake_res.has_value()) {
+            loggers::TASK::ERROR("TimeKeeper 超时唤醒失败: wd=%lu err=%s",
+                                 static_cast<unsigned long>(wait_wd),
+                                 to_cstring(wake_res.error()));
+        }
     }
 
     Result<void> block_current_for_nanosleep(util::nonnull<TCB *> tcb,
@@ -250,17 +325,36 @@ namespace task {
 
         ctx->fired    = false;
         ctx->sleeping = true;
-        ctx->action.revive();
-        ctx->action.set_deadline(deadline);
-        time_keeper->enqueue(
-            util::owner<device::ExpireAction *>(&ctx->action));
+        ctx->armed    = false;
+        ctx->timer_handle.reset();
+
+        auto enqueue_res = time_keeper->enqueue(device::ExpireAction{
+            .expireTime = static_cast<size_t>(deadline.to_nanoseconds()),
+            .expireAction = device::expact::WAKEUP,
+            .expireArg0   = ctx->wait_wd,
+            .expireArg1   = encode_timeout_context(
+                ctx, TIMEOUT_CONTEXT_NANOSLEEP),
+        });
+        propagate(enqueue_res);
+        ctx->timer_handle = enqueue_res.value();
+        ctx->armed        = ctx->timer_handle.valid();
 
         auto wait_res = wait_event(ctx->wait_wd, ctx->fired);
         if (!wait_res.has_value()) {
+            if (ctx->armed) {
+                (void)time_keeper->cancel(ctx->timer_handle);
+                ctx->armed = false;
+                ctx->timer_handle.reset();
+            }
             ctx->sleeping = false;
             propagate_return(wait_res);
         }
 
+        if (ctx->armed) {
+            (void)time_keeper->cancel(ctx->timer_handle);
+            ctx->armed = false;
+            ctx->timer_handle.reset();
+        }
         ctx->fired    = false;
         ctx->sleeping = false;
         void_return();

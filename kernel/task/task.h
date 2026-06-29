@@ -58,6 +58,13 @@ namespace task {
     [[nodiscard]]
     bool timed_wait_timed_out(const TCB *tcb) noexcept;
     [[nodiscard]]
+    TCB *lookup_tcb_by_tid(tid_t tid) noexcept;
+    void mark_tcb_timeout(TCB &tcb) noexcept;
+    [[nodiscard]]
+    bool consume_tcb_timeout(TCB &tcb) noexcept;
+    void process_timeout_tcb(tid_t tid) noexcept;
+    void process_timeout_wakeup(wait::wd_t wait_wd, size_t context) noexcept;
+    [[nodiscard]]
     Result<void> block_current_for_nanosleep(
         util::nonnull<TCB *> tcb, size_t ns) noexcept;
 
@@ -104,6 +111,7 @@ namespace task {
             tcb->rr_entity            = {};
             tcb->wait_wd              = 0;
             tcb->wait_predicate       = {};
+            tcb->timeout              = false;
             tcb->nanosleep_ctx        = nullptr;
             tcb->timed_wait_ctx       = nullptr;
             tcb->syscall_info.reset();

@@ -460,7 +460,7 @@ size_t linux_sys_gettimeofday(void *tv, void *) {
 size_t linux_sys_clock_gettime(int clk_id, void *tp) {
     // 目前 CLOCK_REALTIME 和 CLOCK_MONOTONIC 都以 rtc 作为时间源，返回的时间值相同
     if (clk_id != 0 && clk_id != 1) {
-        loggers::LXSC::ERROR("only supported clock ids are CLOCK_REALTIME (0) and CLOCK_MONOTONIC (1)");
+        loggers::LXSC::ERROR("only supported clock ids are CLOCK_REALTIME (0) and CLOCK_MONOTONIC (1), but get %d", clk_id);
         return static_cast<size_t>(-ENOSYS);
     }
     if (tp == nullptr) {

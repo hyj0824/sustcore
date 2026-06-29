@@ -512,8 +512,8 @@ void run_requests(const std::vector<SpawnRequest> &requests,
 
         CapIdx child_pcb =
             request.is_linuxproc
-                ? spawn_linux_with_root_dir(fd, SCHED_CLASS_FCFS, root_dir_cap)
-                : spawn_with_root_dir(fd, SCHED_CLASS_FCFS, root_dir_cap);
+                ? spawn_linux_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap)
+                : spawn_with_root_dir(fd, SCHED_CLASS_RR, root_dir_cap);
         if (child_pcb == cap::null || child_pcb == cap::error) {
             printf("init: 创建 %s 失败\n", request.dispname);
             kmod_fclose(fd);

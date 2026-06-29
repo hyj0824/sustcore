@@ -74,7 +74,7 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
             .bsargv    = bsargv,
         };
         auto client_pcb_res =
-            sys_create_process(SCHED_CLASS_FCFS, &request)
+            sys_create_process(SCHED_CLASS_RR, &request)
                 .to_result();
         if (client_pcb_res.has_value()) {
             client_pcb = client_pcb_res.value();

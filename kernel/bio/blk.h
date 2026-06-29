@@ -161,7 +161,7 @@ namespace blk {
                                                  to_cstring(run_res.error()));
                     }
                 },
-                raw_device, schd::ClassType::FCFS);
+                raw_device, schd::ClassType::RR);
             if (!worker_res.has_value()) {
                 delete cache;
                 delete queue;

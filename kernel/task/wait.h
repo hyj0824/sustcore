@@ -1573,9 +1573,9 @@ namespace wait {
                                 std::expected<bool, ErrCode>{false};         \
                             break;                                           \
                         }                                                    \
-                        if (::task::timed_wait_timed_out(__wait_current)) {  \
+                        if (::task::consume_tcb_timeout(*__wait_current)) {  \
                             __wait_result =                                  \
-                                std::expected<bool, ErrCode>{true};          \
+                                std::unexpected(ErrCode::TIMEOUT);           \
                             break;                                           \
                         }                                                    \
                     }                                                        \

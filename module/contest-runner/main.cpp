@@ -188,7 +188,7 @@ namespace contest_runner {
             .bsargv    = bsargv,
         };
         auto child_pcb_res =
-            sys_create_linux_process(SCHED_CLASS_FCFS, &request).to_result();
+            sys_create_linux_process(SCHED_CLASS_RR, &request).to_result();
         if (!child_pcb_res.has_value()) {
             return cap::error;
         }
@@ -368,12 +368,26 @@ namespace contest_runner {
 
         CapIdx wait_caps[] = {child_pcb, cap::null};
         auto wait_ret =
-            sys_tcb_wait(__main_tcb_cap, wait_caps, &status, 0).to_result();
+            sys_tcb_timeout_wait(__main_tcb_cap, wait_caps, &status,
+                                 TIMEOUT_NS, 0)
+                .to_result();
         if (!wait_ret.has_value()) {
+            if (wait_ret.error() == ErrCode::TIMEOUT) {
+                printf("contest-runner: program timed out, kill pcb cap %lu\n",
+                       static_cast<unsigned long>(child_pcb));
+                (void)sys_pcb_kill(child_pcb, -1).to_result();
+            } else {
+                printf("contest-runner: wait failed for pcb cap %lu err=%s\n",
+                       static_cast<unsigned long>(child_pcb),
+                       to_cstring(wait_ret.error()));
+            }
             return RunProgramError::WAIT_FAILED;
         }
         CapIdx exited_cap = wait_ret.value();
-        assert(exited_cap != cap::null && exited_cap != cap::error);
+        if (! cap::valid(exited_cap)) {
+            return RunProgramError::WAIT_FAILED;
+        }
+        assert(cap::valid(exited_cap));
         return RunProgramError::NONE;
     }
 

@@ -12,13 +12,14 @@
 #pragma once
 
 #include <sbi/sbi.h>
-#include <sus/owner.h>
 #include <sus/units.h>
+#include <sustcore/errcode.h>
 #include <sustcore/epacks.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <optional>
-#include <vector>
 
 namespace driver {
     /**
@@ -125,94 +126,57 @@ namespace driver {
     };
 
     /**
-     * @brief 到期动作抽象接口.
-     *
-     * 每个动作自带 deadline 与 canceled 状态, 由 TimeKeeper 负责调度与跳过.
+     * @brief 到期动作类型常量.
      */
-    class ExpireAction {
-    public:
-        /**
-         * @brief 使用指定到期时间构造动作.
-         *
-         * @param deadline 动作到期时间.
-         */
-        constexpr explicit ExpireAction(units::time deadline) noexcept
-            : _deadline(deadline) {}
+    namespace expact {
+        constexpr size_t SCHD   = 1;
+        constexpr size_t WAKEUP = 2;
+        constexpr size_t TIMEOUT = 3;
 
-        virtual ~ExpireAction() = default;
+        namespace schd {
+            constexpr size_t TICK               = 1;
+            constexpr size_t TIMEKEEPER_LOGTEST = 2;
+        }  // namespace schd
+    }  // namespace expact
 
-        /**
-         * @brief 执行动作.
-         *
-         * @param event 本次时钟中断事件信息.
-         */
-        virtual void expire(const ClockEvent &event) noexcept = 0;
+    /**
+     * @brief 一个结构化的到期动作.
+     */
+    struct ExpireAction {
+        size_t expireTime   = 0;
+        size_t expireAction = 0;
+        size_t expireArg0   = 0;
+        size_t expireArg1   = 0;
+    };
 
-        /**
-         * @brief 获取动作到期时间.
-         *
-         * @return units::time 到期时间.
-         */
+    /**
+     * @brief 队列中动作的稳定句柄.
+     */
+    struct ExpireHandle {
+        static constexpr uint16_t INVALID_SLOT = UINT16_MAX;
+
+        uint16_t slot       = INVALID_SLOT;
+        uint16_t generation = 0;
+
         [[nodiscard]]
-        constexpr units::time deadline() const noexcept {
-            return _deadline;
+        constexpr bool valid() const noexcept {
+            return slot != INVALID_SLOT;
         }
 
-        /**
-         * @brief 覆盖动作到期时间.
-         *
-         * @param deadline 新的到期时间.
-         */
-        constexpr void set_deadline(units::time deadline) noexcept {
-            _deadline = deadline;
+        constexpr void reset() noexcept {
+            slot       = INVALID_SLOT;
+            generation = 0;
         }
-
-        /**
-         * @brief 标记动作取消.
-         */
-        constexpr void cancel() noexcept {
-            _canceled = true;
-        }
-
-        /**
-         * @brief 清除取消标记.
-         */
-        constexpr void revive() noexcept {
-            _canceled = false;
-        }
-
-        /**
-         * @brief 判断动作是否已取消.
-         *
-         * @return true 动作已取消.
-         * @return false 动作仍有效.
-         */
-        [[nodiscard]]
-        constexpr bool canceled() const noexcept {
-            return _canceled;
-        }
-
-    private:
-        units::time _deadline{};
-        bool _canceled = false;
     };
 
     /// pop_due 一次最多弹出的到期动作数（避免 ISR 内分配堆内存）
     constexpr size_t MAX_DUE_ACTIONS = 8;
 
     /**
-     * @brief 一个到期动作队列条目.
-     */
-    struct ExpireActionEntry {
-        units::time deadline{};
-        util::owner<ExpireAction *> action = util::owner<ExpireAction *>(nullptr);
-    };
-
-    /**
      * @brief pop_due 的返回结果 —— 固定大小数组，不在 ISR 内分配堆内存.
      */
     struct PopDueResult {
-        ExpireActionEntry entries[MAX_DUE_ACTIONS]{};
+        ExpireAction entries[MAX_DUE_ACTIONS]{};
         size_t count = 0;
     };
 
@@ -241,61 +205,100 @@ namespace driver {
         /**
          * @brief 插入一个到期动作.
          *
-         * @param action 待插入动作所有权.
-         * @return true 队列根节点发生变化.
-         * @return false 队列根节点未变化.
+         * @param action 待插入动作.
+         * @return Result<ExpireHandle> 插入后可用于取消的稳定句柄.
          */
         [[nodiscard]]
-        bool push(util::owner<ExpireAction *> action) noexcept;
+        Result<ExpireHandle> push(const ExpireAction &action) noexcept;
+
+        /**
+         * @brief 根据句柄取消一个动作并真正移出队列.
+         *
+         * @param handle 待取消动作句柄.
+         * @return true 成功移除.
+         * @return false 句柄无效或动作已不存在.
+         */
+        [[nodiscard]]
+        bool cancel(ExpireHandle handle) noexcept;
 
         /**
          * @brief 查看当前最早到期动作.
          *
-         * @return std::optional<ExpireActionEntry> 最早到期动作.
+         * @return std::optional<ExpireAction> 最早到期动作.
          */
         [[nodiscard]]
-        std::optional<ExpireActionEntry> peek() const noexcept;
+        std::optional<ExpireAction> peek() const noexcept;
 
         /**
-         * @brief 弹出所有 deadline 不晚于 now 的动作.
+         * @brief 弹出所有到期时间不晚于 now_ns 的动作.
          *
-         * @param now 当前时间.
-         * @return std::vector<ExpireActionEntry> 已到期动作集合.
+         * @param now_ns 当前时间（纳秒）.
+         * @return PopDueResult 已到期动作集合.
          */
         [[nodiscard]]
-        PopDueResult pop_due(units::time now);
+        PopDueResult pop_due(size_t now_ns) noexcept;
 
     private:
-        static constexpr size_t MAX_HEAP_ACTIONS = 16;  // 调度 tick + sleep 定时器等
+        static constexpr size_t MAX_HEAP_ACTIONS = 32;
+
+        struct ExpireSlot {
+            ExpireAction action{};
+            uint16_t heap_index = 0;
+            uint16_t next_free  = ExpireHandle::INVALID_SLOT;
+            uint16_t generation = 1;
+            bool active         = false;
+        };
+
+    public:
+        ExpireActionQueue() noexcept;
+
+    private:
+        /**
+         * @brief 删除堆中指定位置的动作.
+         *
+         * @param heap_index 目标堆下标.
+         * @return ExpireAction 被移除的动作.
+         */
+        [[nodiscard]]
+        ExpireAction remove_at(size_t heap_index) noexcept;
 
         /**
          * @brief 将指定节点向上调整以恢复小根堆性质.
          *
          * @param index 新插入节点下标.
          */
-        void sift_up(size_t index) noexcept;
+        void shift_up(size_t index) noexcept;
 
         /**
          * @brief 将指定节点向下调整以恢复小根堆性质.
          *
          * @param index 根节点下标.
          */
-        void sift_down(size_t index) noexcept;
+        void shift_down(size_t index) noexcept;
 
         /**
-         * @brief 比较两个堆节点的到期时间.
+         * @brief 交换两个堆节点并同步槽位中的 heap_index.
          *
-         * @param lhs 左节点.
-         * @param rhs 右节点.
-         * @return true 左节点应排在右节点之后.
-         * @return false 左节点不晚于右节点.
+         * @param lhs 左节点下标.
+         * @param rhs 右节点下标.
+         */
+        void swap_heap_nodes(size_t lhs, size_t rhs) noexcept;
+
+        /**
+         * @brief 比较两个槽位动作的到期时间.
+         *
+         * @param lhs 左槽位编号.
+         * @param rhs 右槽位编号.
+         * @return true 左动作更晚到期.
+         * @return false 左动作不晚于右动作.
          */
         [[nodiscard]]
-        static bool later(const ExpireActionEntry &lhs,
-                          const ExpireActionEntry &rhs) noexcept;
+        bool later(uint16_t lhs, uint16_t rhs) const noexcept;
 
-        ExpireActionEntry _heap[MAX_HEAP_ACTIONS]{};
-        size_t _heap_size = 0;
+        uint16_t _heap[MAX_HEAP_ACTIONS]{};
+        ExpireSlot _slots[MAX_HEAP_ACTIONS]{};
+        uint16_t _free_head = ExpireHandle::INVALID_SLOT;
+        size_t _heap_size   = 0;
     };
 
     /**
@@ -314,9 +317,21 @@ namespace driver {
         /**
          * @brief 新增一个到期动作.
          *
-         * @param action 待提交动作所有权.
+         * @param action 待提交动作.
+         * @return Result<ExpireHandle> 若动作入队成功则返回取消句柄.
          */
-        void enqueue(util::owner<ExpireAction *> action) noexcept;
+        [[nodiscard]]
+        Result<ExpireHandle> enqueue(const ExpireAction &action) noexcept;
+
+        /**
+         * @brief 取消一个仍在队列中的到期动作.
+         *
+         * @param handle 待取消动作句柄.
+         * @return true 成功从队列中移除.
+         * @return false 句柄无效或动作已不在队列中.
+         */
+        [[nodiscard]]
+        bool cancel(ExpireHandle handle) noexcept;
 
         /**
          * @brief 处理一次 Alarm 到期中断.
@@ -352,17 +367,22 @@ namespace driver {
         void rearm_timer() noexcept;
 
         /**
+         * @brief 在已关闭本地中断的上下文中重编程下一次 timer.
+         */
+        void rearm_timer_locked() noexcept;
+
+        /**
          * @brief 执行一个到期动作.
          *
          * @param action 待执行动作.
          * @param event 本次时钟事件信息.
          */
-        static void run_action(ExpireAction &action,
-                               const ClockEvent &event) noexcept;
+        void run_action(const ExpireAction &action,
+                        const ClockEvent &event) noexcept;
 
         ClockSource *_source = nullptr;
         Alarm *_alarm = nullptr;
         ExpireActionQueue _queue{};
     };
 
-}  // namespace device
+}  // namespace driver
