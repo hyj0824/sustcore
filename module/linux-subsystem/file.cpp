@@ -15,46 +15,46 @@
 #include <logger.h>
 #include <pipe.h>
 #include <prog.h>
+#include <sus/path.h>
 #include <sustcore/attr.h>
 #include <sustcore/bootstrap.h>
 #include <sustcore/capability.h>
-#include <sus/path.h>
 #include <sustcore/files.h>
 #include <syscall.h>
 
-#include <cstdint>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <string>
 #include <utility>
 
 namespace {
-    constexpr size_t INVALID_VALUE  = 0xFFFF'FFFF'FFFF'FFFF;
-    constexpr int AT_FDCWD          = -100;
+    constexpr size_t INVALID_VALUE    = 0xFFFF'FFFF'FFFF'FFFF;
+    constexpr int AT_FDCWD            = -100;
     constexpr int AT_SYMLINK_NOFOLLOW = 0x100;
-    constexpr int AT_EMPTY_PATH     = 0x1000;
-    constexpr int LINUX_O_RDONLY    = 0;
-    constexpr int LINUX_O_WRONLY    = 1;
-    constexpr int LINUX_O_RDWR      = 2;
-    constexpr int LINUX_O_CREAT     = 0100;     // octal
-    constexpr int LINUX_O_APPEND    = 02000;    // octal
-    constexpr int LINUX_O_NONBLOCK  = 04000;    // octal
-    constexpr int LINUX_O_DIRECTORY = 0200000;  // octal
-    constexpr int LINUX_F_DUPFD     = 0;
-    constexpr int LINUX_F_GETFD     = 1;
-    constexpr int LINUX_F_SETFD     = 2;
-    constexpr int LINUX_F_GETFL     = 3;
-    constexpr int LINUX_F_SETFL     = 4;
-    constexpr int LINUX_FD_CLOEXEC  = 1;
-    constexpr int AT_REMOVEDIR      = 0x200;
-    constexpr size_t MAX_DIR_FDS    = 128;
-    constexpr size_t MAX_EXEC_ARGS   = 256;
-    constexpr uint8_t DT_REG        = 8;
-    constexpr uint8_t DT_DIR        = 4;
-    constexpr uint8_t DT_LNK        = 10;
-    constexpr uint8_t DT_UNKNOWN    = 0;
-    constexpr int LINUX_IOV_MAX     = 1024;
+    constexpr int AT_EMPTY_PATH       = 0x1000;
+    constexpr int LINUX_O_RDONLY      = 0;
+    constexpr int LINUX_O_WRONLY      = 1;
+    constexpr int LINUX_O_RDWR        = 2;
+    constexpr int LINUX_O_CREAT       = 0100;     // octal
+    constexpr int LINUX_O_APPEND      = 02000;    // octal
+    constexpr int LINUX_O_NONBLOCK    = 04000;    // octal
+    constexpr int LINUX_O_DIRECTORY   = 0200000;  // octal
+    constexpr int LINUX_F_DUPFD       = 0;
+    constexpr int LINUX_F_GETFD       = 1;
+    constexpr int LINUX_F_SETFD       = 2;
+    constexpr int LINUX_F_GETFL       = 3;
+    constexpr int LINUX_F_SETFL       = 4;
+    constexpr int LINUX_FD_CLOEXEC    = 1;
+    constexpr int AT_REMOVEDIR        = 0x200;
+    constexpr size_t MAX_DIR_FDS      = 128;
+    constexpr size_t MAX_EXEC_ARGS    = 256;
+    constexpr uint8_t DT_REG          = 8;
+    constexpr uint8_t DT_DIR          = 4;
+    constexpr uint8_t DT_LNK          = 10;
+    constexpr uint8_t DT_UNKNOWN      = 0;
+    constexpr int LINUX_IOV_MAX       = 1024;
 
     struct linux_iovec {
         void *iov_base;
@@ -457,7 +457,8 @@ namespace {
             };
         }
 
-        auto parent = resolve_path_at(AT_FDCWD, text.substr(0, slash_pos).c_str());
+        auto parent =
+            resolve_path_at(AT_FDCWD, text.substr(0, slash_pos).c_str());
         if (parent.parent_cap == cap::null || parent.parent_cap == cap::error) {
             return {};
         }
@@ -596,10 +597,11 @@ namespace {
         }
 
         switch (fallback) {
-            case EntryType::DIR:     return static_cast<uint16_t>(S_IFDIR | mode);
-            case EntryType::SYMLINK: return static_cast<uint16_t>(S_IFLNK | mode);
+            case EntryType::DIR: return static_cast<uint16_t>(S_IFDIR | mode);
+            case EntryType::SYMLINK:
+                return static_cast<uint16_t>(S_IFLNK | mode);
             case EntryType::FILE:
-            default:                 return static_cast<uint16_t>(S_IFREG | mode);
+            default:              return static_cast<uint16_t>(S_IFREG | mode);
         }
     }
 
@@ -622,15 +624,15 @@ namespace {
 
     void fill_kstat_from_node_meta(const NodeMeta &meta, linux_kstat &kst) {
         memset(&kst, 0, sizeof(kst));
-        kst.st_ino        = meta.inode;
-        kst.st_mode       = node_meta_to_mode(meta);
-        kst.st_nlink      = static_cast<uint32_t>(meta.links);
-        kst.st_size       = static_cast<long>(meta.size);
-        kst.st_blksize    = 4096;
-        kst.st_blocks     = (meta.size + 511) / 512;
-        kst.st_atime_sec  = FIXED_TIME;
-        kst.st_mtime_sec  = FIXED_TIME;
-        kst.st_ctime_sec  = FIXED_TIME;
+        kst.st_ino       = meta.inode;
+        kst.st_mode      = node_meta_to_mode(meta);
+        kst.st_nlink     = static_cast<uint32_t>(meta.links);
+        kst.st_size      = static_cast<long>(meta.size);
+        kst.st_blksize   = 4096;
+        kst.st_blocks    = (meta.size + 511) / 512;
+        kst.st_atime_sec = FIXED_TIME;
+        kst.st_mtime_sec = FIXED_TIME;
+        kst.st_ctime_sec = FIXED_TIME;
     }
 
     void fill_statx_from_attrs(const AttrSet &attrs, linux_statx &stx,
@@ -656,25 +658,25 @@ namespace {
     void fill_kstat_from_attrs(const AttrSet &attrs, linux_kstat &kst,
                                EntryType fallback = EntryType::FILE) {
         memset(&kst, 0, sizeof(kst));
-        kst.st_ino        = attrs.inode;
-        kst.st_mode       = attr_mode_to_linux_mode(attrs, fallback);
-        kst.st_nlink      = attrs.nlink;
-        kst.st_uid        = attrs.uid;
-        kst.st_gid        = attrs.gid;
-        kst.st_size       = static_cast<long>(attrs.size);
-        kst.st_blksize    = attrs.blksize == 0 ? 4096U : attrs.blksize;
-        kst.st_blocks     = attrs.blocks;
-        kst.st_atime_sec  = static_cast<long>(attrs.atime);
-        kst.st_mtime_sec  = static_cast<long>(attrs.mtime);
-        kst.st_ctime_sec  = static_cast<long>(attrs.ctime);
+        kst.st_ino       = attrs.inode;
+        kst.st_mode      = attr_mode_to_linux_mode(attrs, fallback);
+        kst.st_nlink     = attrs.nlink;
+        kst.st_uid       = attrs.uid;
+        kst.st_gid       = attrs.gid;
+        kst.st_size      = static_cast<long>(attrs.size);
+        kst.st_blksize   = attrs.blksize == 0 ? 4096U : attrs.blksize;
+        kst.st_blocks    = attrs.blocks;
+        kst.st_atime_sec = static_cast<long>(attrs.atime);
+        kst.st_mtime_sec = static_cast<long>(attrs.mtime);
+        kst.st_ctime_sec = static_cast<long>(attrs.ctime);
     }
 
     [[nodiscard]]
     size_t stat_path_at(int dirfd, const char *pathname, bool nofollow,
                         NodeMeta &meta) {
         auto resolved = resolve_path_at(dirfd, pathname);
-        if (resolved.parent_cap == cap::null || resolved.parent_cap == cap::error ||
-            resolved.relative_path.empty())
+        if (resolved.parent_cap == cap::null ||
+            resolved.parent_cap == cap::error || resolved.relative_path.empty())
         {
             return -ENOENT;
         }
@@ -686,7 +688,8 @@ namespace {
                                      resolved.relative_path.c_str(), &meta))
                 .to_result();
         if (!stat_res.has_value()) {
-            return stat_res.error() == ErrCode::ENTRY_NOT_FOUND ? -ENOENT : -EIO;
+            return stat_res.error() == ErrCode::ENTRY_NOT_FOUND ? -ENOENT
+                                                                : -EIO;
         }
         return 0;
     }
@@ -700,27 +703,31 @@ namespace {
         }
         auto chown_res = sys_vfs_chown(cap, uid, gid, flags).to_result();
         if (!chown_res.has_value()) {
-            return chown_res.error() == ErrCode::ENTRY_NOT_FOUND ? -ENOENT : -EIO;
+            return chown_res.error() == ErrCode::ENTRY_NOT_FOUND ? -ENOENT
+                                                                 : -EIO;
         }
         return 0;
     }
 
     [[nodiscard]]
     size_t getattr_path_at(int dirfd, const char *pathname, bool nofollow,
-                           AttrSet &attrs, EntryType fallback = EntryType::FILE) {
+                           AttrSet &attrs,
+                           EntryType fallback = EntryType::FILE) {
         auto resolved = resolve_path_at(dirfd, pathname);
-        if (resolved.parent_cap == cap::null || resolved.parent_cap == cap::error ||
-            resolved.relative_path.empty())
+        if (resolved.parent_cap == cap::null ||
+            resolved.parent_cap == cap::error || resolved.relative_path.empty())
         {
             return -ENOENT;
         }
 
         auto getattr_res =
-            sys_vfs_getattr_at(resolved.parent_cap, resolved.relative_path.c_str(),
-                               &attrs, nofollow ? AT_SYMLINK_NOFOLLOW : 0)
+            sys_vfs_getattr_at(resolved.parent_cap,
+                               resolved.relative_path.c_str(), &attrs,
+                               nofollow ? AT_SYMLINK_NOFOLLOW : 0)
                 .to_result();
         if (!getattr_res.has_value()) {
-            return getattr_res.error() == ErrCode::ENTRY_NOT_FOUND ? -ENOENT : -EIO;
+            return getattr_res.error() == ErrCode::ENTRY_NOT_FOUND ? -ENOENT
+                                                                   : -EIO;
         }
 
         if ((attrs.mode & 0xF000U) == 0) {
@@ -783,8 +790,8 @@ namespace {
         file_cap = cap::error;
         if (flg_directory) {
             auto dir_res =
-                sys_vfs_mkdir(resolved.parent_cap, resolved.relative_path.c_str(),
-                              sustcore_flags)
+                sys_vfs_mkdir(resolved.parent_cap,
+                              resolved.relative_path.c_str(), sustcore_flags)
                     .to_result();
             file_cap = dir_res.has_value() ? dir_res.value() : cap::error;
             return ResolvedNodeType::DIRECTORY;
@@ -809,23 +816,23 @@ namespace {
 
         flags::oflg_t sustcore_flags = linux_oflags_to_sustcore(flags);
         NodeMeta meta{};
-        auto node_type               = stat_resolved_path(resolved, meta);
-        CapIdx file_cap              = cap::error;
+        auto node_type  = stat_resolved_path(resolved, meta);
+        CapIdx file_cap = cap::error;
 
         if (node_type == ResolvedNodeType::ERROR) {
             return -EIO;
         } else if (node_type == ResolvedNodeType::MISSING) {
             if (!flg_create) {
-                loggers::LXSC::ERROR("openat path=%s does not exist and O_CREAT not set",
-                                 resolved.absolute_path.c_str());
+                loggers::LXSC::ERROR(
+                    "openat path=%s does not exist and O_CREAT not set",
+                    resolved.absolute_path.c_str());
                 return -ENOENT;
             }
             loggers::LXSC::INFO("openat create path=%s type=%s",
                                 resolved.absolute_path.c_str(),
                                 flg_directory ? "directory" : "file");
-            node_type =
-                create_resolved_node(resolved, sustcore_flags, flg_directory,
-                                     file_cap);
+            node_type = create_resolved_node(resolved, sustcore_flags,
+                                             flg_directory, file_cap);
         } else if (node_type == ResolvedNodeType::DIRECTORY) {
             auto dir_res =
                 sys_vfs_opendir(resolved.parent_cap,
@@ -870,7 +877,8 @@ namespace {
     }
 
     [[nodiscard]]
-    bool copy_exec_strings(const char *const src[], std::vector<std::string> &dst) {
+    bool copy_exec_strings(const char *const src[],
+                           std::vector<std::string> &dst) {
         dst.clear();
         if (src == nullptr) {
             return true;
@@ -912,11 +920,12 @@ namespace {
         memset(&record, 0, sizeof(record));
         int written = snprintf(record.desc, sizeof(record.desc), "#cwd:%s",
                                __prog_cwd.c_str());
-        if (written <= 0 ||
-            static_cast<size_t>(written) >= sizeof(record.desc)) {
+        if (written <= 0 || static_cast<size_t>(written) >= sizeof(record.desc))
+        {
             return false;
         }
-        record.header.size = sizeof(bsheader) + static_cast<size_t>(written) + 1;
+        record.header.size =
+            sizeof(bsheader) + static_cast<size_t>(written) + 1;
         record.header.type = boot::TYPE_PATHEXP;
         return true;
     }
@@ -929,11 +938,12 @@ namespace {
         memset(&record, 0, sizeof(record));
         int written =
             snprintf(record.desc, sizeof(record.desc), "#exe:%s", path);
-        if (written <= 0 ||
-            static_cast<size_t>(written) >= sizeof(record.desc)) {
+        if (written <= 0 || static_cast<size_t>(written) >= sizeof(record.desc))
+        {
             return false;
         }
-        record.header.size = sizeof(bsheader) + static_cast<size_t>(written) + 1;
+        record.header.size =
+            sizeof(bsheader) + static_cast<size_t>(written) + 1;
         record.header.type = boot::TYPE_PATHEXP;
         return true;
     }
@@ -984,7 +994,8 @@ size_t linux_bind_cap_fd(CapIdx cap, int fd, bool append) {
     if (!clone_res.has_value()) {
         return -EBADF;
     }
-    auto bind_res = bind_open_result(fd, clone_res.value(), offset, nullptr, false);
+    auto bind_res =
+        bind_open_result(fd, clone_res.value(), offset, nullptr, false);
     if (static_cast<long>(bind_res) >= 0) {
         set_fd_status_flags(static_cast<int>(bind_res),
                             append ? LINUX_O_APPEND : 0);
@@ -1013,12 +1024,14 @@ size_t linux_opendir_fd(const char *pathname, int fd) {
 
 size_t linux_sys_write(size_t fd, const void *buf, size_t len) {
     if (buf == nullptr) {
+        loggers::LXSC::ERROR("buf == nullptr");
         return -EFAULT;
     }
 
     CapIdx file_cap = fd_to_cap(static_cast<int>(fd));
-    if (! cap::valid(file_cap)) {
-        printf("linux_sys_write: invalid fd %u, parsed to invalid cap idx\n", fd);
+    if (!cap::valid(file_cap)) {
+        loggers::LXSC::ERROR("无效的文件描述符 %u (解析出一个无效的CapIdx)",
+                             fd);
         return -EBADF;
     }
     if (linux_cap_is_pipe_write_end(file_cap)) {
@@ -1033,6 +1046,8 @@ size_t linux_sys_write(size_t fd, const void *buf, size_t len) {
                                    reinterpret_cast<const void *>(buf), len)
                          .to_result();
     if (!write_res.has_value()) {
+        loggers::LXSC::ERROR("写入文件失败, fd=%zu, offset=%zu, len=%zu", fd,
+                             offset, len);
         return -EIO;
     }
     size_t written = write_res.value();
@@ -1059,8 +1074,8 @@ size_t linux_sys_writev(int fd, const void *iov, int iovcnt) {
         if (entry.iov_base == nullptr && entry.iov_len != 0) {
             return total != 0 ? total : static_cast<size_t>(-EFAULT);
         }
-        size_t wrote = linux_sys_write(
-            static_cast<size_t>(fd), entry.iov_base, entry.iov_len);
+        size_t wrote = linux_sys_write(static_cast<size_t>(fd), entry.iov_base,
+                                       entry.iov_len);
         if (static_cast<long>(wrote) < 0) {
             return total != 0 ? total : wrote;
         }
@@ -1149,8 +1164,8 @@ size_t linux_sys_fcntl(int fd, int cmd, size_t arg) {
             if (fd_to_cap(fd) == cap::error) {
                 return -EBADF;
             }
-            set_fd_status_flags(
-                fd, static_cast<int>(arg) & (LINUX_O_NONBLOCK | LINUX_O_APPEND));
+            set_fd_status_flags(fd, static_cast<int>(arg) &
+                                        (LINUX_O_NONBLOCK | LINUX_O_APPEND));
             return 0;
         default:
             loggers::LXSC::ERROR("unsupported fcntl cmd=%d", cmd);
@@ -1351,15 +1366,15 @@ size_t linux_sys_readlinkat(int dirfd, const char *pathname, char *buf,
         return 0;
     }
 
-    CapIdx parent_cap           = cap::null;
+    CapIdx parent_cap = cap::null;
     std::string relative_path{};
     if (pathname[0] == '\0') {
-        auto target = resolve_empty_path_readlink_target(dirfd);
-        parent_cap  = target.parent_cap;
+        auto target   = resolve_empty_path_readlink_target(dirfd);
+        parent_cap    = target.parent_cap;
         relative_path = std::move(target.relative_path);
     } else {
         auto resolved = resolve_path_at(dirfd, pathname);
-        parent_cap = resolved.parent_cap;
+        parent_cap    = resolved.parent_cap;
         relative_path = std::move(resolved.relative_path);
     }
 
@@ -1374,8 +1389,9 @@ size_t linux_sys_readlinkat(int dirfd, const char *pathname, char *buf,
             .to_result();
     if (!readlink_res.has_value()) {
         if (readlink_res.error() == ErrCode::ENTRY_NOT_FOUND) {
-            loggers::LXSC::ERROR("readlinkat failed: path not found dirfd=%d path=%s",
-                                 dirfd, pathname);
+            loggers::LXSC::ERROR(
+                "readlinkat failed: path not found dirfd=%d path=%s", dirfd,
+                pathname);
             return -ENOENT;
         }
         return readlink_res.error() == ErrCode::ENTRY_NOT_FOUND ? -ENOENT
@@ -1414,9 +1430,9 @@ size_t linux_sys_execve(const char *pathname, const char *const argv[],
         return -ENOENT;
     }
 
-    SysRet<CapIdx> image_cap_ret = sys_vfs_open(resolved.parent_cap,
-        resolved.relative_path.c_str(),
-        flags::O_EXECUTE | flags::O_READ);
+    SysRet<CapIdx> image_cap_ret =
+        sys_vfs_open(resolved.parent_cap, resolved.relative_path.c_str(),
+                     flags::O_EXECUTE | flags::O_READ);
 
     if (image_cap_ret.is_error()) {
         return -ENOENT;
@@ -1735,8 +1751,7 @@ size_t linux_sys_fchmodat(int dirfd, const char *pathname, uint32_t mode) {
         static_cast<uint32_t>((attrs.mode & S_IFMT) | (mode & ~S_IFMT));
     auto setattr_res =
         sys_vfs_setattr_at(resolved.parent_cap, resolved.relative_path.c_str(),
-                           &attrs, static_cast<uint32_t>(AttrMask::MODE),
-                           0)
+                           &attrs, static_cast<uint32_t>(AttrMask::MODE), 0)
             .to_result();
     if (!setattr_res.has_value()) {
         return setattr_res.error() == ErrCode::ENTRY_NOT_FOUND ? -ENOENT : -EIO;
@@ -1759,7 +1774,8 @@ size_t linux_sys_fchownat(int dirfd, const char *pathname, uint32_t uid,
         if ((flags & AT_EMPTY_PATH) == 0) {
             return -ENOENT;
         }
-        return fchownat_empty_path(dirfd, uid, gid, static_cast<uint32_t>(flags));
+        return fchownat_empty_path(dirfd, uid, gid,
+                                   static_cast<uint32_t>(flags));
     }
 
     auto resolved = resolve_path_at(dirfd, pathname);
@@ -1769,11 +1785,10 @@ size_t linux_sys_fchownat(int dirfd, const char *pathname, uint32_t uid,
         return -ENOENT;
     }
 
-    auto chown_res =
-        sys_vfs_chown_at(resolved.parent_cap, uid, gid,
-                         static_cast<uint32_t>(flags),
-                         resolved.relative_path.c_str())
-            .to_result();
+    auto chown_res = sys_vfs_chown_at(resolved.parent_cap, uid, gid,
+                                      static_cast<uint32_t>(flags),
+                                      resolved.relative_path.c_str())
+                         .to_result();
     if (!chown_res.has_value()) {
         return chown_res.error() == ErrCode::ENTRY_NOT_FOUND ? -ENOENT : -EIO;
     }
@@ -1802,31 +1817,32 @@ size_t linux_sys_renameat2(int olddirfd, const char *oldpath, int newdirfd,
     auto old_resolved = resolve_path_at(olddirfd, oldpath);
     if (old_resolved.parent_cap == cap::null ||
         old_resolved.parent_cap == cap::error ||
-        old_resolved.relative_path.empty()) {
+        old_resolved.relative_path.empty())
+    {
         return -ENOENT;
     }
 
     auto new_resolved = resolve_path_at(newdirfd, newpath);
     if (new_resolved.parent_cap == cap::null ||
         new_resolved.parent_cap == cap::error ||
-        new_resolved.relative_path.empty()) {
+        new_resolved.relative_path.empty())
+    {
         return -ENOENT;
     }
 
-    auto rename_res =
-        sys_vfs_rename(old_resolved.parent_cap,
-                       old_resolved.relative_path.c_str(),
-                       new_resolved.parent_cap,
-                       new_resolved.relative_path.c_str())
-            .to_result();
+    auto rename_res = sys_vfs_rename(old_resolved.parent_cap,
+                                     old_resolved.relative_path.c_str(),
+                                     new_resolved.parent_cap,
+                                     new_resolved.relative_path.c_str())
+                          .to_result();
     if (!rename_res.has_value()) {
         switch (rename_res.error()) {
-            case ErrCode::ENTRY_NOT_FOUND: return -ENOENT;
-            case ErrCode::KEY_DUPLICATED:  return -EEXIST;
-            case ErrCode::BUSY:            return -EBUSY;
-            case ErrCode::INVALID_PARAM:   return -EINVAL;
-            case ErrCode::TYPE_NOT_MATCHED:return -ENOTDIR;
-            default:                       return -EIO;
+            case ErrCode::ENTRY_NOT_FOUND:  return -ENOENT;
+            case ErrCode::KEY_DUPLICATED:   return -EEXIST;
+            case ErrCode::BUSY:             return -EBUSY;
+            case ErrCode::INVALID_PARAM:    return -EINVAL;
+            case ErrCode::TYPE_NOT_MATCHED: return -ENOTDIR;
+            default:                        return -EIO;
         }
     }
     return 0;
@@ -1857,9 +1873,8 @@ size_t linux_sys_newfstatat(int dirfd, const char *pathname, void *statbuf,
             return -EIO;
         }
     } else {
-        size_t stat_ret = getattr_path_at(dirfd, pathname,
-                                          (flags & AT_SYMLINK_NOFOLLOW) != 0,
-                                          attrs);
+        size_t stat_ret = getattr_path_at(
+            dirfd, pathname, (flags & AT_SYMLINK_NOFOLLOW) != 0, attrs);
         if (static_cast<long>(stat_ret) < 0) {
             return stat_ret;
         }

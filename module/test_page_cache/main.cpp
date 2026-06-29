@@ -148,6 +148,16 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     check(after_lru.hits == after_hot.hits + 1,
           "active hot page should survive cold refill");
 
+    AttrSet attrs{};
+    check(sys_vfs_getattr(file_cap, &attrs),
+          "getattr should succeed before sync");
+    check(attrs.size == sizeof(g_data),
+          "getattr should merge cached file size before sync");
+
+    size_t logical_size = sys_vfs_size(file_cap).value();
+    check(logical_size == sizeof(g_data),
+          "size should report cached file size before sync");
+
     check(sys_vfs_sync(file_cap),
           "sync should flush dirty page");
 

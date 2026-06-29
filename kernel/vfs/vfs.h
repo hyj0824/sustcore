@@ -109,6 +109,8 @@ private:
     util::refc_ptr<VFsDriver> _fsd;
     util::refc_ptr<VSuperblock> _vsb;
     std::unordered_map<size_t, CachedFilePage> _file_pages;
+    size_t _cached_file_size     = 0;
+    bool _cached_file_size_valid = false;
 
 public:
     void on_death() {
@@ -126,6 +128,12 @@ public:
     [[nodiscard]]
     Result<size_t> write_cached_file(IFile &file, size_t offset,
                                      const void *buf, size_t len);
+    [[nodiscard]]
+    Result<void> ensure_cached_file_size(IFile &file);
+    [[nodiscard]]
+    Result<size_t> merged_file_size();
+    void reset_cached_file_size(size_t size) noexcept;
+    void invalidate_cached_file_size() noexcept;
     [[nodiscard]]
     Result<void> flush_file_pages();
     [[nodiscard]]

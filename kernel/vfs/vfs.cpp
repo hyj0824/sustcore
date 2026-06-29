@@ -203,6 +203,20 @@ namespace {
         owner->release();
         return evict_res;
     }
+
+    Result<void> fill_attr_from_vnode(VINode &vnode, AttrSet &out) {
+        auto getattr_res = vnode.inode()->getattr(out);
+        propagate(getattr_res);
+
+        auto file_res = vnode.inode()->as_file();
+        if (file_res.has_value()) {
+            auto size_res = vnode.merged_file_size();
+            propagate(size_res);
+            out.size   = size_res.value();
+            out.blocks = std::max(out.blocks, (out.size + 511) / 512);
+        }
+        void_return();
+    }
 }  // namespace
 
 VSuperblock::~VSuperblock() {
@@ -316,6 +330,8 @@ Result<void> VINode::invalidate() {
 
     IINode *old_inode = _inode.get();
     _inode            = inode_res.value();
+    _cached_file_size_valid = false;
+    _cached_file_size       = 0;
     delete old_inode;
     void_return();
 }
@@ -438,6 +454,9 @@ Result<size_t> VINode::read_cached_file(IFile &file, size_t offset, void *buf,
 
 Result<size_t> VINode::write_cached_file(IFile &file, size_t offset,
                                          const void *buf, size_t len) {
+    auto size_res = ensure_cached_file_size(file);
+    propagate(size_res);
+
     auto *src      = static_cast<const char *>(buf);
     size_t written = 0;
     while (written < len) {
@@ -476,7 +495,37 @@ Result<size_t> VINode::write_cached_file(IFile &file, size_t offset,
         }
         written += chunk;
     }
+    _cached_file_size = std::max(_cached_file_size, offset + written);
     return written;
+}
+
+Result<void> VINode::ensure_cached_file_size(IFile &file) {
+    if (_cached_file_size_valid) {
+        void_return();
+    }
+    auto size_res = file.size();
+    propagate(size_res);
+    _cached_file_size       = size_res.value();
+    _cached_file_size_valid = true;
+    void_return();
+}
+
+Result<size_t> VINode::merged_file_size() {
+    auto file_res = _inode->as_file();
+    propagate(file_res);
+    auto size_res = ensure_cached_file_size(*file_res.value());
+    propagate(size_res);
+    return _cached_file_size;
+}
+
+void VINode::reset_cached_file_size(size_t size) noexcept {
+    _cached_file_size       = size;
+    _cached_file_size_valid = true;
+}
+
+void VINode::invalidate_cached_file_size() noexcept {
+    _cached_file_size       = 0;
+    _cached_file_size_valid = false;
 }
 
 Result<void> VINode::flush_file_pages() {
@@ -1836,6 +1885,7 @@ Result<void> VFS::truncate(cap::Capability &file_cap, size_t new_size) {
     propagate(flush_res);
     auto truncate_res = file_res.value()->truncate(new_size);
     propagate(truncate_res);
+    vfile->vinode()->reset_cached_file_size(new_size);
     vfile->vinode()->invalidate_file_pages();
     void_return();
 }
@@ -2231,6 +2281,9 @@ Result<void> VFS::_stat_from_vinode(VINode &vnode, NodeMeta &out) const {
             // Fallback: try dynamic_cast approach
             if (vnode.inode()->as_file().has_value()) {
                 out.type = EntryType::FILE;
+                auto size_res = vnode.merged_file_size();
+                propagate(size_res);
+                attr.size = size_res.value();
             } else if (vnode.inode()->as_directory().has_value()) {
                 out.type = EntryType::DIR;
             } else {
@@ -2257,9 +2310,7 @@ Result<void> VFS::_stat_from_vinode(VINode &vnode, NodeMeta &out) const {
     auto file_res = vnode.inode()->as_file();
     if (file_res.has_value()) {
         out.type       = EntryType::FILE;
-        auto flush_res = vnode.flush_file_pages();
-        propagate(flush_res);
-        auto size_res = file_res.value()->size();
+        auto size_res = vnode.merged_file_size();
         propagate(size_res);
         out.size  = size_res.value();
         out.links = 1;
@@ -2373,6 +2424,7 @@ Result<size_t> VFS::write(VFile &vfile, off_t offset, const void *buf,
 
     auto write_res = file->write(offset, buf, len);
     propagate(write_res);
+    vfile.vinode()->invalidate_cached_file_size();
 
     if (file->file_cache() == FileCachePolicy::NONE) {
         auto sync_res = file->sync();
@@ -2385,11 +2437,7 @@ Result<size_t> VFS::write(VFile &vfile, off_t offset, const void *buf,
 }
 
 Result<size_t> VFS::size(VFile &vfile) const {
-    auto file_res = vfile.vinode()->inode()->as_file();
-    propagate(file_res);
-    auto flush_res = vfile.vinode()->flush_file_pages();
-    propagate(flush_res);
-    return file_res.value()->size();
+    return vfile.vinode()->merged_file_size();
 }
 
 Result<std::vector<DirectoryEntryInfo>> VFS::getdents(VDirectory &vdir) const {
@@ -2448,7 +2496,7 @@ Result<void> VFS::fstat(cap::Capability &cap, NodeMeta &out) const {
 
 Result<void> VFS::getattr(cap::Capability &cap, AttrSet &out) const {
     if (auto *vfile = cap.payload_as<VFile>(); vfile != nullptr) {
-        return vfile->vinode()->inode()->getattr(out);
+        return fill_attr_from_vnode(*vfile->vinode().get(), out);
     }
     if (auto *vdir = cap.payload_as<VDirectory>(); vdir != nullptr) {
         return vdir->vinode()->inode()->getattr(out);
@@ -2471,11 +2519,11 @@ Result<void> VFS::getattr_at(cap::Capability &parent_dir_cap,
         auto vnode_res = _resolve_inode_no_follow(global_res.value().second,
                                                   mount_path);
         propagate(vnode_res);
-        return vnode_res.value()->inode()->getattr(out);
+        return fill_attr_from_vnode(*vnode_res.value().get(), out);
     } else {
         auto vnode_res = _resolve_inode(global_res.value().second, mount_path);
         propagate(vnode_res);
-        return vnode_res.value()->inode()->getattr(out);
+        return fill_attr_from_vnode(*vnode_res.value().get(), out);
     }
 }
 
