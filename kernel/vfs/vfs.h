@@ -36,6 +36,7 @@ class VFile;
 class VDirectory;
 class VMount;
 class VFS;
+struct MountRecord;
 
 class VFsDriver : public util::refc<VFsDriver> {
 public:
@@ -170,11 +171,11 @@ public:
 class VFile : public cap::_PayloadHelper<PayloadType::VFILE> {
 private:
     util::refc_ptr<VINode> _vind;
-    util::Path _mount_path;
+    MountRecord *_mount_record;
     VFS *_vfs;
 
 public:
-    VFile(VINode &vind, const util::Path &mount_path, VFS &vfs);
+    VFile(VINode &vind, MountRecord &mount_record, VFS &vfs);
     ~VFile() override = default;
     void destruct() override;
 
@@ -184,20 +185,23 @@ public:
     }
 
     [[nodiscard]]
-    const util::Path &mount_path() const {
-        return _mount_path;
+    const util::Path &mount_path() const;
+
+    [[nodiscard]]
+    MountRecord *mount_record() const noexcept {
+        return _mount_record;
     }
 };
 
 class VDirectory : public cap::_PayloadHelper<PayloadType::VDIR> {
 private:
     util::refc_ptr<VINode> _vind;
-    util::Path _mount_path;
+    MountRecord *_mount_record;
     util::Path _global_path;
     VFS *_vfs;
 
 public:
-    VDirectory(VINode &vind, const util::Path &mount_path,
+    VDirectory(VINode &vind, MountRecord &mount_record,
                const util::Path &global_path, VFS &vfs);
     ~VDirectory() override = default;
     void destruct() override;
@@ -208,8 +212,11 @@ public:
     }
 
     [[nodiscard]]
-    const util::Path &mount_path() const {
-        return _mount_path;
+    const util::Path &mount_path() const;
+
+    [[nodiscard]]
+    MountRecord *mount_record() const noexcept {
+        return _mount_record;
     }
 
     [[nodiscard]]
@@ -226,6 +233,23 @@ public:
     const VSuperblock &superblock() const {
         return _vind->superblock();
     }
+};
+
+struct MountRecord {
+    VINode *parent_vinode = nullptr;
+    std::string entry_name;
+    util::Path mount_path;
+    util::owner<VSuperblock *> superblock;
+    size_t devno = 0;
+    bool is_block_mount = false;
+    size_t active_files = 0;
+    util::owner<cap::Capability *> mount_cap =
+        util::owner<cap::Capability *>(nullptr);
+
+    [[nodiscard]]
+    VMount *mount() const noexcept;
+
+    void set_active_files(size_t new_active_files) noexcept;
 };
 
 class VMount : public cap::_PayloadHelper<PayloadType::VMOUNT> {
@@ -385,17 +409,6 @@ private:
         }
     };
 
-    struct MountRecord {
-        VINode *parent_vinode = nullptr;
-        std::string entry_name;
-        util::Path mount_path;
-        util::owner<VSuperblock *> superblock;
-        size_t devno = 0;
-        bool is_block_mount = false;
-        size_t active_files = 0;
-        VMount *owner_mount = nullptr;
-    };
-
     std::unordered_map<std::string, util::owner<VFsDriver *>> fs_table;
     std::unordered_map<MountKey, MountRecord, MountKeyHash> mount_table;
     std::unordered_map<std::string, VSuperblock *> pseudo_mounts;
@@ -433,7 +446,9 @@ private:
     Result<VDirectory *> _open_dir(const char *filepath);
 
     [[nodiscard]]
-    Result<MountRecord *> _lookup_mount_record(const MountKey &key) const;
+    Result<const MountRecord *> _lookup_mount_record(const MountKey &key) const;
+    [[nodiscard]]
+    Result<MountRecord *> _lookup_mount_record(const MountKey &key);
     [[nodiscard]]
     Result<std::pair<MountKey, util::Path>> _build_mount_key(
         const util::Path &mount_path);
@@ -463,7 +478,7 @@ private:
     [[nodiscard]]
     Result<void> _ensure_mountpoint_path(const util::Path &mount_path);
 
-    void _on_vfile_destroy(const util::Path &mount_path) noexcept;
+    void _on_vfile_destroy(MountRecord *mount_record) noexcept;
 
 public:
     static void init();
@@ -500,7 +515,8 @@ public:
                                                bool has_device, size_t devno,
                                                uint64_t superflags,
                                                const char *options);
-    Result<void> mount_attach(VMount &mount, VDirectory &parent,
+    Result<void> mount_attach(cap::Capability &mount_cap, VMount &mount,
+                              VDirectory &parent,
                               const char *mntpath, uint64_t attachflags);
     Result<void> mount_detach(VMount &mount, uint64_t flags);
     Result<CapIdx> mount_root(VMount &mount, cap::CHolder &holder);

@@ -760,34 +760,58 @@ void VINode::invalidate_file_pages() noexcept {
     }
 }
 
-VFile::VFile(VINode &vind, const util::Path &mount_path, VFS &vfs)
-    : _vind(&vind), _mount_path(mount_path), _vfs(&vfs) {}
+const util::Path &VFile::mount_path() const {
+    assert(_mount_record != nullptr);
+    return _mount_record->mount_path;
+}
+
+VFile::VFile(VINode &vind, MountRecord &mount_record, VFS &vfs)
+    : _vind(&vind), _mount_record(&mount_record), _vfs(&vfs) {}
 
 void VFile::destruct() {
     if (_vfs != nullptr) {
-        _vfs->_on_vfile_destroy(_mount_path);
+        _vfs->_on_vfile_destroy(_mount_record);
         _vfs = nullptr;
     }
+    _mount_record = nullptr;
     delete this;
 }
 
-VDirectory::VDirectory(VINode &vind, const util::Path &mount_path,
+const util::Path &VDirectory::mount_path() const {
+    assert(_mount_record != nullptr);
+    return _mount_record->mount_path;
+}
+
+VDirectory::VDirectory(VINode &vind, MountRecord &mount_record,
                        const util::Path &global_path, VFS &vfs)
     : _vind(&vind),
-      _mount_path(mount_path),
+      _mount_record(&mount_record),
       _global_path(global_path),
       _vfs(&vfs) {}
 
 void VDirectory::destruct() {
     if (_vfs != nullptr) {
-        _vfs->_on_vfile_destroy(_mount_path);
+        _vfs->_on_vfile_destroy(_mount_record);
         _vfs = nullptr;
     }
+    _mount_record = nullptr;
     delete this;
 }
 
 void VMount::destruct() {
     delete this;
+}
+
+VMount *MountRecord::mount() const noexcept {
+    return mount_cap.get() == nullptr ? nullptr : mount_cap->payload_as<VMount>();
+}
+
+void MountRecord::set_active_files(size_t new_active_files) noexcept {
+    active_files = new_active_files;
+    auto *mount  = this->mount();
+    if (mount != nullptr) {
+        mount->set_active_files(new_active_files);
+    }
 }
 
 void VFS::init() {
@@ -927,7 +951,7 @@ Result<void> VFS::mount(const char *fs_name, size_t devno,
             .devno          = devno,
             .is_block_mount = true,
             .active_files   = 0,
-            .owner_mount    = nullptr,
+            .mount_cap      = util::owner<cap::Capability *>(nullptr),
         };
         if (record.parent_vinode != nullptr) {
             record.parent_vinode->keep();
@@ -971,7 +995,7 @@ Result<void> VFS::mount(const char *fs_name, const char *mountpoint,
             .devno          = 0,
             .is_block_mount = false,
             .active_files   = 0,
-            .owner_mount    = nullptr,
+            .mount_cap      = util::owner<cap::Capability *>(nullptr),
         };
         auto *vsb = record.superblock.get();
         if (record.parent_vinode != nullptr) {
@@ -1062,7 +1086,8 @@ Result<util::owner<VMount *>> VFS::create_mount(const char *fs_name,
                                   devno));
 }
 
-Result<void> VFS::mount_attach(VMount &mount, VDirectory &parent,
+Result<void> VFS::mount_attach(cap::Capability &mount_cap, VMount &mount,
+                               VDirectory &parent,
                                const char *mntpath, uint64_t attachflags) {
     if (attachflags != 0) {
         unexpect_return(ErrCode::NOT_SUPPORTED);
@@ -1125,7 +1150,7 @@ Result<void> VFS::mount_attach(VMount &mount, VDirectory &parent,
         .devno          = mount.devno(),
         .is_block_mount = is_block_mount,
         .active_files   = 0,
-        .owner_mount    = &mount,
+        .mount_cap      = util::owner<cap::Capability *>(mount_cap.clone()),
     };
     if (record.parent_vinode != nullptr) {
         record.parent_vinode->keep();
@@ -1220,15 +1245,20 @@ Result<CapIdx> VFS::mount_root(VMount &mount, cap::CHolder &holder) {
     auto vnode_res = mount.active_vsb()->get_vnode(root_res.value());
     propagate(vnode_res);
 
-    auto *dir    = new VDirectory(*vnode_res.value().get(), mount.mount_path(),
-                                  mount.mount_path(), *this);
+    auto key_res = _build_mount_key(mount.mount_path());
+    propagate(key_res);
+    auto mount_res = _lookup_mount_record(key_res.value().first);
+    propagate(mount_res);
+
+    auto *dir = new VDirectory(*vnode_res.value().get(), *mount_res.value(),
+                               mount.mount_path(), *this);
     auto idx_res = holder.insert_to_free(dir, perm::allperm());
     if (!idx_res.has_value()) {
         delete dir;
         propagate_return(idx_res);
     }
 
-    mount.set_active_files(mount.active_files() + 1);
+    mount_res.value()->set_active_files(mount_res.value()->active_files + 1);
     return idx_res.value();
 }
 
@@ -1541,20 +1571,18 @@ Result<VFile *> VFS::_open_file_at(VINode &parent, const util::Path &mount_path,
     }
     auto file_res = target_res.value()->inode()->as_file();
     propagate(file_res);
-    auto *file =
-        new VFile(*target_res.value().get(), target_mount_path, *this);
-    if (file == nullptr) {
-        unexpect_return(ErrCode::ALLOCATION_FAILED);
-    }
-
     auto key_res = _build_mount_key(target_mount_path);
     propagate(key_res);
     auto mount_res = _lookup_mount_record(key_res.value().first);
     if (!mount_res.has_value()) {
-        delete file;
         unexpect_return(ErrCode::FS_ERROR);
     }
-    mount_res.value()->active_files++;
+    MountRecord *mount_record = mount_res.value();
+    auto *file = new VFile(*target_res.value().get(), *mount_record, *this);
+    if (file == nullptr) {
+        unexpect_return(ErrCode::ALLOCATION_FAILED);
+    }
+    mount_record->set_active_files(mount_record->active_files + 1);
     return file;
 }
 
@@ -1594,20 +1622,19 @@ Result<VDirectory *> VFS::_open_dir_at(VINode &parent,
         propagate_return(dir_res);
     }
 
-    auto *dir = new VDirectory(*target_res.value().get(), target_mount_path,
-                               global_path, *this);
-    if (dir == nullptr) {
-        unexpect_return(ErrCode::ALLOCATION_FAILED);
-    }
-
     auto key_res = _build_mount_key(target_mount_path);
     propagate(key_res);
     auto mount_res = _lookup_mount_record(key_res.value().first);
     if (!mount_res.has_value()) {
-        delete dir;
         unexpect_return(ErrCode::FS_ERROR);
     }
-    mount_res.value()->active_files++;
+    MountRecord *mount_record = mount_res.value();
+    auto *dir = new VDirectory(*target_res.value().get(), *mount_record,
+                               global_path, *this);
+    if (dir == nullptr) {
+        unexpect_return(ErrCode::ALLOCATION_FAILED);
+    }
+    mount_record->set_active_files(mount_record->active_files + 1);
     return dir;
 }
 
@@ -1624,19 +1651,18 @@ Result<VFile *> VFS::_open_file(const char *filepath) {
         _resolve_inode(util::Path::from(filepath).normalize(), mount_path);
     propagate(vind_res);
 
-    auto *file = new VFile(*vind_res.value().get(), mount_path, *this);
-    if (file == nullptr) {
-        unexpect_return(ErrCode::ALLOCATION_FAILED);
-    }
-
     auto key_res = _build_mount_key(mount_path);
     propagate(key_res);
     auto mount_res = _lookup_mount_record(key_res.value().first);
     if (!mount_res.has_value()) {
-        delete file;
         unexpect_return(ErrCode::FS_ERROR);
     }
-    mount_res.value()->active_files++;
+    MountRecord *mount_record = mount_res.value();
+    auto *file = new VFile(*vind_res.value().get(), *mount_record, *this);
+    if (file == nullptr) {
+        unexpect_return(ErrCode::ALLOCATION_FAILED);
+    }
+    mount_record->set_active_files(mount_record->active_files + 1);
     return file;
 }
 
@@ -1668,20 +1694,19 @@ Result<VDirectory *> VFS::_open_dir(const char *filepath) {
         propagate(dir_res);
     }
 
-    auto *dir = new VDirectory(*vind_res.value().get(), mount_path,
-                               util::Path::from(filepath).normalize(), *this);
-    if (dir == nullptr) {
-        unexpect_return(ErrCode::ALLOCATION_FAILED);
-    }
-
     auto key_res = _build_mount_key(mount_path);
     propagate(key_res);
     auto mount_res = _lookup_mount_record(key_res.value().first);
     if (!mount_res.has_value()) {
-        delete dir;
         unexpect_return(ErrCode::FS_ERROR);
     }
-    mount_res.value()->active_files++;
+    MountRecord *mount_record = mount_res.value();
+    auto *dir = new VDirectory(*vind_res.value().get(), *mount_record,
+                               util::Path::from(filepath).normalize(), *this);
+    if (dir == nullptr) {
+        unexpect_return(ErrCode::ALLOCATION_FAILED);
+    }
+    mount_record->set_active_files(mount_record->active_files + 1);
     return dir;
 }
 
@@ -2094,13 +2119,20 @@ Result<VFile *> VFS::__debug_open(const char *filepath) {
     return _open_file(filepath);
 }
 
-Result<VFS::MountRecord *> VFS::_lookup_mount_record(
-    const MountKey &key) const {
+Result<const MountRecord *> VFS::_lookup_mount_record(const MountKey &key) const {
     auto record_res = mount_table.at_nt(key);
     if (!record_res.has_value()) {
         unexpect_return(ErrCode::ENTRY_NOT_FOUND);
     }
-    return const_cast<MountRecord *>(record_res.value());
+    return record_res.value();
+}
+
+Result<MountRecord *> VFS::_lookup_mount_record(const MountKey &key) {
+    auto record_res = mount_table.at_nt(key);
+    if (!record_res.has_value()) {
+        unexpect_return(ErrCode::ENTRY_NOT_FOUND);
+    }
+    return record_res.value();
 }
 
 Result<std::pair<VFS::MountKey, util::Path>> VFS::_build_mount_key(
@@ -2400,27 +2432,17 @@ std::vector<DirectoryEntryInfo> VFS::_append_mount_entries(
     return entries;
 }
 
-void VFS::_on_vfile_destroy(const util::Path &mount_path) noexcept {
-    auto key_res = _build_mount_key(mount_path);
-    if (!key_res.has_value()) {
-        loggers::VFS::WARN("VFile 销毁时挂载点 key 解析失败: %s",
-                           mount_path.c_str());
+void VFS::_on_vfile_destroy(MountRecord *mount_record) noexcept {
+    if (mount_record == nullptr) {
+        loggers::VFS::WARN("VFile 销毁时挂载记录为空");
         return;
     }
-    auto active_res = mount_table.at_nt(key_res.value().first);
-    if (!active_res.has_value()) {
-        loggers::VFS::WARN("VFile 销毁时找不到挂载点: %s", mount_path.c_str());
+    if (mount_record->active_files == 0) {
+        loggers::VFS::WARN("VFile 活跃计数已经为 0: %s",
+                           mount_record->mount_path.c_str());
         return;
     }
-    MountRecord &record = *active_res.value();
-    if (record.active_files == 0) {
-        loggers::VFS::WARN("VFile 活跃计数已经为 0: %s", mount_path.c_str());
-        return;
-    }
-    record.active_files--;
-    if (record.owner_mount != nullptr) {
-        record.owner_mount->set_active_files(record.active_files);
-    }
+    mount_record->set_active_files(mount_record->active_files - 1);
 }
 
 Result<size_t> VFS::read(VFile &vfile, off_t offset, void *buf,

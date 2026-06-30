@@ -21,7 +21,8 @@ namespace cap {
             unexpect_return(ErrCode::INSUFFICIENT_PERMISSIONS);
         }
         auto mount_res =
-            VFS::inst().mount_attach(*_obj, parent, mntpath, attachflags);
+            VFS::inst().mount_attach(*_cap, *_obj, parent, mntpath,
+                                     attachflags);
         propagate(mount_res);
         return true;
     }

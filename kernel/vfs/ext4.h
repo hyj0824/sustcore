@@ -255,6 +255,10 @@ namespace ext4 {
         Result<void> insert_extent(inode_t inode_id, uint32_t logical,
                                    uint64_t physical, uint32_t len);
         [[nodiscard]]
+        Result<void> rollback_last_extent_block(inode_t inode_id,
+                                                uint32_t logical,
+                                                uint64_t physical);
+        [[nodiscard]]
         Result<void> update_inode_size(inode_t inode_id, uint64_t new_size);
         [[nodiscard]]
         Result<void> delete_file(inode_t inode_id);

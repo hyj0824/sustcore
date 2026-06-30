@@ -1066,9 +1066,9 @@ namespace ext4 {
         propagate(valid_res);
         const auto &raw = raw_res.value();
 
-        out.mode    = read_le_at<uint16_t>(raw, 0);
-        out.uid     = read_le_at<uint16_t>(raw, 2);
-        out.gid     = read_le_at<uint16_t>(raw, 24);
+        out.mode      = read_le_at<uint16_t>(raw, 0);
+        out.uid       = read_le_at<uint16_t>(raw, 2);
+        out.gid       = read_le_at<uint16_t>(raw, 24);
         auto size_res = inode_size(inode_id);
         propagate(size_res);
         out.size    = size_res.value();
@@ -1094,22 +1094,28 @@ namespace ext4 {
         auto &raw = raw_res.value();
 
         if (mask & AttrMask::MODE) {
-            write_le_at<uint16_t>(raw, 0, static_cast<uint16_t>(attrs.mode & 0xFFFF));
+            write_le_at<uint16_t>(raw, 0,
+                                  static_cast<uint16_t>(attrs.mode & 0xFFFF));
         }
         if (mask & AttrMask::UID) {
-            write_le_at<uint16_t>(raw, 2, static_cast<uint16_t>(attrs.uid & 0xFFFF));
+            write_le_at<uint16_t>(raw, 2,
+                                  static_cast<uint16_t>(attrs.uid & 0xFFFF));
         }
         if (mask & AttrMask::GID) {
-            write_le_at<uint16_t>(raw, 24, static_cast<uint16_t>(attrs.gid & 0xFFFF));
+            write_le_at<uint16_t>(raw, 24,
+                                  static_cast<uint16_t>(attrs.gid & 0xFFFF));
         }
         if (mask & AttrMask::ATIME) {
-            write_le_at<uint32_t>(raw, 8, static_cast<uint32_t>(attrs.atime & 0xFFFFFFFF));
+            write_le_at<uint32_t>(
+                raw, 8, static_cast<uint32_t>(attrs.atime & 0xFFFFFFFF));
         }
         if (mask & AttrMask::MTIME) {
-            write_le_at<uint32_t>(raw, 16, static_cast<uint32_t>(attrs.mtime & 0xFFFFFFFF));
+            write_le_at<uint32_t>(
+                raw, 16, static_cast<uint32_t>(attrs.mtime & 0xFFFFFFFF));
         }
         if (mask & AttrMask::CTIME) {
-            write_le_at<uint32_t>(raw, 12, static_cast<uint32_t>(attrs.ctime & 0xFFFFFFFF));
+            write_le_at<uint32_t>(
+                raw, 12, static_cast<uint32_t>(attrs.ctime & 0xFFFFFFFF));
         }
 
         auto write_res = write_inode_raw(inode_id, raw);
@@ -1284,10 +1290,8 @@ namespace ext4 {
                     continue;
                 }
                 const uint64_t start =
-                    (static_cast<uint64_t>(
-                         read_le<uint16_t>(&extents[i].ee_start_hi))
-                     << 32) |
-                    read_le<uint32_t>(&extents[i].ee_start_lo);
+                    join_u64(read_le<uint32_t>(&extents[i].ee_start_lo),
+                             read_le<uint16_t>(&extents[i].ee_start_hi));
                 const uint64_t physical = start + (logical - first);
                 if (physical >= _block_count) {
                     unexpect_return(ErrCode::OUT_OF_BOUNDARY);
@@ -1320,10 +1324,8 @@ namespace ext4 {
             return Ext4ExtentMapping{};
         }
 
-        const uint64_t leaf =
-            (static_cast<uint64_t>(read_le<uint16_t>(&chosen->ei_leaf_hi))
-             << 32) |
-            read_le<uint32_t>(&chosen->ei_leaf_lo);
+        const uint64_t leaf = join_u64(read_le<uint32_t>(&chosen->ei_leaf_lo),
+                                       read_le<uint16_t>(&chosen->ei_leaf_hi));
         if (leaf >= _block_count) {
             unexpect_return(ErrCode::OUT_OF_BOUNDARY);
         }
@@ -1386,13 +1388,12 @@ namespace ext4 {
                 const uint32_t first = read_le<uint32_t>(&extents[i].ee_block);
                 const uint16_t len_raw = read_le<uint16_t>(&extents[i].ee_len);
                 const uint32_t elen    = extent_len(len_raw);
+                const uint64_t start_block =
+                    join_u64(read_le<uint32_t>(&extents[i].ee_start_lo),
+                             read_le<uint16_t>(&extents[i].ee_start_hi));
 
                 if (logical + len == first &&
-                    physical + static_cast<uint64_t>(len) * _block_size ==
-                        ((static_cast<uint64_t>(
-                              read_le<uint16_t>(&extents[i].ee_start_hi))
-                          << 32) |
-                         read_le<uint32_t>(&extents[i].ee_start_lo)))
+                    physical + static_cast<uint64_t>(len) == start_block)
                 {
                     write_le_at<uint32_t>(
                         raw,
@@ -1405,17 +1406,13 @@ namespace ext4 {
                     return write_inode_raw(inode_id, raw);
                 }
 
-                if (first == logical + len &&
-                    ((static_cast<uint64_t>(
-                          read_le<uint16_t>(&extents[i].ee_start_hi))
-                      << 32) |
-                     read_le<uint32_t>(&extents[i].ee_start_lo)) ==
-                        physical + static_cast<uint64_t>(len) * _block_size)
+                if (first == logical + elen &&
+                    start_block + static_cast<uint64_t>(elen) == physical)
                 {
                     write_le_at<uint16_t>(raw,
                                           40 + sizeof(Ext4ExtentHeader) +
                                               i * sizeof(Ext4Extent) + 4,
-                                          static_cast<uint16_t>(len + elen));
+                                          static_cast<uint16_t>(elen + len));
                     return write_inode_raw(inode_id, raw);
                 }
             }
@@ -1466,12 +1463,12 @@ namespace ext4 {
                     sorted.push_back({logical, len, physical});
                     inserted = true;
                 }
+                const uint64_t extent_start =
+                    join_u64(read_le<uint32_t>(&extents[i].ee_start_lo),
+                             read_le<uint16_t>(&extents[i].ee_start_hi));
                 sorted.push_back(
                     {eb, extent_len(read_le<uint16_t>(&extents[i].ee_len)),
-                     (static_cast<uint64_t>(
-                          read_le<uint16_t>(&extents[i].ee_start_hi))
-                      << 32) |
-                         read_le<uint32_t>(&extents[i].ee_start_lo)});
+                     extent_start});
             }
             if (!inserted) {
                 sorted.push_back({logical, len, physical});
@@ -1589,9 +1586,8 @@ namespace ext4 {
         }
 
         const uint64_t leaf_blk =
-            (static_cast<uint64_t>(read_le<uint16_t>(&target_idx->ei_leaf_hi))
-             << 32) |
-            read_le<uint32_t>(&target_idx->ei_leaf_lo);
+            join_u64(read_le<uint32_t>(&target_idx->ei_leaf_lo),
+                     read_le<uint16_t>(&target_idx->ei_leaf_hi));
         std::vector<byte> leaf(_block_size);
         auto read_lf = read_fs_block(leaf_blk, leaf.data(), leaf.size());
         propagate(read_lf);
@@ -1627,10 +1623,8 @@ namespace ext4 {
             if (chosen == nullptr) {
                 unexpect_return(ErrCode::ENTRY_NOT_FOUND);
             }
-            cur_blk =
-                (static_cast<uint64_t>(read_le<uint16_t>(&chosen->ei_leaf_hi))
-                 << 32) |
-                read_le<uint32_t>(&chosen->ei_leaf_lo);
+            cur_blk = join_u64(read_le<uint32_t>(&chosen->ei_leaf_lo),
+                               read_le<uint16_t>(&chosen->ei_leaf_hi));
             auto rd = read_fs_block(cur_blk, leaf.data(), leaf.size());
             propagate(rd);
             if (read_le<uint16_t>(leaf.data() + 6) > 0) {
@@ -1648,13 +1642,12 @@ namespace ext4 {
             const uint32_t first = read_le<uint32_t>(&lf_exts[i].ee_block);
             const uint16_t lr    = read_le<uint16_t>(&lf_exts[i].ee_len);
             const uint32_t elen  = extent_len(lr);
-            const uint64_t start = (static_cast<uint64_t>(read_le<uint16_t>(
-                                        &lf_exts[i].ee_start_hi))
-                                    << 32) |
-                                   read_le<uint32_t>(&lf_exts[i].ee_start_lo);
+            const uint64_t start_block =
+                join_u64(read_le<uint32_t>(&lf_exts[i].ee_start_lo),
+                         read_le<uint16_t>(&lf_exts[i].ee_start_hi));
 
             if (logical + len == first &&
-                physical + static_cast<uint64_t>(len) * _block_size == start)
+                physical + static_cast<uint64_t>(len) == start_block)
             {
                 write_le_at<uint32_t>(
                     leaf, sizeof(Ext4ExtentHeader) + i * sizeof(Ext4Extent),
@@ -1664,12 +1657,12 @@ namespace ext4 {
                     static_cast<uint16_t>(len + elen));
                 return write_fs_block(cur_blk, leaf.data(), leaf.size());
             }
-            if (first == logical + len &&
-                start == physical + static_cast<uint64_t>(len) * _block_size)
+            if (first + elen == logical &&
+                start_block + static_cast<uint64_t>(elen) == physical)
             {
                 write_le_at<uint16_t>(
                     leaf, sizeof(Ext4ExtentHeader) + i * sizeof(Ext4Extent) + 4,
-                    static_cast<uint16_t>(len + elen));
+                    static_cast<uint16_t>(elen + len));
                 return write_fs_block(cur_blk, leaf.data(), leaf.size());
             }
         }
@@ -1717,12 +1710,14 @@ namespace ext4 {
                 sorted.push_back(LfEntry{logical, len, physical});
                 done = true;
             }
-            sorted.push_back(
-                LfEntry{eb, extent_len(read_le<uint16_t>(&lf_exts[i].ee_len)),
-                        (static_cast<uint64_t>(
-                             read_le<uint16_t>(&lf_exts[i].ee_start_hi))
-                         << 32) |
-                            read_le<uint32_t>(&lf_exts[i].ee_start_lo)});
+            const uint64_t extent_start =
+                join_u64(read_le<uint32_t>(&lf_exts[i].ee_start_lo),
+                         read_le<uint16_t>(&lf_exts[i].ee_start_hi));
+            sorted.push_back(LfEntry{
+                eb,
+                extent_len(read_le<uint16_t>(&lf_exts[i].ee_len)),
+                extent_start,
+            });
         }
         if (!done)
             sorted.push_back(LfEntry{logical, len, physical});
@@ -1825,12 +1820,11 @@ namespace ext4 {
             };
             std::vector<IdxEntry> all;
             for (uint16_t i = 0; i < pn_entries; ++i) {
-                all.push_back(
-                    IdxEntry{read_le<uint32_t>(&pn_idxs[i].ei_block),
-                             (static_cast<uint64_t>(
-                                  read_le<uint16_t>(&pn_idxs[i].ei_leaf_hi))
-                              << 32) |
-                                 read_le<uint32_t>(&pn_idxs[i].ei_leaf_lo)});
+                const uint64_t leaf_phys =
+                    join_u64(read_le<uint32_t>(&pn_idxs[i].ei_leaf_lo),
+                             read_le<uint16_t>(&pn_idxs[i].ei_leaf_hi));
+                all.push_back(IdxEntry{read_le<uint32_t>(&pn_idxs[i].ei_block),
+                                       leaf_phys});
             }
             {
                 bool f = false;
@@ -1873,10 +1867,10 @@ namespace ext4 {
                         static_cast<uint16_t>(all[start + i].leaf_phys >> 32));
                 }
                 auto wr = write_fs_block(blk, b.data(), b.size());
-                propagate(wr);
+                return wr;
             };
-            write_ix_node(na.value(), 0, sp);
-            write_ix_node(nb.value(), sp, tot - sp);
+            (void)write_ix_node(na.value(), 0, sp);
+            (void)write_ix_node(nb.value(), sp, tot - sp);
 
             // update parent pointer from old node → new node a
             if (path.empty()) {
@@ -1940,12 +1934,11 @@ namespace ext4 {
             };
             std::vector<IdxEntry> idx_all;
             for (uint16_t i = 0; i < idx_entries; ++i) {
+                const uint64_t leaf_phys =
+                    join_u64(read_le<uint32_t>(&idxs[i].ei_leaf_lo),
+                             read_le<uint16_t>(&idxs[i].ei_leaf_hi));
                 idx_all.push_back(
-                    IdxEntry{read_le<uint32_t>(&idxs[i].ei_block),
-                             (static_cast<uint64_t>(
-                                  read_le<uint16_t>(&idxs[i].ei_leaf_hi))
-                              << 32) |
-                                 read_le<uint32_t>(&idxs[i].ei_leaf_lo)});
+                    IdxEntry{read_le<uint32_t>(&idxs[i].ei_block), leaf_phys});
             }
             {
                 uint32_t nb = ins_first;
@@ -2079,6 +2072,139 @@ namespace ext4 {
         return write_inode_raw(inode_id, raw_res.value());
     }
 
+    Result<void> Ext4Superblock::rollback_last_extent_block(inode_t inode_id,
+                                                            uint32_t logical,
+                                                            uint64_t physical) {
+        auto rollback_extent_in_node =
+            [&](std::vector<byte> &node) -> Result<bool> {
+            auto *node_eh = reinterpret_cast<Ext4ExtentHeader *>(node.data());
+            const uint16_t entries = read_le<uint16_t>(&node_eh->eh_entries);
+            auto *exts             = reinterpret_cast<Ext4Extent *>(
+                node.data() + sizeof(Ext4ExtentHeader));
+
+            for (uint16_t i = 0; i < entries; ++i) {
+                const uint32_t first   = read_le<uint32_t>(&exts[i].ee_block);
+                const uint16_t len_raw = read_le<uint16_t>(&exts[i].ee_len);
+                const uint32_t elen    = extent_len(len_raw);
+                const bool unwritten   = extent_unwritten(len_raw);
+                const uint64_t start_block =
+                    join_u64(read_le<uint32_t>(&exts[i].ee_start_lo),
+                             read_le<uint16_t>(&exts[i].ee_start_hi));
+                const uint32_t last_logical = first + elen - 1;
+                const uint64_t last_physical =
+                    start_block + static_cast<uint64_t>(elen) - 1;
+
+                if (last_logical != logical || last_physical != physical) {
+                    continue;
+                }
+
+                if (elen > 1) {
+                    uint16_t new_len = static_cast<uint16_t>(elen - 1);
+                    if (unwritten) {
+                        new_len = static_cast<uint16_t>(new_len + 0x8000U);
+                    }
+                    const size_t off =
+                        sizeof(Ext4ExtentHeader) + i * sizeof(Ext4Extent) + 4;
+                    write_le_at<uint16_t>(node, off, new_len);
+                } else {
+                    for (uint16_t j = i + 1; j < entries; ++j) {
+                        const size_t dst = sizeof(Ext4ExtentHeader) +
+                                           (j - 1) * sizeof(Ext4Extent);
+                        const size_t src =
+                            sizeof(Ext4ExtentHeader) + j * sizeof(Ext4Extent);
+                        memcpy(node.data() + dst, node.data() + src,
+                               sizeof(Ext4Extent));
+                    }
+                    const size_t tail = sizeof(Ext4ExtentHeader) +
+                                        (entries - 1) * sizeof(Ext4Extent);
+                    memset(node.data() + tail, 0, sizeof(Ext4Extent));
+                    write_le_at<uint16_t>(node, 2,
+                                          static_cast<uint16_t>(entries - 1));
+                }
+                return true;
+            }
+            return false;
+        };
+
+        auto raw_res = read_inode_raw(inode_id);
+        propagate(raw_res);
+        auto &raw = raw_res.value();
+        if (raw.size() < 100) {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+
+        byte *const i_block  = raw.data() + 40;
+        auto *eh             = reinterpret_cast<Ext4ExtentHeader *>(i_block);
+        const uint16_t depth = read_le<uint16_t>(&eh->eh_depth);
+        if (read_le<uint16_t>(&eh->eh_magic) != EXT4_EXT_MAGIC) {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+
+        if (depth == 0) {
+            std::vector<byte> node(i_block, i_block + 60);
+            auto rolled_res = rollback_extent_in_node(node);
+            propagate(rolled_res);
+            if (!rolled_res.value()) {
+                unexpect_return(ErrCode::ENTRY_NOT_FOUND);
+            }
+            memcpy(i_block, node.data(), node.size());
+            return write_inode_raw(inode_id, raw);
+        }
+
+        const uint16_t idx_entries = read_le<uint16_t>(i_block + 2);
+        auto *idxs                 = reinterpret_cast<Ext4ExtentIdx *>(
+            i_block + sizeof(Ext4ExtentHeader));
+        const Ext4ExtentIdx *target_idx = nullptr;
+        for (uint16_t i = 0; i < idx_entries; ++i) {
+            if (read_le<uint32_t>(&idxs[i].ei_block) > logical) {
+                break;
+            }
+            target_idx = &idxs[i];
+        }
+        if (target_idx == nullptr) {
+            unexpect_return(ErrCode::ENTRY_NOT_FOUND);
+        }
+
+        uint64_t node_block =
+            join_u64(read_le<uint32_t>(&target_idx->ei_leaf_lo),
+                     read_le<uint16_t>(&target_idx->ei_leaf_hi));
+        std::vector<byte> node(_block_size);
+        while (true) {
+            auto read_res = read_fs_block(node_block, node.data(), node.size());
+            propagate(read_res);
+
+            auto *node_eh = reinterpret_cast<Ext4ExtentHeader *>(node.data());
+            const uint16_t node_depth = read_le<uint16_t>(&node_eh->eh_depth);
+            if (node_depth == 0) {
+                break;
+            }
+
+            const uint16_t node_entries =
+                read_le<uint16_t>(&node_eh->eh_entries);
+            auto *node_idxs = reinterpret_cast<Ext4ExtentIdx *>(
+                node.data() + sizeof(Ext4ExtentHeader));
+            const Ext4ExtentIdx *chosen = nullptr;
+            for (uint16_t i = 0; i < node_entries; ++i) {
+                if (read_le<uint32_t>(&node_idxs[i].ei_block) > logical) {
+                    break;
+                }
+                chosen = &node_idxs[i];
+            }
+            if (chosen == nullptr) {
+                unexpect_return(ErrCode::ENTRY_NOT_FOUND);
+            }
+            node_block = join_u64(read_le<uint32_t>(&chosen->ei_leaf_lo),
+                                  read_le<uint16_t>(&chosen->ei_leaf_hi));
+        }
+
+        auto rolled_res = rollback_extent_in_node(node);
+        propagate(rolled_res);
+        if (!rolled_res.value()) {
+            unexpect_return(ErrCode::ENTRY_NOT_FOUND);
+        }
+        return write_fs_block(node_block, node.data(), node.size());
+    }
+
     Result<void> Ext4Superblock::insert_dir_entry(inode_t parent_inode,
                                                   inode_t child_inode,
                                                   std::string_view name,
@@ -2172,20 +2298,6 @@ namespace ext4 {
 
         auto new_block = alloc_block();
         propagate(new_block);
-        auto insert_ext =
-            insert_extent(parent_inode, static_cast<uint32_t>(block_count),
-                          new_block.value(), 1);
-        if (!insert_ext.has_value()) {
-            free_block(new_block.value());
-            propagate_return(insert_ext);
-        }
-        auto update_sz =
-            update_inode_size(parent_inode, size_res.value() + _block_size);
-        if (!update_sz.has_value()) {
-            free_block(new_block.value());
-            propagate_return(update_sz);
-        }
-
         std::vector<byte> new_dir_block(_block_size, 0);
         write_le_at<uint32_t>(new_dir_block, 0, child_inode);
         write_le_at<uint16_t>(new_dir_block, 4,
@@ -2194,11 +2306,72 @@ namespace ext4 {
         new_dir_block[7] = file_type;
         memcpy(new_dir_block.data() + sizeof(Ext4DirEntry2), name.data(),
                name.size());
+        loggers::VFS::DEBUG(
+            "Ext4 append dirent parent=%u logical=%lu block=%lu name=%.*s",
+            parent_inode, static_cast<unsigned long>(block_count),
+            static_cast<unsigned long>(new_block.value()),
+            static_cast<int>(name.size()), name.data());
         auto write_res = write_fs_block(new_block.value(), new_dir_block.data(),
                                         new_dir_block.size());
         if (!write_res.has_value()) {
-            free_block(new_block.value());
+            auto free_res = free_block(new_block.value());
+            if (!free_res.has_value()) {
+                loggers::VFS::WARN(
+                    "Ext4 dirent append rollback free failed: parent=%u "
+                    "block=%lu",
+                    parent_inode,
+                    static_cast<unsigned long>(new_block.value()));
+            }
             propagate_return(write_res);
+        }
+
+        auto insert_ext =
+            insert_extent(parent_inode, static_cast<uint32_t>(block_count),
+                          new_block.value(), 1);
+        if (!insert_ext.has_value()) {
+            loggers::VFS::DEBUG(
+                "Ext4 append dirent insert extent failed: parent=%u "
+                "logical=%lu block=%lu",
+                parent_inode, static_cast<unsigned long>(block_count),
+                static_cast<unsigned long>(new_block.value()));
+            auto free_res = free_block(new_block.value());
+            if (!free_res.has_value()) {
+                loggers::VFS::WARN(
+                    "Ext4 dirent append rollback free failed: parent=%u "
+                    "block=%lu",
+                    parent_inode,
+                    static_cast<unsigned long>(new_block.value()));
+            }
+            propagate_return(insert_ext);
+        }
+        auto update_sz =
+            update_inode_size(parent_inode, size_res.value() + _block_size);
+        if (!update_sz.has_value()) {
+            loggers::VFS::DEBUG(
+                "Ext4 append dirent size update failed, rollback: parent=%u "
+                "logical=%lu block=%lu",
+                parent_inode, static_cast<unsigned long>(block_count),
+                static_cast<unsigned long>(new_block.value()));
+            auto rollback_res = rollback_last_extent_block(
+                parent_inode, static_cast<uint32_t>(block_count),
+                new_block.value());
+            if (!rollback_res.has_value()) {
+                loggers::VFS::WARN(
+                    "Ext4 dirent append rollback extent failed: parent=%u "
+                    "logical=%lu block=%lu err=%d",
+                    parent_inode, static_cast<unsigned long>(block_count),
+                    static_cast<unsigned long>(new_block.value()),
+                    static_cast<int>(rollback_res.error()));
+            }
+            auto free_res = free_block(new_block.value());
+            if (!free_res.has_value()) {
+                loggers::VFS::WARN(
+                    "Ext4 dirent append rollback free failed: parent=%u "
+                    "block=%lu",
+                    parent_inode,
+                    static_cast<unsigned long>(new_block.value()));
+            }
+            propagate_return(update_sz);
         }
         void_return();
     }
