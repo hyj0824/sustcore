@@ -15,6 +15,7 @@
 #include <driver/virtio/virtio-blk.h>
 #include <logger.h>
 #include <sus/raii.h>
+#include <task/wait.h>
 #include <vfs/vfs.h>
 
 #include <algorithm>
@@ -62,16 +63,16 @@ namespace virtio {
         : VirtioDriverBase(std::move(res), probe_info, std::move(transport)),
           _config(),
           _request_queue(nullptr),
-          _request_header(),
-          _status_byte(),
           _block_size(DEFAULT_BLOCK_SIZE),
           _sector_size(DEFAULT_SECTOR_SIZE),
-          _capacity_sectors(0) {}
+          _capacity_sectors(0),
+          _slot_wait_wd(wait::alloc_reason()) {}
 
     VirtioBlkDriver::~VirtioBlkDriver() noexcept {
-        // 请求头与状态字节由驱动独占持有, 由析构统一回收.
-        free_dma_buffer(_request_header);
-        free_dma_buffer(_status_byte);
+        for (auto &slot : _slots) {
+            free_dma_buffer(slot.request_header);
+            free_dma_buffer(slot.status_byte);
+        }
     }
 
     Result<void> VirtioBlkDriver::init() noexcept {
@@ -87,7 +88,6 @@ namespace virtio {
         if (_transport.get() != nullptr &&
             _transport->kind() == Transport::Kind::PCI)
         {
-            auto *transport_pci = static_cast<TransportPCI *>(_transport.get());
             queue_res = init_queue_modern(REQUEST_QUEUE_INDEX, 8);
         } else {
             queue_res = init_queue_legacy(REQUEST_QUEUE_INDEX, 8);
@@ -95,13 +95,23 @@ namespace virtio {
         propagate(queue_res);
         _request_queue = queue_res.value();
 
-        auto header_res = alloc_dma_buffer(sizeof(BlkReq));
-        propagate(header_res);
-        _request_header = header_res.value();
+        size_t slot_count = _request_queue->size / 3;
+        if (slot_count == 0) {
+            slot_count = 1;
+        }
 
-        auto status_res = alloc_dma_buffer(sizeof(u8));
-        propagate(status_res);
-        _status_byte = status_res.value();
+        _slots.clear();
+        _slots.resize(slot_count);
+        _slot_by_desc.assign(_request_queue->size, vring::INVALID_DESC);
+        for (auto &slot : _slots) {
+            auto header_res = alloc_dma_buffer(sizeof(BlkReq));
+            propagate(header_res);
+            slot.request_header = header_res.value();
+
+            auto status_res = alloc_dma_buffer(sizeof(u8));
+            propagate(status_res);
+            slot.status_byte = status_res.value();
+        }
 
         auto finish_res = finish_init();
         propagate(finish_res);
@@ -181,41 +191,9 @@ namespace virtio {
         if (_queue == nullptr) {
             unexpect_return(ErrCode::NULLPTR);
         }
-
-        Result<size_t> result = std::unexpected(ErrCode::INVALID_PARAM);
-        switch (req.op) {
-            case blk::BlockOp::READ:
-                result = read_blocks(req.lba, req.block_count, req.buffer);
-                break;
-            case blk::BlockOp::WRITE:
-                result = write_blocks(req.lba, req.block_count, req.buffer);
-                break;
-            case blk::BlockOp::FLUSH: {
-                auto flush_res = submit_flush();
-                if (flush_res.has_value()) {
-                    result = 0;
-                } else {
-                    result = std::unexpected(flush_res.error());
-                }
-                break;
-            }
-            default: break;
-        }
-
-        if (!result.has_value()) {
-            loggers::DEVICE::ERROR(
-                "virtio-blk request failed: node=%s op=%u lba=%u cnt=%u block_size=%u sector_size=%u err=%s",
-                name(), static_cast<unsigned>(req.op),
-                static_cast<unsigned>(req.lba),
-                static_cast<unsigned>(req.block_count),
-                static_cast<unsigned>(_block_size),
-                static_cast<unsigned>(_sector_size),
-                to_cstring(result.error()));
-        }
-        auto complete_res =
-            _queue->complete(util::nnullforce(&req), std::move(result));
-        propagate(complete_res);
-        void_return();
+        auto slot_res = alloc_slot();
+        propagate(slot_res);
+        return submit_request_on_slot(slot_res.value(), req);
     }
 
     Result<void> VirtioBlkDriver::run_request_loop() {
@@ -224,6 +202,72 @@ namespace virtio {
         }
 
         while (true) {
+            auto reap_res = reap_completed_requests();
+            propagate(reap_res);
+
+            auto timeout_res = fail_timed_out_slots();
+            propagate(timeout_res);
+
+            auto finish_res = complete_finished_slots();
+            propagate(finish_res);
+
+            bool submitted_any = false;
+            while (_inflight_count < _slots.size()) {
+                auto req_res = _queue->try_dequeue();
+                if (!req_res.has_value()) {
+                    if (req_res.error() == ErrCode::ENTRY_NOT_FOUND) {
+                        break;
+                    }
+                    if (req_res.error() == ErrCode::FUTURE_CANCLED) {
+                        auto final_reap_res = reap_completed_requests();
+                        propagate(final_reap_res);
+                        auto final_timeout_res = fail_timed_out_slots();
+                        propagate(final_timeout_res);
+                        auto final_finish_res = complete_finished_slots();
+                        propagate(final_finish_res);
+                        if (_inflight_count == 0) {
+                            void_return();
+                        }
+                        break;
+                    }
+                    propagate_return(req_res);
+                }
+
+                auto *req = req_res.value();
+                auto mark_res = _queue->mark_processing(util::nnullforce(req));
+                if (!mark_res.has_value()) {
+                    auto complete_res = _queue->complete(
+                        util::nnullforce(req),
+                        std::unexpected(mark_res.error()));
+                    propagate(complete_res);
+                    continue;
+                }
+
+                auto process_res = process_request(*req);
+                if (!process_res.has_value()) {
+                    auto complete_res = _queue->complete(
+                        util::nnullforce(req),
+                        std::unexpected(process_res.error()));
+                    propagate(complete_res);
+                    continue;
+                }
+                submitted_any = true;
+            }
+
+            if (submitted_any || reap_res.value() != 0 || timeout_res.value() != 0 ||
+                finish_res.value() != 0)
+            {
+                continue;
+            }
+
+            if (_inflight_count != 0) {
+                auto wait_res = wait_for_inflight_progress();
+                if (!wait_res.has_value() && wait_res.error() != ErrCode::TIMEOUT) {
+                    propagate_return(wait_res);
+                }
+                continue;
+            }
+
             auto req_res = _queue->wait_and_dequeue();
             if (!req_res.has_value()) {
                 if (req_res.error() == ErrCode::FUTURE_CANCLED) {
@@ -233,13 +277,19 @@ namespace virtio {
             }
 
             auto *req = req_res.value();
-            loggers::DEVICE::DEBUG("virtio-blk worker got req: lba=%lu cnt=%lu",
-                                  static_cast<unsigned long>(req->lba),
-                                  static_cast<unsigned long>(req->block_count));
             auto mark_res = _queue->mark_processing(util::nnullforce(req));
-            propagate(mark_res);
+            if (!mark_res.has_value()) {
+                auto complete_res = _queue->complete(
+                    util::nnullforce(req), std::unexpected(mark_res.error()));
+                propagate(complete_res);
+                continue;
+            }
             auto process_res = process_request(*req);
-            propagate(process_res);
+            if (!process_res.has_value()) {
+                auto complete_res = _queue->complete(
+                    util::nnullforce(req), std::unexpected(process_res.error()));
+                propagate(complete_res);
+            }
         }
         void_return();
     }
@@ -273,58 +323,12 @@ namespace virtio {
                                               bool device_writes) noexcept {
         // 先构造 virtio-blk 请求头与状态字节, 再把 header/data/status
         // 组织成一条三段描述符链提交到 request 队列.
-        if (_request_queue == nullptr || !_request_header.kaddr ||
-            !_status_byte.kaddr)
-        {
-            unexpect_return(ErrCode::FAILURE);
-        }
-        if (bytes == 0) {
-            return 0;
-        }
-
-        auto *header = static_cast<BlkReq *>(_request_header.kaddr);
-        auto *status = static_cast<u8 *>(_status_byte.kaddr);
-        header->type     = req_type;
-        header->reserved = 0;
-        header->sector   = sector;
-        *status          = 0xFF;
-
-        auto data_paddr = convert_pointer(static_cast<char *>(buffer));
-        std::vector<vring::BufferView> bufs;
-        bufs.reserve(3);
-        bufs.push_back(vring::BufferView{
-            .paddr    = _request_header.paddr,
-            .size     = sizeof(BlkReq),
-            .writable = false,
-        });
-        bufs.push_back(vring::BufferView{
-            .paddr    = data_paddr,
-            .size     = bytes,
-            .writable = device_writes,
-        });
-        bufs.push_back(vring::BufferView{
-            .paddr    = _status_byte.paddr,
-            .size     = sizeof(u8),
-            .writable = true,
-        });
-
-        // TODO: 当前为了先接入块设备模型, 请求完成仍采用同步轮询.
-        // 后续将改为 virtio-blk 中断驱动完成路径, 以避免 busy waiting.
-        // 若先做过渡实现, 可在中断回调中采用“关中断 - 复制数据 - 开中断”的
-        // 临时简化策略, 然后再继续细化临界区粒度.
-        auto used_res = queue_submit_and_poll_legacy(*_request_queue, bufs);
-        propagate(used_res);
-
-        // 最后检查设备返回的状态字节, 明确区分传输成功与设备级失败.
-        if (*status != reqstatus::OK) {
-            loggers::DEVICE::ERROR(
-                "virtio-blk 请求失败: node=%s type=%u sector=%llu status=%u",
-                name(), static_cast<unsigned>(req_type),
-                static_cast<unsigned long long>(sector),
-                static_cast<unsigned>(*status));
-            unexpect_return(ErrCode::IO_ERROR);
-        }
-        return bytes;
+        (void)req_type;
+        (void)sector;
+        (void)buffer;
+        (void)bytes;
+        (void)device_writes;
+        unexpect_return(ErrCode::NOT_SUPPORTED);
     }
 
     Result<size_t> VirtioBlkDriver::read_blocks(size_t lba, size_t block_count,
@@ -390,41 +394,379 @@ namespace virtio {
     }
 
     Result<void> VirtioBlkDriver::submit_flush() noexcept {
-        // flush 请求没有数据段, 只需要 header 与 status 两段描述符.
-        if (_request_queue == nullptr || !_request_header.kaddr ||
-            !_status_byte.kaddr)
+        unexpect_return(ErrCode::NOT_SUPPORTED);
+    }
+
+    Result<size_t> VirtioBlkDriver::alloc_slot() noexcept {
+        auto completed_res = complete_finished_slots();
+        propagate(completed_res);
+        for (size_t i = 0; i < _slots.size(); ++i) {
+            auto &slot = _slots[i];
+            if (!slot.in_use) {
+                slot.in_use        = true;
+                slot.completed     = false;
+                slot.timed_out     = false;
+                slot.req           = nullptr;
+                slot.desc_idx      = vring::INVALID_DESC;
+                slot.success_bytes = 0;
+                slot.deadline_ns   = 0;
+                slot.result        = std::unexpected(ErrCode::FUTURE_PENDING);
+                return i;
+            }
+        }
+        unexpect_return(ErrCode::BUSY);
+    }
+
+    Result<void> VirtioBlkDriver::submit_request_on_slot(
+        size_t slot_idx, blk::BlockRequest &req) noexcept {
+        if (_request_queue == nullptr || slot_idx >= _slots.size()) {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+
+        auto &slot = _slots[slot_idx];
+        if (!slot.in_use || slot.request_header.kaddr == nullptr ||
+            slot.status_byte.kaddr == nullptr)
         {
             unexpect_return(ErrCode::FAILURE);
         }
 
-        auto *header = static_cast<BlkReq *>(_request_header.kaddr);
-        auto *status = static_cast<u8 *>(_status_byte.kaddr);
-        header->type     = reqtype::FLUSH;
+        u32 req_type = 0;
+        size_t sector = 0;
+        size_t bytes = 0;
+        bool device_writes = false;
+
+        switch (req.op) {
+            case blk::BlockOp::READ:
+            case blk::BlockOp::WRITE: {
+                if (req.buffer == nullptr) {
+                    release_slot(slot_idx);
+                    unexpect_return(ErrCode::NULLPTR);
+                }
+                if (_block_size == 0 || _sector_size == 0 ||
+                    (_block_size % _sector_size) != 0)
+                {
+                    release_slot(slot_idx);
+                    unexpect_return(ErrCode::INVALID_PARAM);
+                }
+                auto total_blocks_res = block_cnt();
+                if (!total_blocks_res.has_value()) {
+                    auto err = total_blocks_res.error();
+                    release_slot(slot_idx);
+                    unexpect_return(err);
+                }
+                if (req.lba >= total_blocks_res.value() ||
+                    req.block_count > total_blocks_res.value() - req.lba)
+                {
+                    release_slot(slot_idx);
+                    unexpect_return(ErrCode::OUT_OF_BOUNDARY);
+                }
+                const size_t sectors_per_block = _block_size / _sector_size;
+                req_type = req.op == blk::BlockOp::READ ? reqtype::IN
+                                                        : reqtype::OUT;
+                sector = req.lba * sectors_per_block;
+                bytes = req.block_count * _block_size;
+                device_writes = req.op == blk::BlockOp::READ;
+                break;
+            }
+            case blk::BlockOp::FLUSH:
+                req_type = reqtype::FLUSH;
+                sector = 0;
+                bytes = 0;
+                device_writes = false;
+                break;
+            default:
+                release_slot(slot_idx);
+                unexpect_return(ErrCode::INVALID_PARAM);
+        }
+
+        auto *header = static_cast<BlkReq *>(slot.request_header.kaddr);
+        auto *status = static_cast<u8 *>(slot.status_byte.kaddr);
+        header->type     = req_type;
         header->reserved = 0;
-        header->sector   = 0;
+        header->sector   = sector;
         *status          = 0xFF;
 
         std::vector<vring::BufferView> bufs;
-        bufs.reserve(2);
+        bufs.reserve(bytes == 0 ? 2 : 3);
         bufs.push_back(vring::BufferView{
-            .paddr    = _request_header.paddr,
+            .paddr    = slot.request_header.paddr,
             .size     = sizeof(BlkReq),
             .writable = false,
         });
+        if (bytes != 0) {
+            bufs.push_back(vring::BufferView{
+                .paddr    = convert_pointer(static_cast<char *>(req.buffer)),
+                .size     = bytes,
+                .writable = device_writes,
+            });
+        }
         bufs.push_back(vring::BufferView{
-            .paddr    = _status_byte.paddr,
+            .paddr    = slot.status_byte.paddr,
             .size     = sizeof(u8),
             .writable = true,
         });
 
-        // TODO: flush 完成路径当前同样通过同步轮询等待, 后续将统一迁移到
-        // 基于 virtio-blk 完成中断的请求收尾流程.
-        auto used_res = queue_submit_and_poll_legacy(*_request_queue, bufs);
-        propagate(used_res);
-        if (*status != reqstatus::OK) {
-            unexpect_return(ErrCode::IO_ERROR);
+        auto head_res = queue_add_chain_legacy(*_request_queue, bufs);
+        if (!head_res.has_value()) {
+            auto err = head_res.error();
+            release_slot(slot_idx);
+            unexpect_return(err);
+        }
+
+        auto submit_guard = util::Guard([this, slot_idx]() {
+            auto &guard_slot = _slots[slot_idx];
+            if (guard_slot.desc_idx != vring::INVALID_DESC) {
+                (void)queue_free_chain_legacy(*_request_queue, guard_slot.desc_idx);
+            }
+            (void)release_slot(slot_idx);
+        });
+
+        slot.req           = &req;
+        slot.desc_idx      = head_res.value();
+        slot.success_bytes = bytes;
+        slot.deadline_ns   = now_ns() + REQUEST_TIMEOUT_NS;
+        slot.result        = std::unexpected(ErrCode::FUTURE_PENDING);
+        if (slot.desc_idx < _slot_by_desc.size()) {
+            _slot_by_desc[slot.desc_idx] = static_cast<u16>(slot_idx);
+        }
+
+        auto submit_res = queue_submit_legacy(*_request_queue, slot.desc_idx);
+        propagate(submit_res);
+        auto notify_res = queue_notify_legacy(*_request_queue);
+        propagate(notify_res);
+
+        ++_inflight_count;
+        submit_guard.release();
+        void_return();
+    }
+
+    Result<size_t> VirtioBlkDriver::reap_completed_requests() noexcept {
+        if (_request_queue == nullptr) {
+            unexpect_return(ErrCode::NULLPTR);
+        }
+
+        size_t count = 0;
+        while (true) {
+            auto can_pop_res = queue_can_pop_legacy(*_request_queue);
+            propagate(can_pop_res);
+            if (!can_pop_res.value()) {
+                break;
+            }
+
+            auto used_res = queue_pop_used_legacy(*_request_queue);
+            propagate(used_res);
+            ++count;
+
+            const u16 desc_idx = static_cast<u16>(used_res.value().id);
+            if (desc_idx >= _slot_by_desc.size()) {
+                loggers::DEVICE::ERROR(
+                    "virtio-blk used id 越界: node=%s used_id=%u desc_slots=%u",
+                    name(), static_cast<unsigned>(desc_idx),
+                    static_cast<unsigned>(_slot_by_desc.size()));
+                continue;
+            }
+
+            const u16 slot_idx = _slot_by_desc[desc_idx];
+            _slot_by_desc[desc_idx] = vring::INVALID_DESC;
+            if (slot_idx == vring::INVALID_DESC || slot_idx >= _slots.size()) {
+                loggers::DEVICE::ERROR(
+                    "virtio-blk used id 未映射 slot: node=%s used_id=%u slot=%u",
+                    name(), static_cast<unsigned>(desc_idx),
+                    static_cast<unsigned>(slot_idx));
+                continue;
+            }
+
+            auto &slot = _slots[slot_idx];
+            if (!slot.in_use || slot.desc_idx != desc_idx) {
+                loggers::DEVICE::ERROR(
+                    "virtio-blk slot 状态非法: node=%s slot=%u desc=%u in_use=%d slot_desc=%u",
+                    name(), static_cast<unsigned>(slot_idx),
+                    static_cast<unsigned>(desc_idx), static_cast<int>(slot.in_use),
+                    static_cast<unsigned>(slot.desc_idx));
+                continue;
+            }
+
+            auto free_res = queue_free_chain_legacy(*_request_queue, desc_idx);
+            if (!free_res.has_value()) {
+                loggers::DEVICE::ERROR(
+                    "virtio-blk 释放 used 链失败: node=%s slot=%u desc=%u err=%s",
+                    name(), static_cast<unsigned>(slot_idx),
+                    static_cast<unsigned>(desc_idx),
+                    to_cstring(free_res.error()));
+                slot.result    = std::unexpected(free_res.error());
+                slot.completed = true;
+                slot.desc_idx  = vring::INVALID_DESC;
+                continue;
+            }
+
+            auto *status = static_cast<u8 *>(slot.status_byte.kaddr);
+            if (status == nullptr) {
+                slot.result = std::unexpected(ErrCode::NULLPTR);
+            } else if (*status != reqstatus::OK) {
+                loggers::DEVICE::ERROR(
+                    "virtio-blk 请求失败: node=%s slot=%u desc=%u status=%u",
+                    name(), static_cast<unsigned>(slot_idx),
+                    static_cast<unsigned>(desc_idx),
+                    static_cast<unsigned>(*status));
+                slot.result = std::unexpected(ErrCode::IO_ERROR);
+            } else {
+                slot.result = slot.success_bytes;
+            }
+
+            slot.completed = true;
+            slot.desc_idx  = vring::INVALID_DESC;
+        }
+
+        if (count != 0) {
+            auto wake_res = wait::wake_all(_slot_wait_wd);
+            if (!wake_res.has_value()) {
+                loggers::DEVICE::ERROR("virtio-blk 唤醒 slot waiter 失败: node=%s err=%s",
+                                       name(), to_cstring(wake_res.error()));
+            }
+        }
+        return count;
+    }
+
+    Result<size_t> VirtioBlkDriver::complete_finished_slots() noexcept {
+        size_t count = 0;
+        for (size_t i = 0; i < _slots.size(); ++i) {
+            auto &slot = _slots[i];
+            if (!slot.in_use || !slot.completed || slot.req == nullptr) {
+                continue;
+            }
+
+            auto *req = slot.req;
+            auto result = std::move(slot.result);
+            auto complete_res = _queue->complete(util::nnullforce(req),
+                                                 std::move(result));
+            propagate(complete_res);
+            auto release_res = release_slot(i);
+            propagate(release_res);
+            ++count;
+        }
+        return count;
+    }
+
+    Result<size_t> VirtioBlkDriver::fail_timed_out_slots() noexcept {
+        const size_t now = now_ns();
+        size_t count = 0;
+        for (size_t i = 0; i < _slots.size(); ++i) {
+            auto &slot = _slots[i];
+            if (!slot.in_use || slot.completed || slot.req == nullptr ||
+                slot.desc_idx == vring::INVALID_DESC)
+            {
+                continue;
+            }
+            if (slot.deadline_ns > now) {
+                continue;
+            }
+
+            loggers::DEVICE::ERROR(
+                "virtio-blk 请求超时: node=%s slot=%u lba=%lu cnt=%lu desc=%u",
+                name(), static_cast<unsigned>(i),
+                static_cast<unsigned long>(slot.req->lba),
+                static_cast<unsigned long>(slot.req->block_count),
+                static_cast<unsigned>(slot.desc_idx));
+
+            if (slot.desc_idx < _slot_by_desc.size()) {
+                _slot_by_desc[slot.desc_idx] = vring::INVALID_DESC;
+            }
+            auto free_res = queue_free_chain_legacy(*_request_queue, slot.desc_idx);
+            if (!free_res.has_value()) {
+                loggers::DEVICE::ERROR(
+                    "virtio-blk 超时链释放失败: node=%s slot=%u desc=%u err=%s",
+                    name(), static_cast<unsigned>(i),
+                    static_cast<unsigned>(slot.desc_idx),
+                    to_cstring(free_res.error()));
+            }
+            slot.desc_idx  = vring::INVALID_DESC;
+            slot.result    = std::unexpected(ErrCode::TIMEOUT);
+            slot.completed = true;
+            slot.timed_out = true;
+            ++count;
+        }
+
+        if (count != 0) {
+            auto wake_res = wait::wake_all(_slot_wait_wd);
+            if (!wake_res.has_value()) {
+                loggers::DEVICE::ERROR("virtio-blk 唤醒超时 waiter 失败: node=%s err=%s",
+                                       name(), to_cstring(wake_res.error()));
+            }
+        }
+        return count;
+    }
+
+    Result<bool> VirtioBlkDriver::has_used_completion() noexcept {
+        if (_request_queue == nullptr) {
+            unexpect_return(ErrCode::NULLPTR);
+        }
+        return queue_can_pop_legacy(*_request_queue);
+    }
+
+    Result<bool> VirtioBlkDriver::has_inflight_timeout() noexcept {
+        const size_t now = now_ns();
+        for (const auto &slot : _slots) {
+            if (slot.in_use && !slot.completed && slot.req != nullptr &&
+                slot.deadline_ns <= now)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    Result<void> VirtioBlkDriver::wait_for_inflight_progress() noexcept {
+        auto wait_res = timeout_wait_event(
+            _slot_wait_wd, REQUEST_POLL_WAIT_NS,
+            ({
+                auto used_res = has_used_completion();
+                auto timeout_res = has_inflight_timeout();
+                used_res.has_value() && timeout_res.has_value() &&
+                    (used_res.value() || timeout_res.value());
+            }));
+        if (!wait_res.has_value()) {
+            propagate_return(wait_res);
         }
         void_return();
+    }
+
+    Result<void> VirtioBlkDriver::release_slot(size_t slot_idx) noexcept {
+        if (slot_idx >= _slots.size()) {
+            unexpect_return(ErrCode::INVALID_PARAM);
+        }
+
+        auto &slot = _slots[slot_idx];
+        if (!slot.in_use) {
+            void_return();
+        }
+        if (_inflight_count != 0 && slot.req != nullptr) {
+            --_inflight_count;
+        }
+        if (slot.desc_idx != vring::INVALID_DESC &&
+            slot.desc_idx < _slot_by_desc.size())
+        {
+            _slot_by_desc[slot.desc_idx] = vring::INVALID_DESC;
+        }
+        slot.req           = nullptr;
+        slot.desc_idx      = vring::INVALID_DESC;
+        slot.success_bytes = 0;
+        slot.deadline_ns   = 0;
+        slot.result        = std::unexpected(ErrCode::FUTURE_PENDING);
+        slot.in_use        = false;
+        slot.completed     = false;
+        slot.timed_out     = false;
+        void_return();
+    }
+
+    size_t VirtioBlkDriver::now_ns() const noexcept {
+        auto *time_keeper =
+            env::hart_ctx != nullptr ? env::hart_ctx->time_keeper() : nullptr;
+        if (time_keeper == nullptr || time_keeper->source() == nullptr) {
+            return 0;
+        }
+        return static_cast<size_t>(
+            time_keeper->source()->to_ns(time_keeper->source()->now())
+                .to_nanoseconds());
     }
 
     Result<void> VirtioBlkDriver::__debug_print_blocks() noexcept {

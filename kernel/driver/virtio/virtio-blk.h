@@ -14,6 +14,8 @@
 #include <bio/block.h>
 #include <driver/virtio/virtio.h>
 
+#include <vector>
+
 namespace virtio {
     /**
      * @brief virtio 块设备 feature 位定义.
@@ -110,6 +112,20 @@ namespace virtio {
      */
     class VirtioBlkDriver final : public VirtioDriverBase,
                                   public IBlockDeviceOps {
+    private:
+        struct RequestSlot {
+            DmaBuffer request_header = {};
+            DmaBuffer status_byte    = {};
+            blk::BlockRequest *req   = nullptr;
+            u16 desc_idx             = vring::INVALID_DESC;
+            size_t success_bytes     = 0;
+            size_t deadline_ns       = 0;
+            Result<size_t> result    = std::unexpected(ErrCode::FUTURE_PENDING);
+            bool in_use              = false;
+            bool completed           = false;
+            bool timed_out           = false;
+        };
+
     public:
         constexpr static BlockDeviceType IDENTIFIER = BlockDeviceType::BASIC;
 
@@ -204,6 +220,19 @@ namespace virtio {
          */
         [[nodiscard]]
         Result<void> load_config() noexcept;
+        [[nodiscard]]
+        Result<size_t> alloc_slot() noexcept;
+        Result<void> submit_request_on_slot(size_t slot_idx,
+                                            blk::BlockRequest &req) noexcept;
+        Result<size_t> reap_completed_requests() noexcept;
+        Result<size_t> complete_finished_slots() noexcept;
+        Result<size_t> fail_timed_out_slots() noexcept;
+        Result<bool> has_used_completion() noexcept;
+        Result<bool> has_inflight_timeout() noexcept;
+        Result<void> wait_for_inflight_progress() noexcept;
+        Result<void> release_slot(size_t slot_idx) noexcept;
+        [[nodiscard]]
+        size_t now_ns() const noexcept;
 
         /**
          * @brief 通过 request virtqueue 提交一次同步读写请求.
@@ -221,15 +250,21 @@ namespace virtio {
         static constexpr u16 REQUEST_QUEUE_INDEX = 0;
         static constexpr size_t DEFAULT_BLOCK_SIZE = 512;
         static constexpr size_t DEFAULT_SECTOR_SIZE = 512;
+        static constexpr size_t REQUEST_TIMEOUT_NS =
+            30ull * 1000ull * 1000ull * 1000ull;
+        static constexpr size_t REQUEST_POLL_WAIT_NS =
+            1ull * 1000ull * 1000ull;
 
         BlkConfig _config{};
         VirtQueueLegacy *_request_queue = nullptr;
         blk::BlockRequestQueue *_queue   = nullptr;
-        DmaBuffer _request_header = {};
-        DmaBuffer _status_byte    = {};
         size_t _block_size        = DEFAULT_BLOCK_SIZE;
         size_t _sector_size       = DEFAULT_SECTOR_SIZE;
         size_t _capacity_sectors  = 0;
+        wait::wd_t _slot_wait_wd  = 0;
+        size_t _inflight_count    = 0;
+        std::vector<RequestSlot> _slots;
+        std::vector<u16> _slot_by_desc;
     };
 
     /**
