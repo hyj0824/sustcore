@@ -11,6 +11,7 @@
 
 #include <device/model.h>
 #include <device/resource.h>
+#include <driver/int/guard.h>
 #include <driver/serial.h>
 #include <logger.h>
 #include <sus/units.h>
@@ -83,6 +84,8 @@ namespace driver {
     }
 
     void SerialDevice::write(const char *str, size_t len) noexcept {
+        InterruptGuard guard;
+        guard.enter();
         for (size_t i = 0; i < len; ++i) {
             writec(str[i]);
         }
