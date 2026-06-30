@@ -1,5 +1,46 @@
 # Sustcore
 
+Sustcore 是一个面向 RISC-V 与 LoongArch64 的 Capability-based 混合内核, 其灵感来源于著名的 seL4 内核, 但在设计上有着较大的差异.
+作为一个混合内核, Sustcore 将 VFS, 内存管理, 进程管理以及部分重要的驱动与文件系统等功能收归内核, 以提高效率, 降低复杂度并增强安全性,
+而将网络协议栈, 文件系统, 驱动等功能放在用户态(未实现), 以兼备微内核的安全性与模块化, 以及宏内核的效率与易用性.
+
+Sustcore 是从 0 开始设计与实现的, 其不基于任何现有的内核, 目前除了 libfdt 与部分头文件外也未使用其余的第三方库.
+因此, 例如 ext4 文件系统, elf 加载器, riscv64与loongarch64架构支持, 自旋锁等功能都是自己实现的.
+
+在本系统的编写过程中, 我们大量参考了以下的操作系统与书记
+
+1. [seL4](https://github.com/seL4/seL4)
+    > 本内核的灵感来源, 也是大多数系统调用的设计依托.
+2. [Linux](https://github.com/torvalds/linux)
+   > 大多数机制的实现与linux兼容的系统调用都大量地参考了linux内核的实现, 以保证兼容性与可移植性.
+   > 此外, ext4 文件系统, 页缓存机制, slab 分配器与 buddy 分配器, loongarch 下的 RTC 时钟驱动实现等功能也参考了 linux 内核的实现.
+3. [NAOS](https://github.com/aether-os-studio/naos)
+    > 一个简单而强悍的宏内核. 例如 ELF 加载器, 辅助向量填充, loongarch 架构支持, virtio 与 pci 驱动以及部分系统调用的实现都参考了这个系统. 此外, 在进行 debug 时, 我们也常常通过与该系统进行对比来定位和解决问题.
+5. [Managarm](https://github.com/managarm/managarm)
+    > 另一个著名的微内核, 其是使用 C++ 实现的, 在本内核进行 C++ 运行时支持的实现时部分地参考了该内核的实现.
+6. [Tayhuang OS](https://github.com/TayhuangOS-Development-Team/TayHuangOS)
+    > 本人的早期操作系统项目. 其构建系统是本内核构建系统的前身. 也为本内核提供了部分头文件(如 types.h, stdint.h 等)与部分工具(stat.sh, calc_magic, cc_modifier, comments_stat, get_loop_devices)
+7. Orange'S: 一个操作系统的实现
+   > 操作系统开发与实践的入门级书籍. 是本人实现 Tayhuang OS 时的主要书籍
+8. Operating System: Three Easy Pieces
+9.  计算机的心智: 操作系统之哲学原理
+    > 提供了重要的理论知识以支撑开发过程中的设计决策
+10. [操作系统实验文档](https://yuk1i.github.io/os-next-docs/)
+    > 提供了对 riscv64 启动流程的部分介绍以供参考
+12. RiscV 官方文档
+    > 是进行 riscv64 架构相关的开发时重要的参考资料
+    > 实现 plic 驱动, riscv64 架构下的 trap 处理, riscv64 架构下的上下文切换, riscv64 页表实现等主要都是参考了 riscv64 官方文档自己思考并类比 x86_64 架构的实现来完成的
+13. LoongArch 官方文档
+    > 是进行 loongarch64 架构相关的开发时重要的参考资料
+    > 然而, 几乎所有的 loongarch64 架构相关的开发都是参考 naos 实现的, 因为官方文档的内容过于简略, 以至于无法直接使用, 只能通过 naos 的实现来理解 loongarch64 架构的设计理念与实现方式.
+    > 希望龙芯官方能够出个好点的文档......
+14. [Rust Book](https://doc.rust-lang.org/stable/book/)
+    > 虽然本内核是使用 C++ 实现的, 但是 Rust Book 中提及的 Result<T, E> 错误处理机制对本内核的错误处理机制有着重要的启发作用, 也因此在本内核中实现了类似的错误处理机制以代替C++的异常机制, 以提高效率与可控性.
+15. [C++ Core Guidelines](https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines)
+    > C++ 的官方规范, 对本内核的 C++ 代码风格有着重要的指导作用, 同时也启发了本内核中 util::owner, util::nonnull 等零成本类型标注的设计
+
+此外, 本内核同时支持 C++26 中的反射机制, 并通过反射机制来优化 RPC 中胶水代码的编写, 以提高效率与可维护性. 由于比赛时提供的编译器版本过低, 目前暂时没有使用反射机制, 但只要使用了 GCC 16 或以上版本, 就可以取消 Makefile 中例如 test-rpc 等使用到反射机制的测试的注释, 并使用反射机制来优化 RPC 中胶水代码的编写.
+
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/sustcore-team/sustcore)
 
 # 编译, 运行与调试
