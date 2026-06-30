@@ -21,6 +21,13 @@ sys_shutdown:
     li.d $a7, SYS_SHUTDOWN
     do_syscall
 
+    .global sys_block_forever
+    .type sys_block_forever, @function
+sys_block_forever:
+    move $a0, $zero
+    li.d $a7, SYS_BLOCK_FOREVER
+    do_syscall
+
     .global sys_getrtctime
     .type sys_getrtctime, @function
 sys_getrtctime:

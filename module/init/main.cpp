@@ -24,6 +24,13 @@ int mark_cnt = 0;
 constexpr size_t kGetdentsBufferSize = 2048;
 constexpr size_t kMaxPrintDepth      = 4;
 
+[[noreturn]]
+void block_init_forever() {
+    (void)sys_block_forever().to_result();
+    while (true) {
+    }
+}
+
 // 在 bootstrap 信息中寻找根目录能力
 [[nodiscard]]
 CapIdx bootstrap_root_dir() {
@@ -647,6 +654,5 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     printf("init: 初始化, 开始启动\n");
     run_requests(requests, root_dir_cap);
     printf("init: 全部运行完成! done!\n");
-    sys_shutdown();
-    return 0;
+    block_init_forever();
 }

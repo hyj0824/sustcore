@@ -12,6 +12,8 @@
 #include <device/model.h>
 #include <logger.h>
 #include <syscall/shutdown.h>
+#include <task/scheduler.h>
+#include <task/wait.h>
 
 namespace syscall {
     [[noreturn]]
@@ -33,5 +35,20 @@ namespace syscall {
         driver->shutdown();
         loggers::SYSCALL::FATAL("sys_shutdown 意外返回");
         panic("sys_shutdown 意外返回");
+    }
+
+    [[noreturn]]
+    void sys_block_forever() noexcept {
+        auto block_wd = wait::alloc_reason();
+        while (true) {
+            auto block_res = schd::Scheduler::inst().block_current(block_wd);
+            if (!block_res.has_value()) {
+                loggers::SYSCALL::ERROR("sys_block_forever 失败: %s",
+                                        to_cstring(block_res.error()));
+            }
+        }
+
+        loggers::SYSCALL::FATAL("sys_block_forever 被意外唤醒");
+        panic("sys_block_forever 被意外唤醒");
     }
 }  // namespace syscall

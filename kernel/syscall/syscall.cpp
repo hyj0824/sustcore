@@ -327,6 +327,7 @@ namespace syscall {
             case SYS_CREATE_PROCESS:      return "SYS_CREATE_PROCESS";
             case SYS_CREATE_POSIX_PROCESS:return "SYS_CREATE_POSIX_PROCESS";
             case SYS_SHUTDOWN:            return "SYS_SHUTDOWN";
+            case SYS_BLOCK_FOREVER:       return "SYS_BLOCK_FOREVER";
             case SYS_TIME_NOW_NS:         return "SYS_TIME_NOW_NS";
             case SYS_TCB_NANOSLEEP:       return "SYS_TCB_NANOSLEEP";
             case SYS_PCB_KILL:            return "SYS_PCB_KILL";
@@ -470,6 +471,10 @@ namespace syscall {
             }
             case SYS_SHUTDOWN: {
                 sys_shutdown();
+                __builtin_unreachable();
+            }
+            case SYS_BLOCK_FOREVER: {
+                sys_block_forever();
                 __builtin_unreachable();
             }
             case SYS_TIME_NOW_NS: {

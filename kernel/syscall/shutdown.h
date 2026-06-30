@@ -14,4 +14,7 @@
 namespace syscall {
     [[noreturn]]
     void sys_shutdown() noexcept;
+
+    [[noreturn]]
+    void sys_block_forever() noexcept;
 }  // namespace syscall

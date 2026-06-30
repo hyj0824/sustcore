@@ -17,6 +17,14 @@ sys_shutdown:
     ecall
     ret
 
+    .global sys_block_forever
+    .type   sys_block_forever, @function
+sys_block_forever:
+    li a0, 0
+    li a7, SYS_BLOCK_FOREVER
+    ecall
+    ret
+
     .global sys_getrtctime
     .type   sys_getrtctime, @function
 sys_getrtctime:

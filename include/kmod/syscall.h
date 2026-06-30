@@ -65,6 +65,7 @@ struct ForkCaps {
 
 extern "C" {
 SysRet<void> sys_write_serial(size_t __always_zero, const char *str, size_t len);
+SysRet<void> sys_block_forever();
 SysRet<void> sys_shutdown();
 SysRet<size_t> sys_time_now_ns();
 SysRet<size_t> sys_getrtctime();
