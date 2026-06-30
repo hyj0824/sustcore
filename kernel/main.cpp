@@ -145,7 +145,7 @@ namespace {
             panic("无法注册调度 tick 动作");
         }
 
-        constexpr units::time kTickPeriod = units::time::from_milliseconds(10);
+        constexpr units::time kTickPeriod = units::time::from_milliseconds(50);
         units::time now =
             time_keeper->source()->to_ns(time_keeper->source()->now());
         auto enqueue_res = time_keeper->enqueue(device::ExpireAction{
@@ -162,39 +162,6 @@ namespace {
             panic("无法注册调度 tick 动作");
         }
     }
-
-#ifdef __CONF_KERNEL_TIMEKEEPER_TEST
-    /**
-     * @brief 注册指数级增长的 TimeKeeper 日志测试动作.
-     */
-    void register_timekeeper_log_test() {
-        auto *time_keeper =
-            env::hart_ctx != nullptr ? env::hart_ctx->time_keeper() : nullptr;
-        if (time_keeper == nullptr || time_keeper->source() == nullptr) {
-            loggers::SUSTCORE::ERROR(
-                "TimeKeeper 测试注册失败: TimeKeeper 无效");
-            return;
-        }
-
-        constexpr units::time first_interval =
-            units::time::from_milliseconds(10);
-        units::time now =
-            time_keeper->source()->to_ns(time_keeper->source()->now());
-        auto enqueue_res = time_keeper->enqueue(device::ExpireAction{
-            .expireTime =
-                static_cast<size_t>((now + first_interval).to_nanoseconds()),
-            .expireAction = device::expact::SCHD,
-            .expireArg0 =
-                static_cast<size_t>(first_interval.to_nanoseconds()),
-            .expireArg1 = device::expact::schd::TIMEKEEPER_LOGTEST,
-        });
-        if (!enqueue_res.has_value()) {
-            loggers::SUSTCORE::FATAL("无法注册 TimeKeeperLogAction: err=%s",
-                                     to_cstring(enqueue_res.error()));
-            panic("无法注册 TimeKeeperLogAction");
-        }
-    }
-#endif
 }  // namespace
 
 Result<void> init_scheduler() {

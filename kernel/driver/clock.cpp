@@ -298,48 +298,6 @@ namespace driver {
                                 const ClockEvent &event) noexcept {
         switch (action.expireAction) {
             case expact::SCHD: {
-                if (action.expireArg1 == expact::schd::TIMEKEEPER_LOGTEST) {
-                    units::time interval = units::time::from_nanoseconds(
-                        static_cast<int64_t>(action.expireArg0));
-                    units::time lasttime =
-                        units::time::from_nanoseconds(static_cast<int64_t>(
-                            action.expireTime - action.expireArg0));
-                    units::time real_interval = event.now - lasttime;
-                    int64_t error_ppm =
-                        (real_interval - interval) * 10000 / interval;
-                    int64_t integral_part   = error_ppm / 100;
-                    int64_t fractional_part = error_ppm % 100;
-
-                    loggers::TIMER::INFO(
-                        "TimeKeeper 测试触发: 现在 = %llu ns, 计划间隔 = %llu "
-                        "ns, "
-                        "实际间隔 = %llu ns, 相对误差 = %d.%04d%%",
-                        static_cast<unsigned long long>(
-                            event.now.to_nanoseconds()),
-                        static_cast<unsigned long long>(
-                            interval.to_nanoseconds()),
-                        static_cast<unsigned long long>(
-                            real_interval.to_nanoseconds()),
-                        static_cast<int>(integral_part),
-                        static_cast<int>(fractional_part));
-
-                    units::time next_interval = interval * 2;
-                    auto enqueue_res          = enqueue(ExpireAction{
-                                 .expireTime = static_cast<size_t>(
-                            (event.now + next_interval).to_nanoseconds()),
-                                 .expireAction = expact::SCHD,
-                                 .expireArg0 =
-                            static_cast<size_t>(next_interval.to_nanoseconds()),
-                                 .expireArg1 = expact::schd::TIMEKEEPER_LOGTEST,
-                    });
-                    if (!enqueue_res.has_value()) {
-                        loggers::TIMER::ERROR(
-                            "TimeKeeper 测试动作重新入队失败: err=%s",
-                            to_cstring(enqueue_res.error()));
-                    }
-                    return;
-                }
-
                 TimerTickEvent tick_event{
                     .last  = event.last,
                     .now   = event.now,
