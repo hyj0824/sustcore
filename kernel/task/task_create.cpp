@@ -1123,6 +1123,8 @@ namespace task {
 
         child_pcb->tmm          = child_tmm;
         child_pcb->cholder      = child_holder;
+        bool link_res           = parent_pcb->link_child(child_pcb.get());
+        assert(link_res);
         child_pcb->entrypoint   = parent_pcb->entrypoint;
         child_pcb->linuxproc_entrypoint  = parent_pcb->linuxproc_entrypoint;
         child_pcb->linux_subsystem_entry = parent_pcb->linux_subsystem_entry;

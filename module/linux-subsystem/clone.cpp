@@ -380,7 +380,7 @@ size_t linux_sys_rt_sigtimedwait(const void *set, void *info,
     }
 
     loggers::LXSC::INFO("linux_sys_rt_sigtimedwait set=%p info=%p timeout=%p sigsetsize=%llu "
-           "timeout_ns=%llu\n",
+           "timeout_ns=%llu",
            set, info, timeout, sigsetsize, timeout_ns);
 
     uint64_t mask = *reinterpret_cast<const uint64_t *>(set);

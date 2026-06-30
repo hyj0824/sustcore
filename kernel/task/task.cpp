@@ -27,6 +27,40 @@
 namespace task {
     namespace {
         wait::wd_t g_task_exit_wait_wd = 0;
+        constexpr size_t LINUX_SIGCHLD  = 17;
+
+        void notify_parent_sigchld(PCB *pcb) noexcept {
+            if (pcb == nullptr || !pcb->is_linux_process) {
+                return;
+            }
+
+            PCB *parent = pcb->get_parent();
+            if (parent == nullptr || !parent->is_linux_process ||
+                parent->cholder == nullptr || parent->pcb_cap == cap::null ||
+                parent->pcb_cap == cap::error)
+            {
+                return;
+            }
+
+            auto cap_res = parent->cholder->lookup(parent->pcb_cap);
+            if (!cap_res.has_value() || cap_res.value() == nullptr) {
+                loggers::TASK::ERROR(
+                    "SIGCHLD 投递失败: child=%lu parent=%lu 无法查找父进程能力",
+                    pcb->pid, parent->pid);
+                return;
+            }
+
+            cap::PCBObject parent_obj(util::nnullforce(cap_res.value()));
+            auto signal_res = parent_obj.signal(LINUX_SIGCHLD);
+            if (!signal_res.has_value()) {
+                loggers::TASK::ERROR(
+                    "SIGCHLD 投递失败: child=%lu parent=%lu err=%s", pcb->pid,
+                    parent->pid, to_cstring(signal_res.error()));
+                return;
+            }
+            loggers::TASK::INFO("发送 SIGCHLD: child=%lu parent=%lu", pcb->pid,
+                                parent->pid);
+        }
     }  // namespace
 
     struct NanosleepContext {
@@ -481,6 +515,7 @@ namespace task {
             void_return();
         }
         pcb->exiting = true;
+        notify_parent_sigchld(pcb);
         auto wake_res = wait::wake_all(task::task_exit_wait_wd());
         if (!wake_res.has_value()) {
             loggers::TASK::ERROR("唤醒等待退出进程的线程失败: pid=%lu err=%d",

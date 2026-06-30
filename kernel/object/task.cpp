@@ -130,16 +130,16 @@ namespace cap {
         {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
-        if (sz == 0 || offset > payload->memsz || sz > payload->memsz - offset) {
+        if (sz == 0 || offset > payload->memsz || sz > payload->memsz - offset)
+        {
             unexpect_return(ErrCode::OUT_OF_BOUNDARY);
         }
 
-        VMA::Type type =
-            (protflg & VMA::PROT_SHARE) != 0 ? VMA::Type::SHARE
-                                             : VMA::Type::DATA;
-        auto add_res = _obj->pcb->tmm->add_vma(
-            type, MemoryGrowth::FIXED, VirArea(vaddr, vaddr + sz), payload,
-            protflg, offset);
+        VMA::Type type = (protflg & VMA::PROT_SHARE) != 0 ? VMA::Type::SHARE
+                                                          : VMA::Type::DATA;
+        auto add_res   = _obj->pcb->tmm->add_vma(type, MemoryGrowth::FIXED,
+                                                 VirArea(vaddr, vaddr + sz),
+                                                 payload, protflg, offset);
         propagate(add_res);
         void_return();
     }
@@ -151,7 +151,8 @@ namespace cap {
         if (_obj->pcb == nullptr || _obj->pcb->tmm == nullptr) {
             unexpect_return(ErrCode::NULLPTR);
         }
-        if ((vaddr.arith() % PAGESIZE) != 0 || (sz % PAGESIZE) != 0 || sz == 0) {
+        if ((vaddr.arith() % PAGESIZE) != 0 || (sz % PAGESIZE) != 0 || sz == 0)
+        {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
         return _obj->pcb->tmm->remove_vma_range(VirArea(vaddr, vaddr + sz));
@@ -186,8 +187,7 @@ namespace cap {
             unexpect_return(ErrCode::NULLPTR);
         }
         auto entries = _obj->pcb->tmm->query_vspace(
-            offset, max_entries,
-            [expose_mem_cap](const VMA &) {
+            offset, max_entries, [expose_mem_cap](const VMA &) {
                 return expose_mem_cap ? cap::null : cap::error;
             });
         std::vector<cap::VMAInfo> results{};
@@ -276,9 +276,7 @@ namespace cap {
         if (!imply(perm::pcb::SIGACTION)) {
             unexpect_return(ErrCode::INSUFFICIENT_PERMISSIONS);
         }
-        if (_obj->pcb == nullptr ||
-            signo >= task::SignalState::MAX_SIGNALS)
-        {
+        if (_obj->pcb == nullptr || signo >= task::SignalState::MAX_SIGNALS) {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
 
@@ -301,7 +299,7 @@ namespace cap {
             unexpect_return(ErrCode::NULLPTR);
         }
 
-        auto &state = _obj->pcb->signal_state;
+        auto &state       = _obj->pcb->signal_state;
         uint64_t old_mask = state.blocked_mask.load();
         if (oldset != nullptr) {
             *oldset = old_mask;
@@ -319,11 +317,8 @@ namespace cap {
             case LINUX_SIG_UNBLOCK:
                 state.blocked_mask = old_mask & ~requested_mask;
                 break;
-            case LINUX_SIG_SETMASK:
-                state.blocked_mask = requested_mask;
-                break;
-            default:
-                unexpect_return(ErrCode::INVALID_PARAM);
+            case LINUX_SIG_SETMASK: state.blocked_mask = requested_mask; break;
+            default:                unexpect_return(ErrCode::INVALID_PARAM);
         }
         void_return();
     }
@@ -332,25 +327,29 @@ namespace cap {
         if (!imply(perm::pcb::SIGNAL)) {
             unexpect_return(ErrCode::INSUFFICIENT_PERMISSIONS);
         }
-        if (_obj->pcb == nullptr ||
-            signo >= task::SignalState::MAX_SIGNALS)
-        {
+        if (_obj->pcb == nullptr || signo >= task::SignalState::MAX_SIGNALS) {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
 
-        auto &state = _obj->pcb->signal_state;
+        auto &state         = _obj->pcb->signal_state;
         state.pending_mask |= (uint64_t(1) << signo);
 
         auto target_res = main_signal_target(_obj->pcb);
-        propagate(target_res);
-        auto *target = target_res.value();
-        task::mark_tcb_signal_interrupt(*target, signo);
-        if (target->basic_entity.state == ThreadState::INTERRUPTIBLE_WAITING) {
-            (void)schd::Scheduler::inst().wakeup_waiting(target);
+        if (target_res.has_value()) {
+            auto *target = target_res.value();
+            task::mark_tcb_signal_interrupt(*target, signo);
+            if (target->basic_entity.state ==
+                ThreadState::INTERRUPTIBLE_WAITING)
+            {
+                (void)schd::Scheduler::inst().wakeup_waiting(target);
+            }
+        } else if (target_res.error() != ErrCode::ENTRY_NOT_FOUND) {
+            propagate_return(target_res);
         }
         auto wake_res = wait::wake_all(state.waitsig_wd);
         if (!wake_res.has_value() &&
-            wake_res.error() != ErrCode::ENTRY_NOT_FOUND)
+            wake_res.error() != ErrCode::ENTRY_NOT_FOUND &&
+            wake_res.error() != ErrCode::FAILURE)
         {
             propagate_return(wake_res);
         }
@@ -367,10 +366,9 @@ namespace cap {
         }
 
         auto &state = _obj->pcb->signal_state;
-        auto pending = state.pending_mask.load() & mask &
-                       ~state.blocked_mask.load();
+        auto pending = state.pending_mask.load() & mask;
         if (pending != 0) {
-            size_t signo = first_signal_index(pending);
+            size_t signo        = first_signal_index(pending);
             state.pending_mask &= ~(uint64_t(1) << signo);
             return signo;
         }
@@ -378,22 +376,29 @@ namespace cap {
             unexpect_return(ErrCode::TIMEOUT);
         }
 
-        auto wait_res = timeout_wait_event_int(state.waitsig_wd, timeout_ns, ({
-            auto __pending = state.pending_mask.load() & mask &
-                             ~state.blocked_mask.load();
-            __pending != 0;
-        }));
+        auto wait_res = timeout_wait_event_int(
+            state.waitsig_wd, timeout_ns, ({
+                auto __pending = state.pending_mask.load() & mask;
+                __pending != 0;
+            }));
+        if (!wait_res.has_value()) {
+            if (wait_res.error() != ErrCode::INTERRUPTED) {
+                propagate_return(wait_res);
+            }
+        }
+
+        pending = state.pending_mask.load() & mask;
+        if (pending != 0) {
+            size_t signo        = first_signal_index(pending);
+            state.pending_mask &= ~(uint64_t(1) << signo);
+            return signo;
+        }
+
         if (!wait_res.has_value()) {
             propagate_return(wait_res);
         }
 
-        pending = state.pending_mask.load() & mask & ~state.blocked_mask.load();
-        if (pending == 0) {
-            unexpect_return(ErrCode::FAILURE);
-        }
-        size_t signo = first_signal_index(pending);
-        state.pending_mask &= ~(uint64_t(1) << signo);
-        return signo;
+        unexpect_return(ErrCode::FAILURE);
     }
 
     Result<task::TCB *> TCBObject::require_current() const {
@@ -417,7 +422,7 @@ namespace cap {
             unexpect_return(ErrCode::NULLPTR);
         }
 
-        auto *runtime_tcb = schd::Scheduler::inst().current_tcb();
+        auto *runtime_tcb       = schd::Scheduler::inst().current_tcb();
         tcb->basic_entity.state = ThreadState::DYING;
         tcb->basic_entity
             .template flags_set<schd::SchedMeta::FLAGS_NEED_RESCHED>();
