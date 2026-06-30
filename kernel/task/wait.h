@@ -1658,72 +1658,104 @@ namespace wait {
             } else if ((timeout_ns) == 0) {                                 \
                 __wait_result = std::unexpected(ErrCode::TIMEOUT);          \
             } else {                                                        \
-                while (true) {                                              \
-                    if (!__wait_result.has_value()) {                       \
-                        break;                                              \
-                    }                                                       \
-                    if (condition) {                                        \
-                        __wait_result =                                     \
-                            std::expected<bool, ErrCode>{false};            \
-                        break;                                              \
-                    }                                                       \
-                    __wait_event_prepare_to_wait(                           \
-                        (wd), ThreadState::INTERRUPTIBLE_WAITING,           \
-                        __wait_result);                                     \
-                    if (!__wait_result.has_value()) {                       \
-                        break;                                              \
-                    }                                                       \
-                    auto __wait_arm_res =                                   \
-                        ::task::arm_timed_wait(util::nnullforce(__wait_current), \
-                                               (wd), (timeout_ns));         \
-                    if (!__wait_arm_res.has_value()) {                      \
-                        __wait_result =                                     \
-                            std::unexpected(__wait_arm_res.error());        \
-                        __wait_event_finish_wait(__wait_result);            \
-                        break;                                              \
-                    }                                                       \
-                    if (condition) {                                        \
-                        __wait_event_finish_wait(__wait_result);            \
-                        ::task::disarm_timed_wait(__wait_current);          \
-                        if (__wait_result.has_value()) {                    \
+                auto *__wait_time_keeper =                                  \
+                    ::env::hart_ctx != nullptr                              \
+                        ? ::env::hart_ctx->time_keeper()                    \
+                        : nullptr;                                          \
+                if (__wait_time_keeper == nullptr ||                        \
+                    __wait_time_keeper->source() == nullptr)                \
+                {                                                           \
+                    __wait_result = std::unexpected(ErrCode::INVALID_PARAM); \
+                } else {                                                    \
+                    auto __wait_start =                                     \
+                        __wait_time_keeper->source()->to_ns(                \
+                            __wait_time_keeper->source()->now());           \
+                    auto __wait_deadline =                                  \
+                        __wait_start +                                      \
+                        ::units::time::from_nanoseconds(                    \
+                            static_cast<int64_t>(timeout_ns));              \
+                    while (true) {                                          \
+                        if (!__wait_result.has_value()) {                   \
+                            break;                                          \
+                        }                                                   \
+                        if (condition) {                                    \
                             __wait_result =                                 \
                                 std::expected<bool, ErrCode>{false};        \
+                            break;                                          \
                         }                                                   \
-                        break;                                              \
-                    }                                                       \
-                    if (::task::consume_tcb_timeout(*__wait_current)) {     \
-                        __wait_event_finish_wait(__wait_result);            \
-                        ::task::disarm_timed_wait(__wait_current);          \
-                        if (__wait_result.has_value()) {                    \
+                        auto __wait_now =                                   \
+                            __wait_time_keeper->source()->to_ns(            \
+                                __wait_time_keeper->source()->now());       \
+                        if (__wait_now.to_nanoseconds() >=                  \
+                            __wait_deadline.to_nanoseconds())               \
+                        {                                                   \
                             __wait_result =                                 \
                                 std::unexpected(ErrCode::TIMEOUT);          \
+                            break;                                          \
                         }                                                   \
-                        break;                                              \
-                    }                                                       \
-                    __wait_current->basic_entity                            \
-                        .template flags_set<schd::SchedMeta::FLAGS_NEED_RESCHED>(); \
-                    __wait_scheduler.schedule(true);                        \
-                    __wait_event_finish_wait(__wait_result);                \
-                    ::task::disarm_timed_wait(__wait_current);              \
-                    if (!__wait_result.has_value()) {                       \
-                        break;                                              \
-                    }                                                       \
-                    if (condition) {                                        \
-                        __wait_result =                                     \
-                            std::expected<bool, ErrCode>{false};            \
-                        break;                                              \
-                    }                                                       \
-                    if (::task::consume_tcb_timeout(*__wait_current)) {     \
-                        __wait_result =                                     \
-                            std::unexpected(ErrCode::TIMEOUT);              \
-                        break;                                              \
-                    }                                                       \
-                    if (::task::consume_tcb_signal_interrupt(               \
-                            *__wait_current))                               \
-                    {                                                       \
-                        __wait_result =                                     \
-                            std::unexpected(ErrCode::INTERRUPTED);          \
-                        break;                                              \
+                        auto __wait_remaining =                             \
+                            static_cast<size_t>((__wait_deadline -          \
+                                                 __wait_now)                \
+                                                    .to_nanoseconds());     \
+                        __wait_event_prepare_to_wait(                       \
+                            (wd), ThreadState::INTERRUPTIBLE_WAITING,       \
+                            __wait_result);                                 \
+                        if (!__wait_result.has_value()) {                   \
+                            break;                                          \
+                        }                                                   \
+                        auto __wait_arm_res =                               \
+                            ::task::arm_timed_wait(                         \
+                                util::nnullforce(__wait_current), (wd),     \
+                                __wait_remaining);                          \
+                        if (!__wait_arm_res.has_value()) {                  \
+                            __wait_result =                                 \
+                                std::unexpected(__wait_arm_res.error());    \
+                            __wait_event_finish_wait(__wait_result);        \
+                            break;                                          \
+                        }                                                   \
+                        if (condition) {                                    \
+                            __wait_event_finish_wait(__wait_result);        \
+                            ::task::disarm_timed_wait(__wait_current);      \
+                            if (__wait_result.has_value()) {                \
+                                __wait_result =                             \
+                                    std::expected<bool, ErrCode>{false};    \
+                            }                                               \
+                            break;                                          \
+                        }                                                   \
+                        if (::task::consume_tcb_timeout(*__wait_current)) { \
+                            __wait_event_finish_wait(__wait_result);        \
+                            ::task::disarm_timed_wait(__wait_current);      \
+                            if (__wait_result.has_value()) {                \
+                                __wait_result =                             \
+                                    std::unexpected(ErrCode::TIMEOUT);      \
+                            }                                               \
+                            break;                                          \
+                        }                                                   \
+                        __wait_current->basic_entity                        \
+                            .template flags_set<schd::SchedMeta::FLAGS_NEED_RESCHED>(); \
+                        __wait_scheduler.schedule(true);                    \
+                        __wait_event_finish_wait(__wait_result);            \
+                        ::task::disarm_timed_wait(__wait_current);          \
+                        if (!__wait_result.has_value()) {                   \
+                            break;                                          \
+                        }                                                   \
+                        if (condition) {                                    \
+                            __wait_result =                                 \
+                                std::expected<bool, ErrCode>{false};        \
+                            break;                                          \
+                        }                                                   \
+                        if (::task::consume_tcb_timeout(*__wait_current)) { \
+                            __wait_result =                                 \
+                                std::unexpected(ErrCode::TIMEOUT);          \
+                            break;                                          \
+                        }                                                   \
+                        if (::task::consume_tcb_signal_interrupt(           \
+                                *__wait_current))                           \
+                        {                                                   \
+                            __wait_result =                                 \
+                                std::unexpected(ErrCode::INTERRUPTED);      \
+                            break;                                          \
+                        }                                                   \
                     }                                                       \
                 }                                                           \
             }                                                               \

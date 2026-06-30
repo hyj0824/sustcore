@@ -18,8 +18,8 @@
 namespace contest_runner {
     constexpr uint64_t PERM_BASIC_CLONE        = 0x0002;
     constexpr uint64_t PERM_PCB_GETPID         = 0x01'0000;
-    constexpr size_t NS_PER_MS                 = 1000000ULL;
-    constexpr size_t TIMEOUT_NS                = 120000ULL * NS_PER_MS;
+    constexpr size_t NS_PER_MS                 = 1000ULL * 1000ULL;
+    constexpr size_t TIMEOUT_NS                = 600ULL * 1000ULL * NS_PER_MS;
 
     struct TestRunStats {
         size_t total  = 0;

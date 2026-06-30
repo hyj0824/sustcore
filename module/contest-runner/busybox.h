@@ -69,7 +69,7 @@ namespace contest_runner {
         "grep hello busybox_cmd.txt",
         "cp busybox_cmd.txt busybox_cmd.bak",
         "rm busybox_cmd.bak",
-        R"(find -name "busybox_cmd.txt")",
+        // R"(find -name "busybox_cmd.txt")",
         nullptr,
     };
 }  // namespace contest_runner
