@@ -28,6 +28,7 @@
 namespace task {
     struct ForkResult {
         CapIdx child_pcb_cap;
+        CapIdx child_main_tcb_cap;
         pid_t child_pid;
     };
 

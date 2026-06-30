@@ -45,6 +45,11 @@ struct KmodSigAction {
     size_t restorer;
 };
 
+struct ForkCaps {
+    CapIdx child_pcb_cap;
+    CapIdx child_main_tcb_cap;
+};
+
 extern "C" SysRet<void> sys_write_serial(size_t __always_zero, const char *str,
                                          size_t len);
 extern "C" SysRet<size_t> sys_time_now_ns();
@@ -69,7 +74,7 @@ extern "C" SysRet<CapIdx> sys_tcb_timeout_wait(CapIdx tcb_cap,
                                                CapIdx pcbs_idx[],
                                                int *status, size_t timeout_ns,
                                                size_t options);
-extern "C" SysRet<size_t> sys_pcb_fork(CapIdx pcb_cap, CapIdx *child_pcb_cap);
+extern "C" SysRet<size_t> sys_pcb_fork(CapIdx pcb_cap, ForkCaps *fork_caps);
 extern "C" SysRet<void> sys_pcb_execve(CapIdx pcb_cap,
                                        const ExecveRequest *request);
 extern "C" SysRet<void> sys_pcb_execve_linux(CapIdx pcb_cap,
@@ -81,6 +86,9 @@ extern "C" SysRet<void> sys_pcb_procfs_redirect(CapIdx pcb_cap,
 extern "C" SysRet<void> sys_pcb_sigaction(CapIdx pcb_cap, size_t signo,
                                           const KmodSigAction *action,
                                           KmodSigAction *old_action);
+extern "C" SysRet<void> sys_pcb_sigmask(CapIdx pcb_cap, int how,
+                                        const uint64_t *set,
+                                        uint64_t *oldset);
 extern "C" SysRet<void> sys_pcb_signal(CapIdx pcb_cap, size_t signo);
 extern "C" SysRet<size_t> sys_pcb_waitsig(CapIdx pcb_cap, uint64_t mask,
                                           size_t timeout_ns, size_t options);

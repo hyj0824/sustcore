@@ -48,6 +48,18 @@ namespace cap {
             }
             return index;
         }
+
+        constexpr int LINUX_SIG_BLOCK   = 0;
+        constexpr int LINUX_SIG_UNBLOCK = 1;
+        constexpr int LINUX_SIG_SETMASK = 2;
+
+        [[nodiscard]]
+        constexpr uint64_t unmaskable_signal_mask() noexcept {
+            constexpr size_t LINUX_SIGKILL = 9;
+            constexpr size_t LINUX_SIGSTOP = 19;
+            return (uint64_t(1) << LINUX_SIGKILL) |
+                   (uint64_t(1) << LINUX_SIGSTOP);
+        }
     }  // namespace
 
     // 无人引用的 PCB 对象会被放入 TaskManager 的回收队列中等待销毁
@@ -276,6 +288,42 @@ namespace cap {
         }
         if (action != nullptr) {
             state.actions[signo] = *action;
+        }
+        void_return();
+    }
+
+    Result<void> PCBObject::sigmask(int how, const uint64_t *set,
+                                    uint64_t *oldset) const {
+        if (!imply(perm::pcb::SIGACTION)) {
+            unexpect_return(ErrCode::INSUFFICIENT_PERMISSIONS);
+        }
+        if (_obj->pcb == nullptr) {
+            unexpect_return(ErrCode::NULLPTR);
+        }
+
+        auto &state = _obj->pcb->signal_state;
+        uint64_t old_mask = state.blocked_mask.load();
+        if (oldset != nullptr) {
+            *oldset = old_mask;
+        }
+
+        if (set == nullptr) {
+            void_return();
+        }
+
+        uint64_t requested_mask = *set & ~unmaskable_signal_mask();
+        switch (how) {
+            case LINUX_SIG_BLOCK:
+                state.blocked_mask = old_mask | requested_mask;
+                break;
+            case LINUX_SIG_UNBLOCK:
+                state.blocked_mask = old_mask & ~requested_mask;
+                break;
+            case LINUX_SIG_SETMASK:
+                state.blocked_mask = requested_mask;
+                break;
+            default:
+                unexpect_return(ErrCode::INVALID_PARAM);
         }
         void_return();
     }

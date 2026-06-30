@@ -124,6 +124,8 @@ namespace cap {
                                      std::string_view target) const;
         Result<void> sigaction(size_t signo, const task::SigAction *action,
                                task::SigAction *old_action) const;
+        Result<void> sigmask(int how, const uint64_t *set,
+                             uint64_t *oldset) const;
         Result<void> signal(size_t signo) const;
         Result<size_t> waitsig(uint64_t mask, size_t timeout_ns,
                                size_t options) const;

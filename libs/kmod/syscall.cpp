@@ -36,16 +36,17 @@ SysRet<CapIdx> sys_create_thread(void (*entry)(), void *stack_addr,
     return sys_pcb_create_thread(__pcb_cap, entry, stack_addr, stack_size);
 }
 
-SysRet<size_t> fork(CapIdx *child_pcb_cap) {
-    SysRet<size_t> fork_ret = sys_pcb_fork(__pcb_cap, child_pcb_cap);
+SysRet<size_t> fork(ForkCaps *fork_caps) {
+    SysRet<size_t> fork_ret = sys_pcb_fork(__pcb_cap, fork_caps);
 
     if (fork_ret.is_error()) {
         return fork_ret;
     }
 
-    // 子进程, 更新 pcb cap index
-    if (fork_ret.ret0 == 0 && child_pcb_cap != nullptr) {
-        __pcb_cap = *child_pcb_cap;
+    // 子进程, 更新 pcb cap 与 main tcb cap
+    if (fork_ret.ret0 == 0 && fork_caps != nullptr) {
+        __pcb_cap      = fork_caps->child_pcb_cap;
+        __main_tcb_cap = fork_caps->child_main_tcb_cap;
     }
     return fork_ret;
 }

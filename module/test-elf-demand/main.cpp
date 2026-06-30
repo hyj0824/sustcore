@@ -179,7 +179,12 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
               "scenario 3: initial content mismatch");
 
         CapIdx child_pcb_cap = cap::null;
-        auto fork_res = fork(&child_pcb_cap).to_result();
+        ForkCaps fork_caps{
+            .child_pcb_cap      = child_pcb_cap,
+            .child_main_tcb_cap = cap::null,
+        };
+        auto fork_res = fork(&fork_caps).to_result();
+        child_pcb_cap = fork_caps.child_pcb_cap;
         check(fork_res.has_value() && child_pcb_cap != cap::error,
               "scenario 3: fork failed");
 

@@ -447,13 +447,11 @@ namespace syscall {
         cap::Capability *cap = nullptr;
         auto tcb_res         = lookup_tcb(tcb_cap, &cap);
         propagate(tcb_res);
-        cap::TCBObject obj(util::nnullforce(cap));
-        auto current_res = obj.require_current();
-        propagate(current_res);
-        if (current_res.value() == nullptr) {
+        task::TCB *tcb = tcb_res.value()->tcb;
+        if (tcb == nullptr) {
             unexpect_return(ErrCode::NULLPTR);
         }
-        return current_res.value()->tid;
+        return tcb->tid;
     }
 
     Result<bool> tcb_kill(CapIdx tcb_cap, int exit_code) {
@@ -578,7 +576,7 @@ namespace syscall {
             util::nnullforce(current_tcb_res.value()), ns);
     }
 
-    Result<size_t> pcb_fork(CapIdx pcb_cap, UBuffer &&child_cap_buf) {
+    Result<size_t> pcb_fork(CapIdx pcb_cap, UBuffer &&fork_caps_buf) {
         cap::Capability *cap = nullptr;
         auto pcb_res         = lookup_pcb(pcb_cap, &cap);
         propagate(pcb_res);
@@ -596,22 +594,26 @@ namespace syscall {
         auto ret_slot_res = holder_res.value()->lookup_freeslot();
         propagate(ret_slot_res);
         CapIdx child_pcb_cap = ret_slot_res.value();
-        auto *child_pcb_cap_out =
-            reinterpret_cast<CapIdx *>(child_cap_buf.kbuf());
-        CapIdx old_child_pcb_cap = *child_pcb_cap_out;
-        *child_pcb_cap_out       = child_pcb_cap;
+        auto *fork_caps_out =
+            reinterpret_cast<ForkCaps *>(fork_caps_buf.kbuf());
+        ForkCaps old_fork_caps = *fork_caps_out;
+        fork_caps_out->child_pcb_cap      = child_pcb_cap;
+        fork_caps_out->child_main_tcb_cap = cap::null;
         auto restore_out_guard = util::Guard([&]() {
-            memcpy(child_cap_buf.kbuf(), &old_child_pcb_cap,
-                   sizeof(old_child_pcb_cap));
-            auto commit_res = child_cap_buf.commit_to_user();
+            memcpy(fork_caps_buf.kbuf(), &old_fork_caps, sizeof(old_fork_caps));
+            auto commit_res = fork_caps_buf.commit_to_user();
             assert(commit_res.has_value());
         });
 
-        auto commit_res = child_cap_buf.commit_to_user();
+        auto commit_res = fork_caps_buf.commit_to_user();
         propagate(commit_res);
 
         auto fork_res = task::TaskManager::inst().fork_current(child_pcb_cap);
         propagate(fork_res);
+
+        fork_caps_out->child_main_tcb_cap = fork_res.value().child_main_tcb_cap;
+        auto final_commit_res             = fork_caps_buf.commit_to_user();
+        propagate(final_commit_res);
 
         restore_out_guard.release();
         return fork_res.value().child_pid;
@@ -773,6 +775,17 @@ namespace syscall {
         cap::PCBObject obj(util::nnullforce(cap));
         auto sigaction_res = obj.sigaction(signo, action, old_action);
         propagate(sigaction_res);
+        return true;
+    }
+
+    Result<bool> pcb_sigmask(CapIdx pcb_cap, int how, const uint64_t *set,
+                             uint64_t *oldset) {
+        cap::Capability *cap = nullptr;
+        auto pcb_res         = lookup_pcb(pcb_cap, &cap);
+        propagate(pcb_res);
+        cap::PCBObject obj(util::nnullforce(cap));
+        auto sigmask_res = obj.sigmask(how, set, oldset);
+        propagate(sigmask_res);
         return true;
     }
 

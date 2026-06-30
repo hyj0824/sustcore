@@ -90,6 +90,9 @@ namespace {
     constexpr uint64_t MEMORY_GROWTH_FIXED = 0;
     constexpr uint64_t LINUX_SA_SIGINFO    = 0x00000004UL;
     constexpr uint64_t LINUX_SA_RESTORER   = 0x04000000UL;
+    constexpr int LINUX_SIG_BLOCK          = 0;
+    constexpr int LINUX_SIG_UNBLOCK        = 1;
+    constexpr int LINUX_SIG_SETMASK        = 2;
 
     struct linux_sigset_t {
         uint64_t sig[1];
@@ -361,6 +364,43 @@ namespace {
             oldact->flags       = old_action.flags;
             oldact->restorer    = old_action.restorer;
             oldact->mask.sig[0] = old_action.mask >> 1U;
+        }
+        return 0;
+    }
+
+    [[nodiscard]]
+    size_t linux_rt_sigprocmask(int how, const linux_sigset_t *set,
+                                linux_sigset_t *oldset,
+                                size_t sigsetsize) {
+        if (sigsetsize < sizeof(linux_sigset_t)) {
+            return static_cast<size_t>(-EINVAL);
+        }
+        if (how != LINUX_SIG_BLOCK && how != LINUX_SIG_UNBLOCK &&
+            how != LINUX_SIG_SETMASK)
+        {
+            return static_cast<size_t>(-EINVAL);
+        }
+
+        uint64_t set_mask = 0;
+        uint64_t old_mask = 0;
+        uint64_t *set_ptr = nullptr;
+        uint64_t *old_ptr = oldset != nullptr ? &old_mask : nullptr;
+        if (set != nullptr) {
+            set_mask = set->sig[0] << 1U;
+            set_ptr  = &set_mask;
+        }
+
+        auto sigmask_res =
+            sys_pcb_sigmask(__prog_pcb_cap, how, set_ptr, old_ptr).to_result();
+        if (!sigmask_res.has_value()) {
+            loggers::LXSC::ERROR("rt_sigprocmask failed how=%d err=%s", how,
+                                 to_cstring(sigmask_res.error()));
+            return static_cast<size_t>(-EINVAL);
+        }
+
+        if (oldset != nullptr) {
+            memset(oldset, 0, sizeof(*oldset));
+            oldset->sig[0] = old_mask >> 1U;
         }
         return 0;
     }
@@ -1009,6 +1049,11 @@ extern "C" size_t linux_dispatch(size_t a0, size_t a1, size_t a2, size_t a3,
                                       reinterpret_cast<const linux_sigaction *>(a1),
                                       reinterpret_cast<linux_sigaction *>(a2),
                                       a3);
+        case __NR_rt_sigprocmask:
+            return linux_rt_sigprocmask(static_cast<int>(a0),
+                                        reinterpret_cast<const linux_sigset_t *>(a1),
+                                        reinterpret_cast<linux_sigset_t *>(a2),
+                                        a3);
         case __NR_setitimer:
             loggers::LXSC::WARN(
                 "unsupported syscall %s (%lu) with which=%d, ignoring and returning 0 for "

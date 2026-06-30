@@ -65,8 +65,12 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     global_value     = 114514;
     char *shared_buf = alloc_page_string("全体目光向我看齐");
 
-    CapIdx child_pcb_cap = cap::null;
-    auto fork_res        = fork(&child_pcb_cap).to_result();
+    ForkCaps fork_caps{
+        .child_pcb_cap      = cap::null,
+        .child_main_tcb_cap = cap::null,
+    };
+    auto fork_res = fork(&fork_caps).to_result();
+    CapIdx child_pcb_cap = fork_caps.child_pcb_cap;
     if (!fork_res.has_value() || child_pcb_cap == cap::error) {
         printf("test_fork: fork failed\n");
         exit(-1);

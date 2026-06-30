@@ -22,6 +22,11 @@
 #include <vector>
 
 namespace syscall {
+    struct ForkCaps {
+        CapIdx child_pcb_cap;
+        CapIdx child_main_tcb_cap;
+    };
+
     struct StartupArguments {
         std::vector<CapIdx> caps{};
         std::vector<std::string> argv{};
@@ -67,7 +72,7 @@ namespace syscall {
      * @brief fork 当前进程, 子 PCB capability 输出缓冲区已由 dispatcher 预处理.
      */
     [[nodiscard]]
-    Result<size_t> pcb_fork(CapIdx pcb_cap, UBuffer &&child_pcb_cap_buf);
+    Result<size_t> pcb_fork(CapIdx pcb_cap, UBuffer &&fork_caps_buf);
     /**
      * @brief 通过 PCB Capability 杀死进程. 
      *
@@ -123,6 +128,9 @@ namespace syscall {
     Result<bool> pcb_sigaction(CapIdx pcb_cap, size_t signo,
                                const task::SigAction *action,
                                task::SigAction *old_action);
+    [[nodiscard]]
+    Result<bool> pcb_sigmask(CapIdx pcb_cap, int how, const uint64_t *set,
+                             uint64_t *oldset);
     [[nodiscard]]
     Result<bool> pcb_signal(CapIdx pcb_cap, size_t signo);
     [[nodiscard]]

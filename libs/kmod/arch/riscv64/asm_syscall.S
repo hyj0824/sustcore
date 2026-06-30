@@ -85,7 +85,7 @@ sys_tcb_timeout_wait:
     .global sys_pcb_fork
     .type   sys_pcb_fork, @function
 sys_pcb_fork:
-    /* a0 = pcb cap slot, a1 = child PCB cap out ptr */
+    /* a0 = pcb cap slot, a1 = fork caps out ptr */
     mv t0, a1
     li a7, SYS_PCB_FORK
     ecall
@@ -93,6 +93,7 @@ sys_pcb_fork:
     beqz t0, 1f
     li t1, -1
     sd t1, 0(t0)
+    sd t1, 8(t0)
 1:
     ret
 
@@ -131,6 +132,13 @@ sys_pcb_procfs_redirect:
     .type sys_pcb_sigaction, @function
 sys_pcb_sigaction:
     li a7, SYS_PCB_SIGACTION
+    ecall
+    ret
+
+    .global sys_pcb_sigmask
+    .type sys_pcb_sigmask, @function
+sys_pcb_sigmask:
+    li a7, SYS_PCB_SIGMASK
     ecall
     ret
 

@@ -1138,7 +1138,7 @@ namespace task {
             propagate(clone_res);
         }
         child_pcb->pcb_cap      = ret_slot;
-        child_pcb->main_tcb_cap = parent_pcb->main_tcb_cap;
+        child_pcb->main_tcb_cap = cap::null;
 
         auto child_tcb_res = create_bound_tcb(child_pcb);
         propagate(child_tcb_res);
@@ -1211,7 +1211,7 @@ namespace task {
             unexpect_return(ErrCode::CREATION_FAILED);
         }
 
-        ForkResult result{ret_slot, child_pcb->pid};
+        ForkResult result{ret_slot, child_pcb->main_tcb_cap, child_pcb->pid};
         pcb_guard.release();
         return result;
     }

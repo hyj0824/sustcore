@@ -106,6 +106,7 @@ sys_pcb_fork:
     beqz $t0, 1f
     li.d $t1, -1
     st.d $t1, $t0, 0
+    st.d $t1, $t0, 8
 1:
     ret
 
@@ -141,6 +142,13 @@ sys_pcb_procfs_redirect:
     .type sys_pcb_sigaction, @function
 sys_pcb_sigaction:
     li.d $a7, SYS_PCB_SIGACTION
+    syscall 0
+    ret
+
+    .global sys_pcb_sigmask
+    .type sys_pcb_sigmask, @function
+sys_pcb_sigmask:
+    li.d $a7, SYS_PCB_SIGMASK
     syscall 0
     ret
 

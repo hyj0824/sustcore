@@ -346,6 +346,7 @@ namespace syscall {
             case SYS_PCB_SIGACTION:       return "SYS_PCB_SIGACTION";
             case SYS_PCB_SIGNAL:          return "SYS_PCB_SIGNAL";
             case SYS_PCB_WAITSIG:         return "SYS_PCB_WAITSIG";
+            case SYS_PCB_SIGMASK:         return "SYS_PCB_SIGMASK";
             case SYS_PCB_PROCFS_GET:      return "SYS_PCB_PROCFS_GET";
             case SYS_PCB_PROCFS_REDIRECT: return "SYS_PCB_PROCFS_REDIRECT";
             case SYS_NOTIF_CREATE:        return "SYS_NOTIF_CREATE";
@@ -707,13 +708,13 @@ namespace syscall {
                 break;
             }
             case SYS_PCB_FORK: {
-                UBuffer child_cap_buf((VirAddr)arg0, sizeof(CapIdx));
-                auto sync_res = child_cap_buf.sync_from_user();
+                UBuffer fork_caps_buf((VirAddr)arg0, sizeof(ForkCaps));
+                auto sync_res = fork_caps_buf.sync_from_user();
                 if (!sync_res.has_value()) {
                     ret = result_void_ret("同步fork返回缓冲区", sync_res);
                     break;
                 }
-                auto fork_res = pcb_fork(capidx, std::move(child_cap_buf));
+                auto fork_res = pcb_fork(capidx, std::move(fork_caps_buf));
                 ret           = result_value_ret("fork", fork_res);
                 break;
             }
@@ -1129,6 +1130,38 @@ namespace syscall {
             case SYS_PCB_SIGNAL: {
                 ret = result_bool_ret("pcb_signal",
                                       pcb_signal(capidx, arg0));
+                break;
+            }
+            case SYS_PCB_SIGMASK: {
+                uint64_t set_value    = 0;
+                uint64_t oldset_value = 0;
+                uint64_t *set_ptr     = nullptr;
+                uint64_t *oldset_ptr  = nullptr;
+                if (arg1 != 0) {
+                    UBuffer set_buf((VirAddr)arg1, sizeof(uint64_t));
+                    auto sync_res = set_buf.sync_from_user();
+                    if (!sync_res.has_value()) {
+                        ret = result_void_ret("同步sigmask", sync_res);
+                        break;
+                    }
+                    memcpy(&set_value, set_buf.kbuf(), sizeof(uint64_t));
+                    set_ptr = &set_value;
+                }
+                if (arg2 != 0) {
+                    oldset_ptr = &oldset_value;
+                }
+                auto sigmask_res =
+                    pcb_sigmask(capidx, static_cast<int>(arg0), set_ptr, oldset_ptr);
+                if (sigmask_res.has_value() && oldset_ptr != nullptr) {
+                    UBuffer old_buf((VirAddr)arg2, sizeof(uint64_t));
+                    memcpy(old_buf.kbuf(), &oldset_value, sizeof(uint64_t));
+                    auto commit_res = old_buf.commit_to_user();
+                    if (!commit_res.has_value()) {
+                        ret = result_void_ret("提交old sigmask", commit_res);
+                        break;
+                    }
+                }
+                ret = result_bool_ret("pcb_sigmask", sigmask_res);
                 break;
             }
             case SYS_PCB_WAITSIG: {

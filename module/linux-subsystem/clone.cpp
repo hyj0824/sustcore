@@ -203,19 +203,25 @@ size_t clone_process(size_t flags, addr_t newsp, int *parent_tid,
         loggers::LXSC::INFO("clone_process 忽略 父子 tid 与 tls");
     }
 
-    CapIdx child_pcb_cap = cap::null;
-    auto fork_res = sys_pcb_fork(__prog_pcb_cap, &child_pcb_cap).to_result();
+    ForkCaps fork_caps{
+        .child_pcb_cap      = cap::null,
+        .child_main_tcb_cap = cap::null,
+    };
+    auto fork_res = sys_pcb_fork(__prog_pcb_cap, &fork_caps).to_result();
     if (!fork_res.has_value()) {
         loggers::LXRT::ERROR("fork syscall failed");
         return static_cast<size_t>(-ECHILD);
     }
 
     size_t pid = fork_res.value();
-    if (pid == 0 && child_pcb_cap != cap::null && child_pcb_cap != cap::error) {
+    if (pid == 0 && fork_caps.child_pcb_cap != cap::null &&
+        fork_caps.child_pcb_cap != cap::error)
+    {
         loggers::LXRT::INFO("fork 子进程返回");
         CapIdx parent_pcb_cap = __prog_pcb_cap;
         __prog_parent_cap     = parent_pcb_cap;
-        __prog_pcb_cap = child_pcb_cap;
+        __prog_pcb_cap        = fork_caps.child_pcb_cap;
+        __prog_main_tcb_cap   = fork_caps.child_main_tcb_cap;
         __prog_children.clear();
         if (newsp != 0) {
             // TODO: 当前仅做 stack pivot，不复制旧调用链依赖的栈内容。
@@ -223,11 +229,13 @@ size_t clone_process(size_t flags, addr_t newsp, int *parent_tid,
         }
     } else {
         loggers::LXRT::INFO("fork 父进程返回");
-        if (pid > 0 && child_pcb_cap != cap::null && child_pcb_cap != cap::error) {
-            __prog_children.push_back(child_pcb_cap);
+        if (pid > 0 && fork_caps.child_pcb_cap != cap::null &&
+            fork_caps.child_pcb_cap != cap::error)
+        {
+            __prog_children.push_back(fork_caps.child_pcb_cap);
             loggers::LXRT::DEBUG("记录子进程 pid=%lu pcb_cap=%p children=%lu",
                                  static_cast<unsigned long>(pid),
-                                 reinterpret_cast<void *>(child_pcb_cap),
+                                 reinterpret_cast<void *>(fork_caps.child_pcb_cap),
                                  static_cast<unsigned long>(__prog_children.size()));
         } else if (pid > 0) {
             loggers::LXRT::ERROR("fork 返回 pid=%lu 但 child_pcb_cap 无效",
@@ -370,6 +378,10 @@ size_t linux_sys_rt_sigtimedwait(const void *set, void *info,
         timeout_ns = static_cast<size_t>(ts->tv_sec) * 1000000000ULL +
                      static_cast<size_t>(ts->tv_nsec);
     }
+
+    loggers::LXSC::INFO("linux_sys_rt_sigtimedwait set=%p info=%p timeout=%p sigsetsize=%llu "
+           "timeout_ns=%llu\n",
+           set, info, timeout, sigsetsize, timeout_ns);
 
     uint64_t mask = *reinterpret_cast<const uint64_t *>(set);
     auto wait_res =
