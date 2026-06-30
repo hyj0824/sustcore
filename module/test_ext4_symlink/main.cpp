@@ -21,7 +21,7 @@ namespace {
     [[nodiscard]]
     CapIdx open_ext4_root(CapIdx root_cap) {
         auto res =
-            sys_vfs_opendir(root_cap, "testing", flags::O_READ).to_result();
+            sys_vfs_opendir(root_cap, "test", flags::O_READ).to_result();
         if (!res.has_value()) {
             return cap::error;
         }
@@ -237,7 +237,7 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
 
     g_ext4_cap = open_ext4_root(root_cap);
     if (g_ext4_cap == cap::null || g_ext4_cap == cap::error) {
-        printf("test_ext4_symlink: open /testing failed\n");
+        printf("test_ext4_symlink: open /test failed\n");
         exit(-1);
     }
 

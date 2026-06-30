@@ -438,9 +438,9 @@ namespace contest_runner {
 #define LD_SO_PATH_MUSL "/lib64/ld-musl-riscv64.so.1"
 #endif
 
-#define GLIBC_LIB_PATH  "/testing/glibc/lib"
-#define MUSL_LIB_PATH   "/testing/musl/lib"
-#define MUSL_LD_SO_PATH "/testing/musl/lib/libc.so"
+#define GLIBC_LIB_PATH  "/test/glibc/lib"
+#define MUSL_LIB_PATH   "/test/musl/lib"
+#define MUSL_LD_SO_PATH "/test/musl/lib/libc.so"
 
     bool glibc_env_setup() {
         bool ok  = true;
@@ -457,7 +457,7 @@ namespace contest_runner {
     bool run_glibc(CapIdx root_dir_cap, contest_runner::TestRunStats &total) {
         RunnerContext ctx{
             .root_dir_cap = root_dir_cap,
-            .libc_root    = "/testing/glibc",
+            .libc_root    = "/test/glibc",
             .libc_name    = "glibc",
         };
         if (!contest_runner::init_runner_context_caps(ctx)) {
@@ -505,7 +505,7 @@ namespace contest_runner {
     bool run_musl(CapIdx root_dir_cap, contest_runner::TestRunStats &total) {
         RunnerContext ctx{
             .root_dir_cap = root_dir_cap,
-            .libc_root    = "/testing/musl",
+            .libc_root    = "/test/musl",
             .libc_name    = "musl",
         };
         if (!contest_runner::init_runner_context_caps(ctx)) {

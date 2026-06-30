@@ -388,7 +388,7 @@ void create_blk_linkings(CapIdx root_dir_cap) {
     (void)sys_cap_remove(sysdev_cap).to_result();
 }
 
-void mount_testing_ext4(CapIdx root_dir_cap) {
+void mount_test_ext4(CapIdx root_dir_cap) {
     if (root_dir_cap == cap::null || root_dir_cap == cap::error) {
         printf("init: bootstrap root dir capability missing\n");
         return;
@@ -402,14 +402,14 @@ void mount_testing_ext4(CapIdx root_dir_cap) {
         return;
     }
 
-    auto testing_dir_res =
-        sys_vfs_mkdir(root_dir_cap, "testing/",
+    auto test_dir_res =
+        sys_vfs_mkdir(root_dir_cap, "test/",
                       flags::O_READ | flags::O_WRITE | flags::O_EXECUTE)
             .to_result();
-    CapIdx testing_dir =
-        testing_dir_res.has_value() ? testing_dir_res.value() : cap::error;
-    if (testing_dir != cap::null && testing_dir != cap::error) {
-        (void)sys_cap_remove(testing_dir);
+    CapIdx test_dir =
+        test_dir_res.has_value() ? test_dir_res.value() : cap::error;
+    if (test_dir != cap::null && test_dir != cap::error) {
+        (void)sys_cap_remove(test_dir);
     }
 
     auto mnt_cap_res = sys_mnt_create(blk_cap, "ext4", 0, nullptr).to_result();
@@ -418,13 +418,13 @@ void mount_testing_ext4(CapIdx root_dir_cap) {
     if (mnt_cap == cap::null || mnt_cap == cap::error) {
         printf("init: create ext4 mount failed\n");
     } else {
-        mounted = sys_mnt_mount(mnt_cap, root_dir_cap, "testing/", 0);
+        mounted = sys_mnt_mount(mnt_cap, root_dir_cap, "test/", 0);
         (void)sys_cap_remove(mnt_cap);
     }
     if (mounted) {
-        printf("init: mount /testing succeeded\n");
+        printf("init: mount /test succeeded\n");
     } else {
-        printf("init: mount /testing failed\n");
+        printf("init: mount /test failed\n");
     }
     (void)sys_cap_remove(blk_cap);
 }
@@ -564,7 +564,7 @@ extern "C" int kmod_main(int argc, const char *argv[], const char *envp[],
     // 只是为了让 which ls 能够正常工作
     kmod_symlink("/bin/ls", "/dev/stdout");
 
-    mount_testing_ext4(root_dir_cap);
+    mount_test_ext4(root_dir_cap);
 
     // print_tree(root_dir_cap, "/");
 
