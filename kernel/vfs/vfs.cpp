@@ -14,6 +14,7 @@
 #include <env.h>
 #include <mem/gfp.h>
 #include <sus/path.h>
+#include <sus/util.h>
 #include <sustcore/attr.h>
 #include <sustcore/errcode.h>
 #include <sustcore/files.h>
@@ -22,10 +23,10 @@
 #include <vfs/ops.h>
 #include <vfs/vfs.h>
 
-#include <algorithm>
 #include <atomic>
 #include <cassert>
 #include <cstring>
+#include <ranges>
 #include <utility>
 
 namespace {
@@ -376,8 +377,8 @@ Result<void> VINode::invalidate() {
         propagate_return(inode_res);
     }
 
-    IINode *old_inode = _inode.get();
-    _inode            = inode_res.value();
+    IINode *old_inode       = _inode.get();
+    _inode                  = inode_res.value();
     _cached_file_size_valid = false;
     _cached_file_size       = 0;
     delete old_inode;
@@ -535,9 +536,7 @@ Result<size_t> VINode::write_cached_file(IFile &file, size_t offset,
                 std::max(page_it->second.valid, in_page + chunk);
             if (!page_it->second.dirty) {
                 page_it->second.dirty = true;
-                env::inst()
-                    .system_memory_info(env::key::set())
-                    .dirty_pages++;
+                env::inst().system_memory_info(env::key::set()).dirty_pages++;
             }
             lru_touch(page_it->second);
         }
@@ -642,7 +641,9 @@ Result<bool> VINode::evict_file_page() {
         {
             GuardedLock page_guard(page->lock);
             if (page->dirty) {
-                env::inst().system_memory_info(env::key::set()).writeback_pages++;
+                env::inst()
+                    .system_memory_info(env::key::set())
+                    .writeback_pages++;
                 auto file_res = _inode->as_file();
                 propagate(file_res);
                 auto write_res = file_res.value()->write(
@@ -734,7 +735,7 @@ void VINode::invalidate_file_pages() noexcept {
                 continue;
             }
             GuardedLock page_guard(it->second.lock);
-            paddr = it->second.paddr;
+            paddr      = it->second.paddr;
             auto &info = env::inst().system_memory_info(env::key::set());
             if (it->second.active) {
                 if (info.active_file_pages > 0) {
@@ -803,7 +804,8 @@ void VMount::destruct() {
 }
 
 VMount *MountRecord::mount() const noexcept {
-    return mount_cap.get() == nullptr ? nullptr : mount_cap->payload_as<VMount>();
+    return mount_cap.get() == nullptr ? nullptr
+                                      : mount_cap->payload_as<VMount>();
 }
 
 void MountRecord::set_active_files(size_t new_active_files) noexcept {
@@ -1087,8 +1089,8 @@ Result<util::owner<VMount *>> VFS::create_mount(const char *fs_name,
 }
 
 Result<void> VFS::mount_attach(cap::Capability &mount_cap, VMount &mount,
-                               VDirectory &parent,
-                               const char *mntpath, uint64_t attachflags) {
+                               VDirectory &parent, const char *mntpath,
+                               uint64_t attachflags) {
     if (attachflags != 0) {
         unexpect_return(ErrCode::NOT_SUPPORTED);
     }
@@ -1250,8 +1252,8 @@ Result<CapIdx> VFS::mount_root(VMount &mount, cap::CHolder &holder) {
     auto mount_res = _lookup_mount_record(key_res.value().first);
     propagate(mount_res);
 
-    auto *dir = new VDirectory(*vnode_res.value().get(), *mount_res.value(),
-                               mount.mount_path(), *this);
+    auto *dir    = new VDirectory(*vnode_res.value().get(), *mount_res.value(),
+                                  mount.mount_path(), *this);
     auto idx_res = holder.insert_to_free(dir, perm::allperm());
     if (!idx_res.has_value()) {
         delete dir;
@@ -1286,9 +1288,7 @@ namespace {
         if ((oflags & ~valid_mask) != 0 || oflags == 0) {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
-        if ((oflags & O_EXECUTE) != 0 &&
-            (oflags & (O_WRITE | O_CREAT)) != 0)
-        {
+        if ((oflags & O_EXECUTE) != 0 && (oflags & (O_WRITE | O_CREAT)) != 0) {
             unexpect_return(ErrCode::INVALID_PARAM);
         }
         void_return();
@@ -1507,7 +1507,8 @@ Result<VFile *> VFS::_open_file_at(VINode &parent, const util::Path &mount_path,
         &parent.superblock(), true, false);
     propagate(resolved_parent_res);
 
-    auto resolved_dir_res = resolved_parent_res.value()->inode()->as_directory();
+    auto resolved_dir_res =
+        resolved_parent_res.value()->inode()->as_directory();
     propagate(resolved_dir_res);
 
     auto lookup_res = resolved_dir_res.value()->lookup(target.name);
@@ -1547,8 +1548,8 @@ Result<VFile *> VFS::_open_file_at(VINode &parent, const util::Path &mount_path,
         unexpect_return(ErrCode::FS_ERROR);
     }
 
-    auto symlink_res = target_res.value()->superblock().sb()->is_symlink(
-        lookup_res.value());
+    auto symlink_res =
+        target_res.value()->superblock().sb()->is_symlink(lookup_res.value());
     propagate(symlink_res);
     if (symlink_res.value()) {
         const util::Path target_global_path =
@@ -2102,10 +2103,7 @@ std::vector<VFS::MountView> VFS::snapshot_mounts() const {
         }
         mounts.push_back(std::move(view));
     }
-    std::sort(mounts.begin(), mounts.end(),
-              [](const MountView &lhs, const MountView &rhs) {
-        return lhs.target < rhs.target;
-    });
+    std::ranges::sort(mounts, utils::order_by_member<MountView>(&MountView::target));
     return mounts;
 }
 
@@ -2119,7 +2117,8 @@ Result<VFile *> VFS::__debug_open(const char *filepath) {
     return _open_file(filepath);
 }
 
-Result<const MountRecord *> VFS::_lookup_mount_record(const MountKey &key) const {
+Result<const MountRecord *> VFS::_lookup_mount_record(
+    const MountKey &key) const {
     auto record_res = mount_table.at_nt(key);
     if (!record_res.has_value()) {
         unexpect_return(ErrCode::ENTRY_NOT_FOUND);
@@ -2227,8 +2226,8 @@ Result<util::refc_ptr<VINode>> VFS::_resolve_parent_directory(
 
         auto next_res = vsb->get_vnode(lookup_res.value());
         propagate(next_res);
-        auto symlink_res = next_res.value()->superblock().sb()->is_symlink(
-            lookup_res.value());
+        auto symlink_res =
+            next_res.value()->superblock().sb()->is_symlink(lookup_res.value());
         propagate(symlink_res);
         if (symlink_res.value()) {
             if (!follow_symlink) {
@@ -2241,7 +2240,7 @@ Result<util::refc_ptr<VINode>> VFS::_resolve_parent_directory(
                 _follow_symlink(next_res.value(), next_mount_path, next_path,
                                 util::Path("."), kMaxSymlinkDepth, true);
             propagate(follow_res);
-            current = follow_res.value();
+            current      = follow_res.value();
             current_path = next_path;
             vsb          = &current->superblock();
         } else {
@@ -2249,9 +2248,9 @@ Result<util::refc_ptr<VINode>> VFS::_resolve_parent_directory(
         }
 
         auto next_dir_res = current->inode()->as_directory();
-        if (!next_dir_res.has_value())
-        {
-            loggers::VFS::ERROR("VFS: expected directory at %s", next_path.c_str());
+        if (!next_dir_res.has_value()) {
+            loggers::VFS::ERROR("VFS: expected directory at %s",
+                                next_path.c_str());
             unexpect_return(ErrCode::TYPE_NOT_MATCHED);
         }
         propagate(next_dir_res);
@@ -2351,16 +2350,16 @@ Result<void> VFS::_stat_from_vinode(VINode &vnode, NodeMeta &out) const {
     if (attr_res.has_value()) {
         // getattr succeeded — use it
         const uint16_t mode_type = static_cast<uint16_t>(attr.mode & 0xF000);
-        if (mode_type == 0x8000) {      // S_IFREG
+        if (mode_type == 0x8000) {  // S_IFREG
             out.type = EntryType::FILE;
-        } else if (mode_type == 0x4000) { // S_IFDIR
+        } else if (mode_type == 0x4000) {  // S_IFDIR
             out.type = EntryType::DIR;
-        } else if (mode_type == 0xA000) { // S_IFLNK
+        } else if (mode_type == 0xA000) {  // S_IFLNK
             out.type = EntryType::SYMLINK;
         } else {
             // Fallback: try dynamic_cast approach
             if (vnode.inode()->as_file().has_value()) {
-                out.type = EntryType::FILE;
+                out.type      = EntryType::FILE;
                 auto size_res = vnode.merged_file_size();
                 propagate(size_res);
                 attr.size = size_res.value();
@@ -2389,7 +2388,7 @@ Result<void> VFS::_stat_from_vinode(VINode &vnode, NodeMeta &out) const {
 
     auto file_res = vnode.inode()->as_file();
     if (file_res.has_value()) {
-        out.type       = EntryType::FILE;
+        out.type      = EntryType::FILE;
         auto size_res = vnode.merged_file_size();
         propagate(size_res);
         out.size  = size_res.value();
@@ -2472,7 +2471,7 @@ Result<size_t> VFS::write(VFile &vfile, off_t offset, const void *buf,
     }
 
     auto inode = vfile.vinode()->inode();
-    if (! inode->is<IFile>()) {
+    if (!inode->is<IFile>()) {
         loggers::VFS::ERROR("inode->is<IFile>()未通过!");
     }
 
@@ -2481,8 +2480,7 @@ Result<size_t> VFS::write(VFile &vfile, off_t offset, const void *buf,
         loggers::VFS::ERROR(
             "VFS::write: inode %d 不是文件: mount=%s err=%s",
             static_cast<unsigned>(vfile.vinode()->inode()->inode_id()),
-            vfile.mount_path().c_str(),
-            to_cstring(file_res.error()));
+            vfile.mount_path().c_str(), to_cstring(file_res.error()));
         propagate(file_res);
     }
     IFile *file = file_res.value();
@@ -2613,8 +2611,8 @@ Result<void> VFS::getattr_at(cap::Capability &parent_dir_cap,
     propagate(global_res);
     util::Path mount_path;
     if (flags & AT_SYMLINK_NOFOLLOW) {
-        auto vnode_res = _resolve_inode_no_follow(global_res.value().second,
-                                                  mount_path);
+        auto vnode_res =
+            _resolve_inode_no_follow(global_res.value().second, mount_path);
         propagate(vnode_res);
         return fill_attr_from_vnode(*vnode_res.value().get(), out);
     } else {
@@ -2647,8 +2645,8 @@ Result<void> VFS::setattr_at(cap::Capability &parent_dir_cap,
     propagate(global_res);
     util::Path mount_path;
     if (flags & AT_SYMLINK_NOFOLLOW) {
-        auto vnode_res = _resolve_inode_no_follow(global_res.value().second,
-                                                  mount_path);
+        auto vnode_res =
+            _resolve_inode_no_follow(global_res.value().second, mount_path);
         propagate(vnode_res);
         return vnode_res.value()->inode()->setattr(mask, attrs);
     } else {
